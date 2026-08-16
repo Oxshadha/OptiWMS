@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 @Service
 public class SlottingPlanService {
 
+    private final SlottingProgressTracker progressTracker;
     private final SlottingPlanRepository planRepository;
     private final SlottingPlanLineRepository lineRepository;
     private final SlottingPlanReserveLineRepository reserveLineRepository;
@@ -61,7 +62,9 @@ public class SlottingPlanService {
             StockPlacementPlanner stockPlacementPlanner,
             DemandSpacePlanningService demandSpacePlanningService,
             SlottingPlanExecutionService executionService,
-            PlanningCycleRepository planningCycleRepository) {
+            PlanningCycleRepository planningCycleRepository,
+            SlottingProgressTracker progressTracker) {
+        this.progressTracker = progressTracker;
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -204,7 +207,18 @@ public class SlottingPlanService {
             }
         }
 
-        runOptimization(plan, locked, existing, true);
+        progressTracker.start(planId);
+        try {
+            runOptimization(plan, locked, existing, true);
+        } catch (RuntimeException exc) {
+            // Release the plan and the progress bar; leaving either mid-run would
+            // block every later attempt with "Plan is already optimizing".
+            progressTracker.fail(planId, exc.getMessage() != null ? exc.getMessage() : "optimization error");
+            plan.setStatus("DRAFT");
+            planRepository.save(plan);
+            throw exc;
+        }
+        progressTracker.finish(planId);
 
         plan.setStatus("DRAFT");
         plan.setVersion(plan.getVersion() + 1);
@@ -313,6 +327,7 @@ public class SlottingPlanService {
             List<SlottingPlanLineEntity> existingLines,
             boolean useMilpAClass) {
 
+        progressTracker.advance(plan.getId(), SlottingProgressTracker.Phase.LOADING_LOCATIONS);
         UUID warehouseId = plan.getWarehouseId();
         List<LocationEntity> locations = locationRepository.findByWarehouseIdAndIsActive(warehouseId, true);
         Map<String, LocationEntity> locationIndex = locations.stream()
@@ -331,6 +346,7 @@ public class SlottingPlanService {
                 .filter(m -> isSlottingType(m.getMaterialType()))
                 .toList();
 
+        progressTracker.advance(plan.getId(), SlottingProgressTracker.Phase.LOADING_DEMAND);
         Set<UUID> materialIds = materials.stream().map(MaterialEntity::getId).collect(Collectors.toSet());
         Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles =
                 demandSpacePlanningService.buildProfiles(warehouseId, materialIds);
@@ -340,6 +356,11 @@ public class SlottingPlanService {
         List<SlottingPlanOptimizer.MaterialCandidate> allCandidates = new ArrayList<>();
 
         for (String typeFilter : List.of("raw_material", "packaging_material", "product")) {
+            progressTracker.advance(plan.getId(), switch (typeFilter) {
+                case "raw_material" -> SlottingProgressTracker.Phase.OPTIMIZING_RAW_MATERIAL;
+                case "packaging_material" -> SlottingProgressTracker.Phase.OPTIMIZING_PACKAGING;
+                default -> SlottingProgressTracker.Phase.OPTIMIZING_PRODUCT;
+            });
             List<SlottingPlanOptimizer.MaterialCandidate> candidates = materials.stream()
                     .filter(m -> normalizeType(m.getMaterialType()).equals(typeFilter))
                     .map(m -> toCandidate(m, rollupByMaterial.get(m.getId())))
@@ -364,6 +385,7 @@ public class SlottingPlanService {
         }
 
         if (slottingPlanClient.isEnabled() && slottingPlanClient.isHealthy() && useMilpAClass) {
+            progressTracker.advance(plan.getId(), SlottingProgressTracker.Phase.SOLVING_MILP);
             List<SlottingPlanOptimizer.OptimizedLine> javaBaseline = new ArrayList<>(allOptimized);
             SlottingPlanClient.PlanOptimizeRequest pyReq = SlottingPlanClient.buildRequest(
                     warehouseId,
@@ -400,8 +422,19 @@ public class SlottingPlanService {
         } else if (!useMilpAClass) {
             plan.setAlgorithm("HEURISTIC_V1");
             plan.setSolverStatus("NOT_REQUESTED");
+        } else {
+            // The solver was wanted but could not be reached. Previously nothing
+            // was assigned here, so the plan kept its creation-time NOT_RUN and
+            // looked like an optimization that had never been attempted -- with
+            // no way to tell that from a disabled or unreachable service.
+            plan.setAlgorithm("HEURISTIC_V1");
+            plan.setSolverStatus("SOLVER_UNAVAILABLE");
+            plan.setInfeasibleReason(slottingPlanClient.isEnabled()
+                    ? "The slotting service did not pass its health check, so only the heuristic plan was produced."
+                    : "The MILP slotting service is disabled (ai.services.slotting-enabled), so only the heuristic plan was produced.");
         }
 
+        progressTracker.advance(plan.getId(), SlottingProgressTracker.Phase.PERSISTING);
         persistOptimizedLines(plan, allOptimized, lockedMaterialIds, existingLines, demandProfiles);
     }
 
@@ -422,6 +455,10 @@ public class SlottingPlanService {
             List<UUID> removeIds = toRemove.stream().map(SlottingPlanLineEntity::getId).toList();
             reserveLineRepository.deleteByPlanLineIdIn(removeIds);
             lineRepository.deleteAll(toRemove);
+            // Hibernate orders inserts before deletes within a flush, so the
+            // replacement lines below would collide with the rows being removed
+            // on uq_slotting_plan_line_material. Force the deletes out first.
+            lineRepository.flush();
         }
 
         int movesProposed = 0;

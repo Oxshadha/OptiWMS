@@ -284,7 +284,7 @@ export default function WorkerTasksPage() {
               className="block bg-base-100 rounded-xl p-4 border border-base-300 active:scale-[0.98] transition-transform shadow-sm"
             >
               <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3 flex-1">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
                   <div className={`w-12 h-12 bg-${config.type}/10 rounded-xl flex items-center justify-center flex-shrink-0`}>
                     <span className={`material-symbols-outlined text-${config.type} text-xl`}>
                       {config.icon}
@@ -297,14 +297,14 @@ export default function WorkerTasksPage() {
                         {task.priority}
                       </span>
                     </div>
-                    <p className="text-sm text-base-content/60 mb-2">{taskDetail}</p>
+                    <p className="text-sm text-base-content/60 mb-2 truncate" title={taskDetail}>{taskDetail}</p>
                     <div className="flex items-center gap-2 text-xs text-base-content/50">
                       <span className="material-symbols-outlined text-sm">schedule</span>
-                      <span>Due: {formatDueTime(task.dueDate)}</span>
+                      <span className="truncate">Due: {formatDueTime(task.dueDate)}</span>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-base-content/50 mt-1">
-                      <span>Started: {formatDateTime(task.startedAt)}</span>
-                      <span>Duration: {getDurationText(task)}</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/50 mt-1">
+                      <span className="truncate">Started: {formatDateTime(task.startedAt)}</span>
+                      <span className="truncate">Duration: {getDurationText(task)}</span>
                     </div>
                   </div>
                 </div>
@@ -332,17 +332,17 @@ export default function WorkerTasksPage() {
       {/* Quick Actions */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <h3 className="font-bold text-base-content mb-3">Quick Actions</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button 
             onClick={() => setShowScanner(true)}
-            className="btn btn-outline btn-sm"
+            className="btn btn-outline btn-sm h-auto py-2"
           >
             <span className="material-symbols-outlined">qr_code_scanner</span>
             Scan Barcode
           </button>
           <button 
             onClick={handleRefresh}
-            className="btn btn-outline btn-sm"
+            className="btn btn-outline btn-sm h-auto py-2"
             disabled={loading || !isOnline}
           >
             <span className="material-symbols-outlined">refresh</span>

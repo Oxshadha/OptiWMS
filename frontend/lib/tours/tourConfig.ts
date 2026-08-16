@@ -6,6 +6,10 @@ export interface TourStep {
     side?: "top" | "bottom" | "left" | "right";
     align?: "start" | "center" | "end";
   };
+  /** Navigate here before the step runs, for tours that cross pages. */
+  route?: string;
+  /** Selector to click first, e.g. to open the dialog the step points at. */
+  clickBefore?: string;
 }
 
 export interface TourConfig {
@@ -135,6 +139,45 @@ export const tours: Record<string, TourConfig> = {
     ],
   },
 
+  // Task tour: walks the actual create flow rather than naming the menus around
+  // it. Steps navigate and open the wizard, so the anchors do not exist when the
+  // tour starts -- the engine resolves them as it goes.
+  create_inbound_order_tour: {
+    showProgress: true,
+    steps: [
+      {
+        element: '[data-tour-target="nav-orders-inbound"]',
+        popover: {
+          title: "Inbound Orders",
+          description:
+            "Inbound orders record stock arriving from a supplier. Let's open the page.",
+          side: "right",
+        },
+      },
+      {
+        route: "/admin/orders/inbound",
+        element: '[data-tour-target="inbound-create-button"]',
+        popover: {
+          title: "Start a new order",
+          description:
+            "This opens the create wizard. You will need the supplier, the receiving warehouse and the expected arrival date.",
+          side: "bottom",
+        },
+      },
+      {
+        route: "/admin/orders/inbound",
+        clickBefore: '[data-tour-target="inbound-create-button"]',
+        element: '[data-tour-target="inbound-create-modal"]',
+        popover: {
+          title: "Four steps to submit",
+          description:
+            "Supplier and warehouse, then the items and quantities, then the receiving locations, and finally a review before you submit. You can move back at any point without losing what you entered.",
+          side: "left",
+        },
+      },
+    ],
+  },
+
   orders_and_shipments_tour: {
     showProgress: true,
     steps: [
@@ -171,15 +214,6 @@ export const tours: Record<string, TourConfig> = {
           title: "Shipments",
           description:
             "Dive into shipment manifests, carrier tracking, and proof of delivery.",
-          side: "right",
-        },
-      },
-      {
-        element: '[data-tour-target="nav-warehouses"]',
-        popover: {
-          title: "Dock Management",
-          description:
-            "Coordinate dock doors and carrier appointments for smooth loading/unloading.",
           side: "right",
         },
       },
@@ -376,6 +410,52 @@ export const tours: Record<string, TourConfig> = {
           title: "Ask the Warehouse Assistant",
           description:
             'Stuck? Ask things like "What is the forklift safety SOP?" or "Show me how to use inventory."',
+          side: "top",
+          align: "end",
+        },
+      },
+    ],
+  },
+
+  forecast_tour: {
+    showProgress: true,
+    steps: [
+      {
+        element: '[data-tour-target="nav-forecasts"]',
+        popover: {
+          title: "Forecasts",
+          description:
+            "Demand forecasting and replenishment planning live here. Let's open it.",
+          side: "right",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-sku-search"]',
+        popover: {
+          title: "Pick a material",
+          description:
+            "Search by SKU or material code to see its demand forecast, or leave it on \"All SKUs Combined\" for the aggregate view.",
+          side: "bottom",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-chart"]',
+        popover: {
+          title: "Historical demand vs forecast",
+          description:
+            "Actual demand, the model's held-out backtest, and the published forecast on one timeline. Drag the handles below the chart to zoom into a period.",
+          side: "top",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-explain-btn"]',
+        popover: {
+          title: "Ask why",
+          description:
+            "Open this to ask why demand is predicted to rise or fall for the selected item — answered from the model's own feature attributions, not a guess.",
           side: "top",
           align: "end",
         },

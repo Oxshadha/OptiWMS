@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import { accountApi, UserProfile } from "@/lib/api/account";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { useWorker } from "@/contexts/WorkerContext";
 
 export default function WorkerAccountSettingsPage() {
+  const { worker, setWorker } = useWorker();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
@@ -54,6 +56,17 @@ export default function WorkerAccountSettingsPage() {
       setSaving(true);
       await accountApi.updateProfile(formData);
       showToast.success("Profile updated successfully");
+      
+      // Update the worker context with the new data
+      if (worker) {
+        setWorker({
+          ...worker,
+          name: `${formData.firstName || ''} ${formData.lastName || ''}`.trim() || worker.name,
+          email: formData.email,
+          phone: formData.phone || undefined,
+        });
+      }
+      
       await loadProfile(); // Reload to get updated data
     } catch (error: any) {
       logger.error("[WorkerAccountSettings] Failed to update profile:", error);

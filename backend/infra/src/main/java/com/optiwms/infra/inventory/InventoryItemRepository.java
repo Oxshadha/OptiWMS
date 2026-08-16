@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -20,6 +21,17 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
 
     @Query("select i from InventoryItemEntity i where i.warehouseId = :warehouseId and " + OPERATIONAL_SCOPE)
     List<InventoryItemEntity> findByWarehouseId(@Param("warehouseId") UUID warehouseId);
+
+    /**
+     * Occupancy for a known set of bins. Slotting only needs the rows sitting in
+     * its candidate locations; loading a whole warehouse's inventory to filter
+     * it down in memory was large enough to exhaust the default heap.
+     */
+    @Query("select i from InventoryItemEntity i where i.warehouseId = :warehouseId "
+            + "and i.locationCode in :locationCodes and " + OPERATIONAL_SCOPE)
+    List<InventoryItemEntity> findByWarehouseIdAndLocationCodeIn(
+            @Param("warehouseId") UUID warehouseId,
+            @Param("locationCodes") Collection<String> locationCodes);
 
     @Query("select i from InventoryItemEntity i where i.materialId = :materialId and i.warehouseId = :warehouseId and " + OPERATIONAL_SCOPE)
     List<InventoryItemEntity> findByMaterialIdAndWarehouseId(

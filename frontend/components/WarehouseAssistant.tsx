@@ -7,10 +7,20 @@ import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+} from "recharts";
+import {
   Bot,
   ChevronRight,
   Loader2,
-  MessageSquare,
   Mic,
   SendHorizonal,
   Sparkles,
@@ -31,6 +41,7 @@ import {
   deleteChatSession,
   WarehouseAIRole,
   WarehouseAISource,
+  ChartSpec,
   normalizeSources,
   downloadReport,
 } from "@/services/aiService";
@@ -44,7 +55,7 @@ type ChatMessage = {
   sources?: WarehouseAISource[];
   sql?: string;
   data?: Record<string, unknown>[];
-  chart?: string;
+  chart?: ChartSpec;
   error?: string;
   answer?: string;       // Conversational summary or download-link markdown
   download_url?: string; // Report mode: PDF link
@@ -162,19 +173,44 @@ export function WarehouseAssistant({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Chat History states
+  // The popup and the full-page view are separate component instances, so
+  // switching between them would otherwise lose the open thread. The thread is
+  // handed over explicitly rather than persisted: a plain reload starts a new
+  // chat, which is what people expect, while Full screen continues the
+  // conversation. The key is cleared as soon as it is claimed.
+  const handoffKey = userId ? `optiwms:assistant-handoff:${userId}` : null;
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
+
+  const handOffSession = () => {
+    if (typeof window === "undefined" || !handoffKey) return;
+    if (currentSessionId) window.sessionStorage.setItem(handoffKey, currentSessionId);
+  };
+
+  /** Take a pending handover, if one is waiting. Single use. */
+  const claimHandoff = (): string | null => {
+    if (typeof window === "undefined" || !handoffKey) return null;
+    const handed = window.sessionStorage.getItem(handoffKey);
+    if (handed) window.sessionStorage.removeItem(handoffKey);
+    return handed;
+  };
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // A tour must run once, when the assistant actually asks for it. Restored
+  // history ends on the same START_TOUR message, so without tracking which
+  // message already fired, every reload replayed the last tour.
+  const firedTourFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (chatHistory.length > 0) {
-      const lastMsg = chatHistory[chatHistory.length - 1];
-      if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
-        startProductTour(lastMsg.tourId);
-      }
-    }
-  }, [chatHistory]);
+    if (chatHistory.length === 0) return;
+    const lastMsg = chatHistory[chatHistory.length - 1];
+    if (lastMsg.role !== "assistant" || lastMsg.action !== "START_TOUR" || !lastMsg.tourId) return;
+    if (firedTourFor.current === lastMsg.id) return;
+    firedTourFor.current = lastMsg.id;
+    // Task tours navigate between pages, so they need the app router.
+    startProductTour(lastMsg.tourId, (path) => router.push(path));
+  }, [chatHistory, router]);
 
   useEffect(() => {
     if (userRole === "manager") {
@@ -229,6 +265,11 @@ export function WarehouseAssistant({
         };
       });
 
+      // Messages loaded from history are a record of tours already given, not a
+      // request for one. Mark the newest as handled before rendering it.
+      const newest = formattedHistory[formattedHistory.length - 1];
+      if (newest) firedTourFor.current = newest.id;
+
       setChatHistory(formattedHistory);
       setCurrentSessionId(sessionId);
     } catch (err) {
@@ -238,10 +279,41 @@ export function WarehouseAssistant({
     }
   };
 
+  // Pick up a thread handed over from the other view.
+  //
+  // The full-page view mounts fresh on navigation, so it claims once on mount.
+  // The popup lives in the persistent Topbar and is not remounted when the user
+  // comes back, so it claims each time it is opened. Either way the handover is
+  // only taken when nothing is on screen, so an active conversation is never
+  // replaced.
+  const claimedHandoff = useRef(false);
+  useEffect(() => {
+    // userId (and therefore handoffKey) can arrive a tick after mount, since
+    // admin identity is loaded asynchronously. Wait for it instead of
+    // claiming too early and permanently missing the handed-off session.
+    if (!fullPage || claimedHandoff.current || !handoffKey) return;
+    claimedHandoff.current = true;
+    const handed = claimHandoff();
+    if (handed) void handleSelectSession(handed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullPage, handoffKey]);
+
+  useEffect(() => {
+    if (fullPage || !isOpen || chatHistory.length > 0) return;
+    const handed = claimHandoff();
+    if (handed) void handleSelectSession(handed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, fullPage]);
+
   const handleNewChat = () => {
     setChatHistory([]);
     setCurrentSessionId(undefined);
     setShowHistory(false);
+    // Drop any pending handover so Full screen does not resurrect the thread
+    // the user just closed.
+    if (typeof window !== "undefined" && handoffKey) {
+      window.sessionStorage.removeItem(handoffKey);
+    }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -346,11 +418,11 @@ export function WarehouseAssistant({
         style={{
           margin: "10px 14px 0",
           padding: "9px 12px",
-          background: T.accentBg,
-          border: `1px solid rgba(207, 15, 71, 0.14)`,
+          background: T.bgSub,
+          border: `1px solid ${T.borderSub}`,
           borderRadius: 10,
           fontSize: 11.5,
-          color: T.textDim,
+          color: T.textMuted,
           display: "flex",
           flexWrap: "wrap",
           gap: "4px 16px",
@@ -404,7 +476,8 @@ export function WarehouseAssistant({
           <AssistantHeader
             title="Warehouse Assistant"
             subtitle="Operations Copilot & Analytics"
-            onClose={() => router.back()}
+            // Hand the thread back so the popup picks up where this left off.
+            onClose={() => { handOffSession(); router.back(); }}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
             isPopUp={false}
@@ -437,10 +510,11 @@ export function WarehouseAssistant({
                   userRole={userRole}
                   chatHistory={chatHistory}
                   loading={loading}
+                  fullPage={fullPage}
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
-              <div style={{ flexShrink: 0, background: T.bg }}>
+              <div style={{ flexShrink: 0, background: T.bg, paddingBottom: (chatHistory.length === 0 && !loading && fullPage) ? "10vh" : 0, transition: "padding 0.4s cubic-bezier(0.4, 0, 0.2, 1)" }}>
                 <AssistantComposer
                   inputRef={inputRef}
                   query={query}
@@ -452,6 +526,7 @@ export function WarehouseAssistant({
                   }
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
+                  fullPage={fullPage}
                 />
               </div>
             </div>
@@ -486,7 +561,7 @@ export function WarehouseAssistant({
             ? `0 4px 20px rgba(0,0,0,0.15)`
             : `0 6px 24px rgba(207,15,71,0.35)`,
           cursor: "pointer",
-          zIndex: 1100,
+          zIndex: 35,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -590,9 +665,30 @@ export function WarehouseAssistant({
                   >
                     AI Operations Hub
                   </span>
-                  <Link
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={handleNewChat}
+                      title="Start a new chat"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: T.textMuted,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                      className="wa-link"
+                    >
+                      + New chat
+                    </button>
+                    <Link
                     href="/admin/assistant"
-                    onClick={() => setIsOpen(false)}
+                    onClick={() => { handOffSession(); setIsOpen(false); }}
                     style={{
                       fontSize: 11,
                       fontWeight: 700,
@@ -602,7 +698,8 @@ export function WarehouseAssistant({
                     className="wa-link"
                   >
                     Full screen ↗
-                  </Link>
+                    </Link>
+                  </div>
                 </div>
 
                 <ContextBanner />
@@ -612,6 +709,7 @@ export function WarehouseAssistant({
                     userRole={userRole}
                     chatHistory={chatHistory}
                     loading={loading}
+                    fullPage={false}
                     onSuggestionClick={handleSuggestionClick}
                   />
                 </div>
@@ -637,42 +735,38 @@ export function WarehouseAssistant({
   const workerOverlay = (
     <>
       <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
-      <button
-        type="button"
-        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
-        onClick={() => setIsOpen((current) => !current)}
-        data-tour-target="ai-assistant-btn"
-        style={{
-          position: "fixed",
-          right: 22,
-          bottom: 22,
-          width: 54,
-          height: 54,
-          borderRadius: "50%",
-          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
-          color: isOpen ? T.textMuted : "white",
-          background: isOpen
-            ? "#ffffff"
-            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
-          boxShadow: isOpen
-            ? `0 4px 20px rgba(0,0,0,0.15)`
-            : `0 6px 24px rgba(207,15,71,0.35)`,
-          cursor: "pointer",
-          zIndex: 1100,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
-          transform: isOpen ? "rotate(45deg)" : "scale(1)",
-          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
-        }}
-      >
-        {isOpen ? (
-          <X style={{ width: 18, height: 18 }} />
-        ) : (
-          <MessageSquare style={{ width: 22, height: 22 }} />
-        )}
-      </button>
+      {/* Launcher only: while the overlay is open its own header X closes it, so
+          keeping the floating button around would just cover the send button. */}
+      {!isOpen && (
+        <button
+          type="button"
+          aria-label="Open warehouse assistant"
+          onClick={() => setIsOpen(true)}
+          data-tour-target="ai-assistant-btn"
+          style={{
+            position: "fixed",
+            right: 22,
+            // Sit above the worker bottom nav so it never covers the Settings tab.
+            bottom: "calc(5.25rem + env(safe-area-inset-bottom))",
+            width: 54,
+            height: 54,
+            borderRadius: "50%",
+            border: "1.5px solid transparent",
+            color: "white",
+            background: `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+            boxShadow: `0 6px 24px rgba(207,15,71,0.35)`,
+            cursor: "pointer",
+            zIndex: 35,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+            animation: "fcb-pulse-ring 2.5s ease infinite",
+          }}
+        >
+          <Sparkles style={{ width: 22, height: 22 }} />
+        </button>
+      )}
 
       {isOpen && (
         <div
@@ -748,19 +842,7 @@ export function WarehouseAssistant({
                 >
                   Worker Support
                 </span>
-                <Link
-                  href="/admin/assistant"
-                  onClick={() => setIsOpen(false)}
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 605,
-                    color: T.accent,
-                    textDecoration: "none",
-                  }}
-                  className="wa-link"
-                >
-                  Full screen ↗
-                </Link>
+                {/* No full-screen link here: the worker overlay already fills the screen. */}
               </div>
 
               <ContextBanner />
@@ -770,43 +852,43 @@ export function WarehouseAssistant({
                   userRole={userRole}
                   chatHistory={chatHistory}
                   loading={loading}
+                  fullPage={false}
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
               <div style={{ flexShrink: 0, background: T.bg, paddingBottom: "env(safe-area-inset-bottom)" }}>
-                <div style={{ padding: "8px 16px 0" }}>
-                  <button
-                    type="button"
-                    style={{
-                      display: "flex",
-                      height: 40,
-                      width: "100%",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      borderRadius: 9,
-                      border: `1px solid ${T.accentBorder}`,
-                      background: T.accentBg,
-                      color: T.accent,
-                      fontWeight: 600,
-                      fontSize: 12,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                    className="wa-voice-btn"
-                  >
-                    <Mic style={{ width: 18, height: 18 }} />
-                    Voice input
-                  </button>
-                </div>
                 <AssistantComposer
                   inputRef={inputRef}
                   query={query}
                   loading={loading}
-                  placeholder="Ask about SKU locations, protocols..."
+                  placeholder="Ask about a SKU or SOP..."
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
                   mobile
+                  leading={
+                    <button
+                      type="button"
+                      title="Voice input"
+                      aria-label="Voice input"
+                      style={{
+                        display: "flex",
+                        width: 38,
+                        height: 38,
+                        flexShrink: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 9,
+                        border: "none",
+                        background: "transparent",
+                        color: T.accent,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                      className="wa-voice-btn"
+                    >
+                      <Mic style={{ width: 20, height: 20 }} />
+                    </button>
+                  }
                 />
               </div>
             </div>
@@ -1259,15 +1341,96 @@ function HistorySidebar({
   );
 }
 
+function ChatChart({ spec }: { spec: ChartSpec }) {
+  const tooltipStyle = {
+    background: "#ffffff",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    fontSize: 12,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+  };
+  const axisTick = { fontSize: 10, fill: T.textFaint };
+  const longLabels = spec.data.some((row) => String(row[spec.xKey] ?? "").length > 10);
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        borderRadius: 10,
+        border: `1px solid ${T.border}`,
+        background: T.bgSub,
+        padding: "12px 8px 4px",
+      }}
+    >
+      <p
+        style={{
+          margin: "0 8px 8px",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: T.textFaint,
+        }}
+      >
+        {spec.title}
+      </p>
+      <ResponsiveContainer width="100%" height={220}>
+        {spec.type === "line" ? (
+          <LineChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
+            <XAxis
+              dataKey={spec.xKey}
+              tick={axisTick}
+              tickLine={false}
+              axisLine={{ stroke: T.borderSub }}
+              angle={longLabels ? -35 : 0}
+              textAnchor={longLabels ? "end" : "middle"}
+              height={longLabels ? 40 : 24}
+            />
+            <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
+            <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} />
+            <Line
+              type="monotone"
+              dataKey={spec.yKey}
+              stroke={T.accent}
+              strokeWidth={2}
+              dot={{ r: 3, fill: T.accent, strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        ) : (
+          <BarChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
+            <XAxis
+              dataKey={spec.xKey}
+              tick={axisTick}
+              tickLine={false}
+              axisLine={{ stroke: T.borderSub }}
+              angle={longLabels ? -35 : 0}
+              textAnchor={longLabels ? "end" : "middle"}
+              height={longLabels ? 40 : 24}
+            />
+            <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
+            <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} cursor={{ fill: T.accentBg }} />
+            <Bar dataKey={spec.yKey} fill={T.accent} radius={[4, 4, 0, 0]} maxBarSize={40} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function AssistantBody({
   userRole,
   chatHistory,
   loading,
+  fullPage,
   onSuggestionClick,
 }: {
   userRole: WarehouseAIRole;
   chatHistory: ChatMessage[];
   loading: boolean;
+  fullPage: boolean;
   onSuggestionClick: (suggestion: string) => void;
 }) {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -1277,42 +1440,103 @@ function AssistantBody({
   }, [chatHistory, loading]);
 
   const managerSuggestions = [
-    { icon: "📦", text: "Show me current stock levels for SKU-300001" },
-    { icon: "⚠️", text: "List products with stock below reorder level" },
-    { icon: "📊", text: "Generate report for top 10 products by movement" },
-    { icon: "🛡️", text: "What are the safety SOPs for forklift operating?" },
+    { icon: "inventory_2", title: "Stock Levels", text: "Show me current stock levels for SKU-300001" },
+    { icon: "warning", title: "Reorder Alerts", text: "List products with stock below reorder level" },
+    { icon: "bar_chart", title: "Generate Report", text: "Generate report for top 10 products by movement" },
+    { icon: "security", title: "Safety SOPs", text: "What are the safety SOPs for forklift operating?" },
   ];
 
   const workerSuggestions = [
-    { icon: "📍", text: "Where is SKU-001 stored?" },
-    { icon: "📦", text: "What is the damaged product SOP?" },
-    { icon: "🔄", text: "What are the steps for shift handover?" },
+    { icon: "location_on", title: "Find Item", text: "Where is SKU-001 stored?" },
+    { icon: "inventory_2", title: "Damage Control", text: "What is the damaged product SOP?" },
+    { icon: "autorenew", title: "Shift Handover", text: "What are the steps for shift handover?" },
   ];
 
   const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
 
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
+    <div style={{ padding: chatHistory.length === 0 ? 0 : 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff", height: chatHistory.length === 0 ? "100%" : "auto" }}>
       {chatHistory.length === 0 && !loading && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
-          {/* <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} /> */}
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
-            How can I help you today?
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px", textAlign: "center", flex: 1 }}>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .wa-bot-avatar {
+              transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+            .wa-bot-container {
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            .wa-bot-container:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 0 0 6px ${T.accent}40, 0 16px 32px rgba(207,15,71,0.2), inset 0 4px 6px rgba(255,255,255,1), inset 0 -6px 8px rgba(0,0,0,0.05), inset 0 0 0 1px #d1d5db !important;
+            }
+            .wa-bot-container:hover .wa-bot-avatar {
+              transform: rotate(45deg) scale(1.15);
+            }
+          `}} />
+          <div style={{ position: "relative", marginBottom: fullPage ? 24 : 16 }}>
+            <div 
+              className="wa-bot-container"
+              style={{
+                width: fullPage ? 88 : 64,
+                height: fullPage ? 88 : 64,
+                borderRadius: fullPage ? 28 : 20,
+                background: "linear-gradient(135deg, #ffffff 0%, #f3f4f6 50%, #e5e7eb 100%)",
+                border: "1px solid rgba(255,255,255,0.8)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: `
+                  0 0 0 4px ${T.accent}20,
+                  0 12px 24px rgba(207,15,71,0.08), 
+                  0 4px 8px rgba(207,15,71,0.04), 
+                  inset 0 4px 6px rgba(255,255,255,1), 
+                  inset 0 -6px 8px rgba(0,0,0,0.05),
+                  inset 0 0 0 1px #d1d5db
+                `,
+                position: "relative",
+                cursor: "pointer",
+              }}
+            >
+              <Bot 
+                className="wa-bot-avatar"
+                style={{ 
+                  width: fullPage ? 42 : 30, 
+                  height: fullPage ? 42 : 30, 
+                  color: "#475569",
+                  filter: "drop-shadow(0px 3px 4px rgba(0,0,0,0.15))"
+                }} 
+              />
+            </div>
+          </div>
+          <h3 style={{ fontSize: fullPage ? 24 : 18, fontWeight: 500, color: T.textMuted, margin: "0 0 4px 0" }}>
+            Hello there,
           </h3>
-          <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 24px 0", maxWidth: 320, lineHeight: 1.5 }}>
-            {userRole === "manager"
-              ? "Ask about SOPs, inventory counts, pending orders, or request reports."
-              : "Ask about SKU locations, safety protocols, or task steps."}
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxWidth: 360 }}>
+          <h4 style={{ fontSize: fullPage ? 36 : 22, fontWeight: 700, color: T.text, margin: "0 0 24px 0", letterSpacing: "-0.02em" }}>
+            How can I assist you today?
+          </h4>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: fullPage ? 16 : 8, justifyContent: "center", maxWidth: fullPage ? 900 : 380, width: "100%" }}>
             {suggestions.map((suggestion, i) => (
               <button
                 key={i}
                 onClick={() => onSuggestionClick(suggestion.text)}
-                className="wa-quick-chip"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  textAlign: "left",
+                  padding: fullPage ? "20px" : "12px",
+                  borderRadius: fullPage ? "16px" : "12px",
+                  border: `1px solid ${T.border}`,
+                  background: T.bgSub,
+                  width: fullPage ? "240px" : "calc(50% - 4px)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                className="hover:border-primary hover:shadow-md wa-card"
               >
-                <span style={{ fontSize: 13 }}>{suggestion.icon}</span>
-                {suggestion.text}
+                <span className="material-symbols-outlined" style={{ fontSize: fullPage ? 24 : 20, color: T.textMuted, marginBottom: 8 }}>{suggestion.icon}</span>
+                <span style={{ fontSize: fullPage ? 14 : 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>{suggestion.title}</span>
+                <span style={{ fontSize: fullPage ? 13 : 11, color: T.textMuted, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{suggestion.text}</span>
               </button>
             ))}
           </div>
@@ -1601,28 +1825,7 @@ function AssistantBody({
               )}
 
               {/* Auto Generated Charts */}
-              {message.chart && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    borderRadius: 10,
-                    border: `1px solid ${T.border}`,
-                    background: T.bgSub,
-                    overflow: "hidden",
-                    padding: 8,
-                  }}
-                >
-                  <img
-                    src={message.chart}
-                    alt="Auto-generated WMS Analytics Chart"
-                    style={{
-                      width: "100%",
-                      borderRadius: 8,
-                      display: "block",
-                    }}
-                  />
-                </div>
-              )}
+              {message.chart && <ChatChart spec={message.chart} />}
 
               {/* Report Build error block */}
               {message.error && (
@@ -1730,6 +1933,8 @@ function AssistantComposer({
   loading,
   placeholder,
   mobile = false,
+  fullPage = false,
+  leading,
   onQueryChange,
   onSubmit,
 }: {
@@ -1738,29 +1943,52 @@ function AssistantComposer({
   loading: boolean;
   placeholder: string;
   mobile?: boolean;
+  fullPage?: boolean;
+  /** Optional control rendered inline before the input (e.g. the voice mic). */
+  leading?: React.ReactNode;
   onQueryChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      style={{
+      style={fullPage ? {
+        background: T.bg,
+        padding: "0 24px 24px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      } : {
         borderTop: `1px solid ${T.border}`,
         background: "#ffffff",
-        padding: "10px 14px",
+        // Mobile drops the keyboard hint, so pad the bottom to keep the row
+        // off the very edge of the screen.
+        padding: mobile ? "12px 14px 20px" : "10px 14px",
         display: "flex",
         flexDirection: "column",
         gap: 6,
       }}
     >
       <div
-        style={{
+        style={fullPage ? {
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 12,
+          background: T.bgSub,
+          border: `1px solid ${T.border}`,
+          borderRadius: 24,
+          padding: "8px 16px",
+          width: "100%",
+          maxWidth: 900,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.06)",
+        } : {
           display: "flex",
           alignItems: "flex-end",
           gap: 8,
           background: "#ffffff",
         }}
       >
+        {leading}
         <textarea
           ref={inputRef}
           rows={1}
@@ -1786,6 +2014,8 @@ function AssistantComposer({
           disabled={loading}
           style={{
             flex: 1,
+            // Without this the input can outgrow the row and push the send button.
+            minWidth: 0,
             resize: "none",
             background: T.inputBg,
             border: `1px solid ${T.inputBorder}`,
@@ -1833,6 +2063,8 @@ function AssistantComposer({
         </button>
       </div>
 
+      {/* Keyboard hint is desktop-only: touch keyboards have no Shift+Enter. */}
+      {!mobile && (
       <div
         style={{
           padding: "5px 14px 2px",
@@ -1868,6 +2100,7 @@ function AssistantComposer({
         </kbd>{" "}
         for new line
       </div>
+      )}
     </form>
   );
 }

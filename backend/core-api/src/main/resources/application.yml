@@ -72,7 +72,11 @@ ai:
     forecast-base-url: http://localhost:8091
     orchestrator-base-url: http://localhost:8092
     slotting-base-url: http://localhost:8093
-    slotting-enabled: false
+    # The MILP solver is what turns a heuristic draft into an approvable plan.
+    # Left off, slotting silently produced plans that could never be approved.
+    # The client still health-checks before calling, so this is safe when the
+    # service is not running.
+    slotting-enabled: ${AI_SLOTTING_ENABLED:true}
     auth-token: ${AI_SERVICES_AUTH_TOKEN:}
   monitoring:
     enabled: false

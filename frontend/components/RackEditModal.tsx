@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
-import { locationsApi, type Location } from "@/lib/api/locations";
+import { locationsApi } from "@/lib/api/locations";
 import { logger } from "@/lib/utils/logger";
-import { locationMatchesRack, parseRackId } from "@/lib/utils/location-identity";
+import { showToast } from "@/lib/utils/toast";
+import { parseRackId } from "@/lib/utils/location-identity";
 
 interface RackEditModalProps {
   isOpen: boolean;
@@ -13,50 +14,6 @@ interface RackEditModalProps {
   rack: RackUnit | null;
   warehouseId: string;
   onUpdate: (updatedRack: RackUnit) => void;
-}
-
-type LevelSummary = {
-  level: number;
-  binCount: number;
-  maxWeightKg: number | null;
-  maxVolumeCm3: number | null;
-  maxUnits: number | null;
-  utilizationPct: number | null;
-};
-
-function buildLevelSummary(locations: Location[]): LevelSummary[] {
-  const byLevel = new Map<number, Location[]>();
-  for (const loc of locations) {
-    const level = loc.levelNumber ?? 1;
-    if (!byLevel.has(level)) byLevel.set(level, []);
-    byLevel.get(level)!.push(loc);
-  }
-  const summaries: LevelSummary[] = [];
-  for (let level = 1; level <= 5; level++) {
-    const bins = byLevel.get(level) ?? [];
-    if (bins.length === 0) {
-      summaries.push({ level, binCount: 0, maxWeightKg: null, maxVolumeCm3: null, maxUnits: null, utilizationPct: null });
-      continue;
-    }
-    const maxWeight = Math.max(...bins.map((b) => b.maxWeightKg ?? 0));
-    const maxVolume = Math.max(...bins.map((b) => b.maxVolumeCm3 ?? 0));
-    const maxUnits = Math.max(...bins.map((b) => b.capacity ?? 0));
-    const utilSamples = bins
-      .filter((b) => b.maxPalletCapacity && b.maxPalletCapacity > 0)
-      .map((b) => ((b.currentPalletCount ?? 0) / b.maxPalletCapacity!) * 100);
-    const utilizationPct = utilSamples.length
-      ? Math.round(utilSamples.reduce((a, b) => a + b, 0) / utilSamples.length)
-      : null;
-    summaries.push({
-      level,
-      binCount: bins.length,
-      maxWeightKg: maxWeight || null,
-      maxVolumeCm3: maxVolume || null,
-      maxUnits: maxUnits || null,
-      utilizationPct,
-    });
-  }
-  return summaries;
 }
 
 export function RackEditModal({
@@ -70,9 +27,6 @@ export function RackEditModal({
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [amalgamatedClass, setAmalgamatedClass] = useState("CM");
-  const [isSaving, setIsSaving] = useState(false);
-  const [levelSummary, setLevelSummary] = useState<LevelSummary[]>([]);
-  const [loadingCaps, setLoadingCaps] = useState(false);
 
   useEffect(() => {
     if (rack) {
@@ -83,106 +37,53 @@ export function RackEditModal({
     }
   }, [rack]);
 
-  useEffect(() => {
-    if (!isOpen || !rack || !warehouseId) {
-      setLevelSummary([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoadingCaps(true);
-        const parsed = parseRackId(rack.id);
-        if (!parsed) return;
-        const allLocations = await locationsApi.getByWarehouse(warehouseId);
-        const rackLocations = allLocations.filter((loc) => locationMatchesRack(loc, rack.id));
-        if (!cancelled) setLevelSummary(buildLevelSummary(rackLocations));
-      } catch (e) {
-        logger.error("Failed to load rack capacity summary", e);
-      } finally {
-        if (!cancelled) setLoadingCaps(false);
+  const rackId = rack?.id ?? null;
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!rackId) throw new Error("No rack selected.");
+      if (!parseRackId(rackId)) {
+        throw new Error(`Invalid rack ID format: ${rackId}. Expected AREA-ROW-BAY, e.g. E-03-007.`);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, rack, warehouseId]);
-
-  const hasMissingCaps = useMemo(
-    () => levelSummary.some((l) => l.binCount > 0 && (l.maxWeightKg == null || l.maxVolumeCm3 == null)),
-    [levelSummary]
-  );
-
-  if (!isOpen || !rack) return null;
-
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      
-      logger.debug("Saving rack:", rack.id, "Status:", status);
-      
-      // Rack ID is in format "area-row-bay" (e.g., "A-01-01")
-      // We need to find all locations in this rack and update them
-      const parsed = parseRackId(rack.id);
-      if (!parsed) {
-        throw new Error(`Invalid rack ID format: ${rack.id}. Expected format: area-row-bay`);
-      }
-
-      logger.debug("Parsed rack ID:", parsed);
-
-      const allLocations = await locationsApi.getByWarehouse(warehouseId);
-      logger.debug(`Found ${allLocations.length} total locations for warehouse`);
-
-      const rackLocations = allLocations.filter((loc) => locationMatchesRack(loc, rack.id));
-      
-      logger.debug(`Found ${rackLocations.length} locations for rack ${rack.id}`);
-      
-      if (rackLocations.length === 0) {
-        logger.error("No locations found. Available locations sample:", 
-          allLocations.slice(0, 5).map(l => `${l.area}-${l.rowNumber}-${l.bayNumber}`));
-        throw new Error(`No locations found for rack ${rack.id}. Please check the rack identifier.`);
-      }
-      
-      // Update all locations in this rack with the rack properties
-      const updatePromises = rackLocations.map(async (location) => {
-        try {
-          logger.debug(`Updating location ${location.id} (${location.locationCode})`);
-          const updateData: any = {};
-          updateData.rackStatus = status.toString();
-          updateData.amalgamatedClass = amalgamatedClass;
-          updateData.description = description.trim();
-          updateData.notes = notes.trim();
-          
-          logger.debug("Update data:", updateData);
-          return await locationsApi.updateRack(location.id, updateData);
-        } catch (err: any) {
-          logger.error(`Failed to update location ${location.id}:`, err);
-          logger.error("Error details:", err?.response?.data || err?.message);
-          throw err;
-        }
+      // One transactional call for the whole rack. The previous fan-out of one request
+      // per bin could half-apply a status change when a single bin failed.
+      return locationsApi.updateRackBulk({
+        warehouseId,
+        rackId,
+        attributes: {
+          rackStatus: status,
+          amalgamatedClass,
+          description: description.trim(),
+          notes: notes.trim(),
+        },
       });
-      
-      await Promise.all(updatePromises);
-      logger.debug("Successfully updated all locations in rack");
-      
-      // Update local rack object
-      const updatedRack: RackUnit = {
-        ...rack,
+    },
+    onSuccess: (result) => {
+      showToast.success(
+        `Rack ${result.rackId} updated (${result.updatedLocations} bin${result.updatedLocations === 1 ? "" : "s"}).`
+      );
+      onUpdate({
+        ...rack!,
         status,
         amalgamatedClass,
         description: description.trim() || undefined,
         notes: notes.trim() || undefined,
-      };
-      onUpdate(updatedRack);
+      });
       onClose();
-    } catch (error: any) {
+    },
+    onError: (error: unknown) => {
       logger.error("Failed to update rack:", error);
-      const errorMessage = error?.message || "Failed to update rack. Please try again.";
-      alert(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      showToast.error(
+        error instanceof Error ? error.message : "Failed to update rack. Please try again."
+      );
+    },
+  });
+
+  const isSaving = saveMutation.isPending;
+
+  if (!isOpen || !rack) return null;
+
+  const handleSave = () => saveMutation.mutate();
 
   const statusOptions: {
     value: RackStatus;
@@ -332,53 +233,6 @@ export function RackEditModal({
             </select>
           </div>
 
-          {/* Read-only L1–L5 capacity summary */}
-          <div className="border border-base-300 rounded-lg p-4 bg-base-200/40">
-            <div className="flex items-center justify-between mb-2">
-              <span className="label-text font-medium">Level capacity (read-only)</span>
-              <Link
-                href="/admin/warehouses"
-                className="link link-primary text-xs"
-              >
-                Edit capacity in Slotting Planner →
-              </Link>
-            </div>
-            {loadingCaps ? (
-              <span className="loading loading-spinner loading-sm" />
-            ) : (
-              <>
-                {hasMissingCaps && (
-                  <p className="text-xs text-warning mb-2">Some levels are missing weight/volume caps.</p>
-                )}
-                <div className="overflow-x-auto">
-                  <table className="table table-xs">
-                    <thead>
-                      <tr>
-                        <th>Level</th>
-                        <th>Bins</th>
-                        <th>Max wt (kg)</th>
-                        <th>Max vol (cm³)</th>
-                        <th>Max units</th>
-                        <th>Util %</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {levelSummary.map((row) => (
-                        <tr key={row.level}>
-                          <td>L{row.level}</td>
-                          <td>{row.binCount || "—"}</td>
-                          <td>{row.maxWeightKg ?? "—"}</td>
-                          <td>{row.maxVolumeCm3 != null ? row.maxVolumeCm3.toLocaleString() : "—"}</td>
-                          <td>{row.maxUnits ?? "—"}</td>
-                          <td>{row.utilizationPct != null ? `${row.utilizationPct}%` : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
 
           {/* Description */}
           <div className="form-control">

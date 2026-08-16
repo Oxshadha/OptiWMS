@@ -5,10 +5,11 @@ import clsx from "clsx";
 import { useAdmin } from "@/contexts/AdminContext";
 import { forecastSpaceApi, type PolicyRecommendationLine, type PolicyRecommendationRun } from "@/lib/api/forecast-space";
 import { intelligenceApi, type ActionCenterSummary, type ActionItem, type DecisionEvent } from "@/lib/api/intelligence";
-import { slottingPlansApi, type SlottingPlanLine } from "@/lib/api/slotting-plans";
+import { slottingPlansApi, type SlottingPlanLine, type SlottingPlanSummary, type SlottingProgress } from "@/lib/api/slotting-plans";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
+import { explainPolicyLine } from "@/services/aiService";
 
-type Tab = "review" | "approved" | "history";
+type Tab = "review" | "locations" | "approved" | "history";
 type DecisionOperation = "approve" | "defer" | "reject" | "schedule" | "create";
 type ChangeFilter = "all" | "replenishment" | "increase" | "reduce" | "space";
 
@@ -21,6 +22,9 @@ export default function InventoryIntelligencePage() {
   const [policyLines, setPolicyLines] = useState<PolicyRecommendationLine[]>([]);
   const [decisions, setDecisions] = useState<DecisionEvent[]>([]);
   const [slottingLines, setSlottingLines] = useState<SlottingPlanLine[]>([]);
+  const [locationPlan, setLocationPlan] = useState<SlottingPlanSummary | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [progress, setProgress] = useState<SlottingProgress | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("review");
   const [selectedLine, setSelectedLine] = useState<PolicyRecommendationLine | null>(null);
   const [selectedAction, setSelectedAction] = useState<ActionItem | null>(null);
@@ -107,6 +111,11 @@ export default function InventoryIntelligencePage() {
   const selectedWarehouse = warehouses.find((row) => row.id === warehouseId);
   const activeDecisions = decisions.filter((row) => ["APPROVED", "SCHEDULED"].includes(row.action));
   const locationAction = summary?.actionItems.find((item) => item.type.includes("SLOTTING"));
+  // Deferred actions are still returned so their section can explain the pause,
+  // but they must not sit in the work queue as though they were due.
+  const queueItems = (summary?.actionItems ?? []).filter(
+    (item) => !item.deferredUntil || new Date(item.deferredUntil).getTime() <= Date.now(),
+  );
 
   async function execute(item: ActionItem, operation: DecisionOperation, decisionReason?: string, scheduledFor?: string) {
     const key = `${item.type}-${operation}`;
@@ -157,6 +166,77 @@ export default function InventoryIntelligencePage() {
     }
   }
 
+  /** Loads the newest plan and its lines for the Location plan tab. */
+  const loadLocationPlan = useCallback(async () => {
+    if (!warehouseId) return;
+    setPlanLoading(true);
+    try {
+      // The API returns plans newest-first (findByWarehouseIdOrderByCreatedAtDesc).
+      const plans = await slottingPlansApi.listPlans(warehouseId);
+      const newest = plans[0] ?? null;
+      setLocationPlan(newest);
+      setSlottingLines(newest ? await slottingPlansApi.getLines(newest.id) : []);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [warehouseId]);
+
+  useEffect(() => {
+    if (activeTab === "locations") void loadLocationPlan();
+  }, [activeTab, loadLocationPlan]);
+
+  /**
+   * Runs the slotting optimizer on an existing plan. A plan is created with
+   * solverStatus NOT_RUN, so without this a freshly created plan can never be
+   * approved -- the UI asked for a recalculation it offered no way to perform.
+   */
+  async function reoptimizePlan(item: ActionItem) {
+    if (!item.sourceId) {
+      setError("This plan has no persisted ID.");
+      return;
+    }
+    setBusy(`${item.type}-reoptimize`);
+    setError(null);
+    setNotice(null);
+    setProgress({ percent: 0, phase: "Starting", running: true, updatedAt: "" });
+    // The optimize request blocks, so progress is read from a separate endpoint
+    // while it runs.
+    const planId = item.sourceId;
+    const poll = setInterval(() => {
+      void slottingPlansApi.getProgress(planId)
+        .then((value) => setProgress(value))
+        .catch(() => { /* a dropped poll must not fail the run */ });
+    }, 1000);
+    try {
+      // reoptimize is optimistically locked, so the current version is required.
+      const plans = await slottingPlansApi.listPlans(warehouseId);
+      const plan = plans.find((row) => row.id === item.sourceId);
+      if (!plan) throw new Error("The plan is no longer available for this warehouse.");
+      const updated = await slottingPlansApi.reoptimize(item.sourceId, { expectedVersion: plan.version });
+      setLocationPlan(updated);
+      // Only a solved plan is a success. Anything else reported as a green
+      // notice read as "done" while leaving the plan unapprovable.
+      const status = updated.solverStatus ?? "unknown";
+      if (status === "OPTIMAL" || status === "FEASIBLE") {
+        setNotice(`Optimizer finished: ${status}. ${updated.totalMovesProposed ?? 0} moves ready to review.`);
+      } else {
+        setError(updated.infeasibleReason
+          ? `Optimizer could not solve this plan (${status}). ${updated.infeasibleReason}`
+          : `Optimizer could not solve this plan (${status}), so it cannot be approved.`);
+      }
+      setSlottingLines(await slottingPlansApi.getLines(item.sourceId));
+      await refresh();
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      clearInterval(poll);
+      setProgress(null);
+      setBusy(null);
+    }
+  }
+
   async function recalculatePolicies() {
     const item: ActionItem = { type: "CREATE_POLICY", title: "Recalculate inventory policies", description: "", priority: "LOW", href: "", canApprove: true, affectedCount: 0 };
     await execute(item, "create");
@@ -184,14 +264,14 @@ export default function InventoryIntelligencePage() {
           <label className="form-control w-72 max-w-full">
             <span className="label-text text-xs mb-1 font-semibold">Warehouse</span>
             <select className="select select-bordered select-sm rounded-full" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+              {/* Names are not unique in this dataset, so the code disambiguates. */}
+              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.code ? `${warehouse.name} (${warehouse.code})` : warehouse.name}
+              </option>)}
             </select>
           </label>
           <button className="btn btn-sm btn-circle btn-ghost" title="Refresh workspace" aria-label="Refresh workspace" onClick={() => void refresh()} disabled={!warehouseId || loading}>
             <span className="material-symbols-outlined text-lg">refresh</span>
-          </button>
-          <button className="btn btn-sm btn-outline rounded-full" onClick={() => void recalculatePolicies()} disabled={!warehouseId || !!busy}>
-            <span className="material-symbols-outlined text-base">calculate</span> Recalculate policies
           </button>
         </div>
       </header>
@@ -208,20 +288,48 @@ export default function InventoryIntelligencePage() {
       </section>
 
       <nav className="tabs tabs-boxed bg-base-100 w-fit shadow-sm" aria-label="Inventory decision queues">
-        <button className={clsx("tab", activeTab === "review" && "tab-active")} onClick={() => setActiveTab("review")}>Needs review</button>
+        <button className={clsx("tab", activeTab === "review" && "tab-active")} onClick={() => setActiveTab("review")}>Inventory policy</button>
+        <button className={clsx("tab", activeTab === "locations" && "tab-active")} onClick={() => setActiveTab("locations")}>
+          Location plan
+          {!!summary?.totalMovesProposed && <span className="badge badge-sm badge-primary ml-2">{summary.totalMovesProposed}</span>}
+        </button>
         <button className={clsx("tab", activeTab === "approved" && "tab-active")} onClick={() => setActiveTab("approved")}>Approved & scheduled</button>
         <button className={clsx("tab", activeTab === "history" && "tab-active")} onClick={() => setActiveTab("history")}>Decision history</button>
       </nav>
 
+      {activeTab === "locations" && <LocationPlanTab
+        plan={locationPlan}
+        lines={slottingLines}
+        loading={planLoading}
+        busy={busy}
+        progress={progress}
+        onReoptimize={() => locationAction && void reoptimizePlan(locationAction)}
+        onCreate={() => void execute({ type: "CREATE_SLOTTING_PLAN", title: "Generate location plan", description: "", priority: "MEDIUM", href: "", canApprove: true, affectedCount: 0 }, "create")}
+        onApprove={() => locationAction && requestDecision(locationAction, locationAction.type === "SCHEDULE_SLOTTING_PLAN" ? "schedule" : "approve")}
+        canDecide={!!locationAction}
+        decideLabel={locationAction?.type === "SCHEDULE_SLOTTING_PLAN" ? "Schedule off-peak" : "Approve plan"}
+        canApprove={!!locationAction?.canApprove}
+        deferredUntil={locationAction?.deferredUntil}
+      />}
+
       {activeTab === "review" && <>
         <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-base-200">
-            <h2 className="font-bold text-lg">Manager work queue</h2>
-            <p className="text-xs text-base-content/60">{selectedWarehouse?.name || "Authorized warehouse"} · highest operational risk first</p>
+          <div className="p-5 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-lg">Manager work queue</h2>
+              <p className="text-xs text-base-content/60">{selectedWarehouse?.name || "Authorized warehouse"} · highest operational risk first</p>
+            </div>
+            {/* Recalculation belongs with the policy queue it regenerates, not in
+                the page header where it looked like it drove the whole page. */}
+            <button className="btn btn-sm btn-outline rounded-full" onClick={() => void recalculatePolicies()} disabled={!warehouseId || !!busy}>
+              <span className="material-symbols-outlined text-base">calculate</span>
+              {busy === "CREATE_POLICY-create" ? "Recalculating…" : "Recalculate policies"}
+            </button>
           </div>
+          {busy === "CREATE_POLICY-create" && <progress className="progress progress-primary w-full rounded-none" />}
           <div className="divide-y divide-base-200">
-            {!loading && !(summary?.actionItems.length) && <EmptyState icon="task_alt" title="No decision is waiting" text="The next forecast or slotting refresh will add only material changes to this queue." />}
-            {(summary?.actionItems ?? []).map((item) => <ActionRow key={`${item.type}-${item.sourceId ?? "new"}`} item={item} busy={busy} onReview={reviewAction} />)}
+            {!loading && !queueItems.length && <EmptyState icon="task_alt" title="No decision is waiting" text="The next forecast or slotting refresh will add only material changes to this queue." />}
+            {queueItems.map((item) => <ActionRow key={`${item.type}-${item.sourceId ?? "new"}`} item={item} busy={busy} onReview={reviewAction} />)}
           </div>
         </section>
 
@@ -255,14 +363,6 @@ export default function InventoryIntelligencePage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-base-100 shadow-sm p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div>
-            <div className="flex items-center gap-2"><span className="material-symbols-outlined text-primary">warehouse</span><h2 className="font-bold text-lg">ABC/FMS storage placement</h2></div>
-            <p className="text-sm text-base-content/65 mt-1 max-w-3xl">The location plan assigns fast movers to accessible compatible bins and protects capacity for the approved six-month policy.</p>
-            <div className="flex flex-wrap gap-2 mt-3 text-xs"><span className="badge badge-ghost">ABC value</span><span className="badge badge-ghost">FMS movement</span><span className="badge badge-ghost">weight and volume</span><span className="badge badge-ghost">hazard and temperature</span><span className="badge badge-ghost">move limit</span></div>
-          </div>
-          {locationAction ? <button className="btn btn-sm btn-primary rounded-full shrink-0" disabled={!!busy} onClick={() => void reviewAction(locationAction)}>{locationAction.type.startsWith("CREATE_") ? "Generate location plan" : "Review location plan"}</button> : <span className="badge badge-outline p-3 h-auto text-center">Approve the policy plan before location optimization</span>}
-        </section>
       </>}
 
       {activeTab === "approved" && <DecisionList rows={activeDecisions} emptyTitle="No approved work yet" />}
@@ -270,13 +370,231 @@ export default function InventoryIntelligencePage() {
 
       {selectedLine && <PolicyDetail line={selectedLine} onClose={() => setSelectedLine(null)} />}
       {selectedAction && <ActionDetail item={selectedAction} policyLines={rankedLines} slottingLines={slottingLines} busy={busy}
-        onClose={() => setSelectedAction(null)} onDecision={requestDecision} />}
+        onClose={() => setSelectedAction(null)} onDecision={requestDecision} onReoptimize={reoptimizePlan} />}
       {decision && <DecisionDialog decision={decision} reason={reason} setReason={setReason} deferUntil={deferUntil}
         setDeferUntil={setDeferUntil} busy={busy} onClose={() => setDecision(null)}
         onConfirm={() => void execute(decision.item, decision.operation, reason || undefined,
           decision.operation === "defer" ? new Date(deferUntil).toISOString() : undefined)} />}
     </main>
   );
+}
+
+/**
+ * Location plan workspace.
+ *
+ * Follows the split used by SAP EWM and Blue Yonder: policy (min/max) and
+ * placement (which bin) are separate planning steps with their own run, review
+ * and approve cycle. Travel distance saved is the headline metric because that
+ * is what the relocation work actually buys.
+ */
+function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, onCreate, onApprove, canDecide, decideLabel, canApprove, deferredUntil }: {
+  plan: SlottingPlanSummary | null;
+  lines: SlottingPlanLine[];
+  loading: boolean;
+  busy: string | null;
+  progress: SlottingProgress | null;
+  onReoptimize: () => void;
+  onCreate: () => void;
+  onApprove: () => void;
+  canDecide: boolean;
+  decideLabel: string;
+  canApprove: boolean;
+  deferredUntil?: string | null;
+}) {
+  const [search, setSearch] = useState("");
+  const [zone, setZone] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  const moves = useMemo(
+    () => lines.filter((line) => line.relocationFlag || line.relocationApplied
+      || line.currentPrimaryLocation !== line.recommendedPrimaryLocation),
+    [lines],
+  );
+  const zones = useMemo(
+    () => Array.from(new Set(moves.map((line) => line.zoneUpgrade).filter(Boolean) as string[])).sort(),
+    [moves],
+  );
+  const filtered = useMemo(() => moves.filter((line) => {
+    if (zone !== "all" && line.zoneUpgrade !== zone) return false;
+    if (!search.trim()) return true;
+    const needle = search.trim().toLowerCase();
+    return [line.materialCode, line.currentPrimaryLocation, line.recommendedPrimaryLocation]
+      .some((value) => value?.toLowerCase().includes(needle));
+  }), [moves, zone, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const optimizing = busy?.endsWith("-reoptimize");
+  const solver = plan?.solverStatus ?? "NOT_RUN";
+  const solved = solver === "OPTIMAL" || solver === "FEASIBLE";
+  const deferredDate = deferredUntil ? new Date(deferredUntil) : null;
+  const snoozedUntil = deferredDate && deferredDate.getTime() > Date.now() ? deferredDate : null;
+
+  if (loading) {
+    return <section className="rounded-2xl bg-base-100 shadow-sm p-10 text-center text-sm text-base-content/60">
+      Loading the location plan…
+    </section>;
+  }
+
+  if (!plan) {
+    return <section className="rounded-2xl bg-base-100 shadow-sm p-10 text-center">
+      <span className="material-symbols-outlined text-4xl text-base-content/30">warehouse</span>
+      <h3 className="font-bold mt-2">No location plan yet</h3>
+      <p className="text-sm text-base-content/60 mt-1 max-w-lg mx-auto">
+        A location plan assigns fast movers to accessible bins using ABC value, FMS movement,
+        weight, hazard class and a relocation budget.
+      </p>
+      <button className="btn btn-primary rounded-full mt-4" disabled={!!busy} onClick={onCreate}>
+        <span className="material-symbols-outlined text-base">bolt</span> Generate location plan
+      </button>
+    </section>;
+  }
+
+  return <div className="space-y-4">
+    {/* Run + status bar */}
+    <section className="rounded-2xl bg-base-100 shadow-sm p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-bold text-lg">{plan.planCode || "Location plan"}</h2>
+            <span className={clsx("badge badge-sm", solved ? "badge-success" : solver === "INFEASIBLE" ? "badge-error" : "badge-ghost")}>
+              {solver}
+            </span>
+            <span className="badge badge-ghost badge-sm">v{plan.version}</span>
+            <span className="badge badge-ghost badge-sm">{plan.status}</span>
+            {snoozedUntil && <span className="badge badge-warning badge-outline badge-sm">
+              Deferred until {snoozedUntil.toLocaleString(undefined, {
+                day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+              })}
+            </span>}
+          </div>
+          <p className="text-sm text-base-content/60 mt-1">
+            {plan.algorithm ? `${plan.algorithm} · ` : ""}
+            {plan.relocationBudgetPct != null ? `${plan.relocationBudgetPct}% relocation budget` : "budget not set"}
+            {plan.validFrom ? ` · valid from ${new Date(plan.validFrom).toLocaleDateString()}` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-sm btn-outline rounded-full" disabled={!!busy} onClick={onReoptimize}>
+            <span className="material-symbols-outlined text-base">autorenew</span>
+            {optimizing ? "Running optimizer…" : "Run optimizer"}
+          </button>
+          <button className="btn btn-sm btn-primary rounded-full" disabled={!!busy || !canDecide || !canApprove} onClick={onApprove}>
+            {decideLabel}
+          </button>
+        </div>
+      </div>
+
+      {optimizing && <div className="mt-4">
+        <div className="flex items-center justify-between text-xs font-semibold mb-1">
+          <span>{progress?.phase ?? "Starting"}</span>
+          <span className="tabular-nums">{progress?.percent ?? 0}%</span>
+        </div>
+        <progress className="progress progress-primary w-full" value={progress?.percent ?? 0} max={100} />
+        <p className="text-xs text-base-content/60 mt-1">
+          Solving placement across ABC/FMS, capacity and hazard constraints.
+        </p>
+      </div>}
+
+      {!solved && !optimizing && <div className="alert alert-warning text-sm mt-4">
+        <span className="material-symbols-outlined">warning</span>
+        <span className="flex-1">
+          {solver === "NOT_RUN"
+            ? "This plan has not been optimized yet, so it cannot be approved."
+            : `The optimizer finished as ${solver}${plan.infeasibleReason ? `: ${plan.infeasibleReason}` : "."}`}
+        </span>
+        {/* Neutral surface, not btn-warning: on the warning banner the button
+            was the same colour as its background and read as plain text. */}
+        <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap" disabled={!!busy} onClick={onReoptimize}>
+          Run optimizer
+        </button>
+      </div>}
+    </section>
+
+    {/* Outcome metrics */}
+    <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <Metric icon="forklift" label="Moves proposed" value={quantity(plan.totalMovesProposed)} detail="within the relocation budget" />
+      <Metric icon="route" label="Travel distance saved" value={plan.totalDistanceSavedMeters != null ? `${Math.round(plan.totalDistanceSavedMeters).toLocaleString()} m` : "—"} detail="per full pick cycle" />
+      <Metric icon="swap_horiz" label="Zone upgrades" value={quantity(moves.filter((line) => line.zoneUpgrade).length)} detail="moved to a better zone" />
+      <Metric icon="lock" label="Locked lines" value={quantity(lines.filter((line) => line.locked).length)} detail="excluded from optimization" />
+    </section>
+
+    {/* Moves table */}
+    <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden">
+      <div className="p-5 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold">Proposed stock transfers</h3>
+          <p className="text-xs text-base-content/60">{filtered.length} of {moves.length} moves · sorted by benefit</p>
+          <div className="flex flex-wrap gap-1.5 mt-2 text-xs">
+            {["ABC value", "FMS movement", "weight and volume", "hazard and temperature", "move limit"]
+              .map((chip) => <span key={chip} className="badge badge-ghost badge-sm">{chip}</span>)}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input className="input input-bordered input-sm w-56 max-w-full" placeholder="Search product or location"
+            value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          <select className="select select-bordered select-sm" value={zone} aria-label="Zone change"
+            onChange={(event) => { setZone(event.target.value); setPage(1); }}>
+            <option value="all">All zones</option>
+            {zones.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <select className="select select-bordered select-sm" value={pageSize} aria-label="Rows per page"
+            onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+            <option value={25}>25 rows</option>
+            <option value={50}>50 rows</option>
+            <option value={100}>100 rows</option>
+          </select>
+        </div>
+      </div>
+
+      {!pageRows.length ? (
+        <div className="p-10 text-center text-sm text-base-content/60">
+          {moves.length ? "No move matches these filters." : "This plan proposes no relocations."}
+        </div>
+      ) : (
+        // Tall scroll area with a sticky header: the plan is hundreds of rows,
+        // so the table itself should be the thing you scroll, not the page.
+        <div className="overflow-auto max-h-[65vh]">
+          <table className="table table-sm table-pin-rows">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Zone change</th>
+                <th className="text-right">Distance saved</th>
+                <th>Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((line) => <tr key={line.id} className={clsx(line.locked && "opacity-60")}>
+                <td className="font-semibold whitespace-nowrap">
+                  {line.materialCode}
+                  {line.locked && <span className="badge badge-ghost badge-xs ml-2">locked</span>}
+                </td>
+                <td className="font-mono text-xs">{line.currentPrimaryLocation || "Unassigned"}</td>
+                <td className="font-mono text-xs text-primary">{line.recommendedPrimaryLocation || "—"}</td>
+                <td>{line.zoneUpgrade ? <span className="badge badge-ghost badge-sm">{line.zoneUpgrade}</span> : "—"}</td>
+                <td className="text-right tabular-nums">
+                  {line.distanceSavedMeters != null ? `${Math.round(line.distanceSavedMeters).toLocaleString()} m` : "—"}
+                </td>
+                <td className="text-xs text-base-content/60 max-w-xs">{line.moveReason || "Demand and accessibility improvement."}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {totalPages > 1 && <div className="p-4 border-t border-base-200 flex items-center justify-end gap-2">
+        <button className="btn btn-sm btn-outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button>
+        <span className="tabular-nums text-sm">{page} / {totalPages}</span>
+        <button className="btn btn-sm btn-outline" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</button>
+      </div>}
+    </section>
+  </div>;
 }
 
 function ActionRow({ item, busy, onReview }: { item: ActionItem; busy: string | null; onReview: (item: ActionItem) => Promise<void> }) {
@@ -312,11 +630,31 @@ function PolicyRow({ line, onOpen }: { line: PolicyRecommendationLine; onOpen: (
 }
 
 function PolicyDetail({ line, onClose }: { line: PolicyRecommendationLine; onClose: () => void }) {
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAiExplanation(null);
+    setAiError(null);
+    setAiLoading(true);
+    explainPolicyLine(line.materialCode, line.reasonCodes ?? [])
+      .then((res) => { if (!cancelled) setAiExplanation(res.explanation); })
+      .catch((err: Error) => { if (!cancelled) setAiError(err.message); })
+      .finally(() => { if (!cancelled) setAiLoading(false); });
+    return () => { cancelled = true; };
+  }, [line.materialCode, line.reasonCodes]);
+
   return <Drawer title={line.materialName} subtitle={`${line.materialCode} · ${storageClassLabel(line)}`} onClose={onClose}>
     <div className="rounded-xl bg-primary/5 border border-primary/15 p-4">
       <p className="text-xs uppercase tracking-wider text-base-content/55 font-semibold">Recommended action</p>
       <p className="mt-1 text-xl font-bold">{line.actionSummary}</p>
-      <p className="mt-2 text-sm text-base-content/70">{plainExplanation(line)}</p>
+      <p className="mt-2 text-sm text-base-content/70" title={aiError ?? undefined}>
+        {aiLoading
+          ? <span className="inline-flex items-center gap-2 text-base-content/50"><span className="loading loading-spinner loading-xs" /> Explaining this recommendation…</span>
+          : aiExplanation || plainExplanation(line)}
+      </p>
     </div>
     <SectionTitle>Stock and demand</SectionTitle>
     <div className="grid grid-cols-2 gap-3">
@@ -354,14 +692,25 @@ function PolicyDetail({ line, onClose }: { line: PolicyRecommendationLine; onClo
   </Drawer>;
 }
 
-function ActionDetail({ item, policyLines, slottingLines, busy, onClose, onDecision }: {
+function ActionDetail({ item, policyLines, slottingLines, busy, onClose, onDecision, onReoptimize }: {
   item: ActionItem; policyLines: PolicyRecommendationLine[]; slottingLines: SlottingPlanLine[]; busy: string | null;
   onClose: () => void; onDecision: (item: ActionItem, operation: DecisionOperation) => void;
+  onReoptimize: (item: ActionItem) => Promise<void>;
 }) {
   const moved = slottingLines.filter((line) => line.relocationFlag || line.relocationApplied || (line.currentPrimaryLocation !== line.recommendedPrimaryLocation));
   const scheduling = item.type === "SCHEDULE_SLOTTING_PLAN";
+  // A slotting plan that the solver has not settled cannot be approved. Offer
+  // the run rather than only naming the problem.
+  const needsOptimizer = item.type === "APPROVE_SLOTTING_PLAN" && !item.canApprove && !!item.sourceId;
   return <Drawer title={item.title} subtitle={item.description} onClose={onClose}>
-    {item.blockedReason && <div className="alert alert-warning text-sm"><span className="material-symbols-outlined">warning</span><span>{item.blockedReason}</span></div>}
+    {item.blockedReason && <div className="alert alert-warning text-sm">
+      <span className="material-symbols-outlined">warning</span>
+      <span className="flex-1">{item.blockedReason}</span>
+      {needsOptimizer && <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap"
+        disabled={!!busy} onClick={() => void onReoptimize(item)}>
+        {busy === `${item.type}-reoptimize` ? "Running optimizer…" : "Recalculate plan"}
+      </button>}
+    </div>}
     {item.type === "APPROVE_POLICY" && <>
       <SectionTitle>Approval scope</SectionTitle>
       <p className="text-sm text-base-content/70">Approval applies the reviewed min/max policy changes and creates draft purchase suggestions for qualifying products. Procurement release remains a separate step.</p>

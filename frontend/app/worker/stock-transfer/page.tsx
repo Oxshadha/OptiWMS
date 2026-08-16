@@ -8,6 +8,11 @@ import { materialsApi } from "@/lib/api/materials";
 import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import {
+  QUANTITY_INPUT_PROPS,
+  parseQuantityInput,
+  quantityInputValue,
+} from "@/lib/utils/quantity-input";
 
 type MaterialMap = Record<string, { code: string; name: string }>;
 
@@ -289,15 +294,22 @@ export default function StockTransferPage() {
                 <label className="form-control">
                   <span className="label-text">Quantity to Move</span>
                   <input
-                    type="number"
-                    min={1}
-                    max={Math.max(
-                      (selectedLine.requestedQuantity || 0) - (selectedLine.movedQuantity || 0),
-                      1
-                    )}
+                    {...QUANTITY_INPUT_PROPS}
                     className="input input-bordered"
-                    value={quantity}
-                    onChange={(e) => setQuantity(parseInt(e.target.value || "1", 10))}
+                    value={quantityInputValue(quantity)}
+                    onChange={(e) =>
+                      setQuantity(
+                        Math.min(
+                          Math.max(
+                            (selectedLine.requestedQuantity || 0) -
+                              (selectedLine.movedQuantity || 0),
+                            1
+                          ),
+                          parseQuantityInput(e.target.value)
+                        )
+                      )
+                    }
+                    placeholder="0"
                   />
                 </label>
                 <label className="form-control">

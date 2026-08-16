@@ -19,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from agent import (
+    AIQuotaExceeded,
     ChatMessage,
     ChatSession,
     ask,
@@ -95,7 +96,7 @@ class DataResponse(BaseModel):
     mode: Optional[str] = None
     sql: Optional[str] = None
     data: Optional[List[dict]] = None
-    chart: Optional[str] = None
+    chart: Optional[dict[str, Any]] = None  # {type, title, xKey, yKey, data} — rendered by Recharts, not an image
     error: Optional[str] = None
     answer: Optional[str] = None        # Conversational summary, download link, or SOP answer
     download_url: Optional[str] = None  # Set in Report mode
@@ -151,11 +152,18 @@ def identity_role(identity: dict[str, Any]) -> str:
     return raw[5:] if raw.startswith("ROLE_") else raw
 
 
+def identity_id(identity: dict[str, Any]) -> str:
+    """Spring's /api/auth/me returns the primary key as `userId`; `id` is only a
+    fallback for other identity shapes. Reading the wrong key silently disabled
+    chat history persistence and failed every ownership check."""
+    return str(identity.get("userId") or identity.get("id") or "")
+
+
 def identity_label(identity: dict[str, Any]) -> str:
     return (
         identity.get("username")
         or identity.get("email")
-        or identity.get("id")
+        or identity_id(identity)
         or "authenticated"
     )
 
@@ -168,8 +176,34 @@ def enforce_rate_limit(token: str) -> None:
         while window and now - window[0] >= 60:
             window.popleft()
         if len(window) >= request_limit_per_minute:
-            raise HTTPException(status_code=429, detail="Assistant request limit exceeded. Try again shortly.")
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "ASSISTANT_RATE_LIMIT",
+                    "message": "You are sending requests too quickly. Please wait a moment and try again.",
+                },
+            )
         window.append(now)
+
+
+def quota_exceeded(exc: Exception, correlation_id: str, identity: dict[str, Any]) -> HTTPException:
+    """Every model provider is rate limited. Answer 429 with a distinct code so
+    the UI can say 'AI quota exceeded' rather than blaming the user's pace."""
+    logger.warning(
+        "assistant_quota_exhausted user=%s correlation_id=%s detail=%s",
+        identity_label(identity), correlation_id, exc,
+    )
+    return HTTPException(
+        status_code=429,
+        detail={
+            "code": "AI_QUOTA_EXCEEDED",
+            "message": (
+                "AI quota exceeded. The assistant's language model providers are "
+                "temporarily out of capacity. Please try again in a few minutes."
+            ),
+            "correlationId": correlation_id,
+        },
+    )
 
 
 def authenticate(credentials: HTTPAuthorizationCredentials) -> dict[str, Any]:
@@ -187,14 +221,14 @@ def assert_owns_user_scope(identity: dict[str, Any], user_id: str) -> None:
     """A user may only read their own chat history; administrators may read any."""
     if identity_role(identity) in ADMIN_ROLES:
         return
-    if str(identity.get("id") or "") != str(user_id):
+    if identity_id(identity) != str(user_id):
         raise HTTPException(status_code=403, detail="Chat history belongs to another user.")
 
 
 def assert_owns_session(identity: dict[str, Any], session: Any) -> None:
     if identity_role(identity) in ADMIN_ROLES:
         return
-    if str(session.user_id) != str(identity.get("id") or ""):
+    if str(session.user_id) != identity_id(identity):
         raise HTTPException(status_code=403, detail="Chat session belongs to another user.")
 
 
@@ -223,9 +257,13 @@ def ask_question(
     role = identity_role(identity)
     # The chat history is keyed on the *verified* identity, never on a user id
     # supplied by the caller, so one user cannot write into another's history.
-    user_id = str(identity.get("id") or "") or None
+    user_id = identity_id(identity) or None
 
-    mode = classify_question(question)
+    try:
+        mode = classify_question(question)
+    except AIQuotaExceeded as exc:
+        raise quota_exceeded(exc, correlation_id, identity) from exc
+
     if mode == "DATA" and role not in sql_roles:
         logger.info(
             "assistant_denied tool=sql_analytics user=%s role=%s correlation_id=%s",
@@ -251,6 +289,8 @@ def ask_question(
             session_id=request.session_id,
             mode=mode,
         )
+    except AIQuotaExceeded as exc:
+        raise quota_exceeded(exc, correlation_id, identity) from exc
     except Exception as exc:
         logger.exception("assistant_error correlation_id=%s", correlation_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -11,14 +11,22 @@ import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi, type Material, type MaterialOrderingProfile } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
-import {
-  AISlottingService,
-  type SlottingRecommendationItemResponse,
-} from "@/lib/services/aiSlottingService";
+import { slottingPlansApi } from "@/lib/api/slotting-plans";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "../types";
+
+/**
+ * A slotting recommendation as stored in the database by an approved slotting plan.
+ * The wizard only reads what the admin-side optimiser already persisted — it never calls
+ * the optimisation service itself, so location selection never waits on a live service.
+ */
+type StoredRecommendation = {
+  locationCode: string;
+  reason: string;
+  alternatives: string[];
+};
 
 type CapacityPlan = {
   feasible: boolean;
@@ -216,9 +224,8 @@ export function CreateInboundOrderModal({
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
   const [capacityProgress, setCapacityProgress] = useState<CapacityProgress | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
-  const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<Map<number, CapacityPlan>>(new Map());
-  const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, SlottingRecommendationItemResponse>>(new Map());
+  const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, StoredRecommendation>>(new Map());
   const [profilesByMaterialId, setProfilesByMaterialId] = useState<Map<string, MaterialOrderingProfile>>(new Map());
   const [capacityError, setCapacityError] = useState<string | null>(null);
   const [lastCapacityCheckKey, setLastCapacityCheckKey] = useState("");
@@ -230,7 +237,6 @@ export function CreateInboundOrderModal({
     notes: "",
     items: [] as InboundItemForm[],
   });
-  const [materialSearch, setMaterialSearch] = useState("");
 
   const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
   const availableWarehouseLocations = useMemo(
@@ -264,17 +270,6 @@ export function CreateInboundOrderModal({
   });
   const capacityCheckCurrent = lastCapacityCheckKey === capacityCheckKey && capacityPlansByItem.size > 0;
   const hasIncompleteMeasurements = false;
-  const filteredMaterials = useMemo(() => {
-    const query = materialSearch.trim().toLowerCase();
-    if (!query) return materials.slice(0, 80);
-    return materials
-      .filter((material) =>
-        (material.materialCode || "").toLowerCase().includes(query) ||
-        (material.description || "").toLowerCase().includes(query)
-      )
-      .slice(0, 80);
-  }, [materials, materialSearch]);
-
   useEffect(() => {
     async function loadData() {
       try {
@@ -366,63 +361,68 @@ export function CreateInboundOrderModal({
   }, [materialProfileKey, formData.supplierId, formData.warehouseId]);
 
   useEffect(() => {
-    if (profilesByMaterialId.size === 0 || formData.items.length === 0) return;
+    // Deliberately not gated on profiles having loaded: the material fallbacks below
+    // still produce the correct multiplier, and gating meant a failed profile request
+    // left every line stuck on its unmultiplied quantity.
+    if (formData.items.length === 0) return;
     const nextItems = formData.items.map((item) => ({
       ...item,
-      quantityOrdered: roundInboundQuantity(item, profilesByMaterialId.get(item.productId)),
+      quantityOrdered: roundInboundQuantity(
+        item,
+        profilesByMaterialId.get(item.productId),
+        materialById.get(item.productId),
+      ),
     }));
     const changed = nextItems.some((item, idx) => item.quantityOrdered !== formData.items[idx].quantityOrdered);
     if (changed) {
       setFormData((prev) => ({ ...prev, items: nextItems }));
     }
-  }, [profilesByMaterialId, formData.items]);
+  }, [profilesByMaterialId, materialById, formData.items]);
 
   useEffect(() => {
     async function loadRecommendations() {
       if (step !== 4 || !formData.warehouseId || formData.items.length === 0 || hasIncompleteMeasurements) {
         setRecommendationLoading(false);
-        setRecommendationError(null);
         setRecommendationsByItem(new Map());
         return;
       }
 
       setRecommendationLoading(true);
-      setRecommendationError(null);
       try {
-        const response = await AISlottingService.recommendPlacement({
-          warehouse_id: formData.warehouseId,
-          items: formData.items.map((item) => {
-            const material = materialById.get(item.productId);
-            return {
-              material_id: item.productId,
-              quantity: item.quantityOrdered,
-              weight_kg: item.weightKg > 0 ? item.weightKg : undefined,
-              volume_cm3: item.lengthCm * item.widthCm * item.heightCm || undefined,
-              length_cm: item.lengthCm > 0 ? item.lengthCm : undefined,
-              width_cm: item.widthCm > 0 ? item.widthCm : undefined,
-              height_cm: item.heightCm > 0 ? item.heightCm : undefined,
-              preferred_zone: material?.preferredZone,
-              current_location_code: item.locationCode || undefined,
-            };
-          }),
-          population_size: 20,
-          generations: 50,
-          mutation_rate: 0.05,
-          top_k_alternatives: 3,
+        // Read the slotting decisions the admin-side optimiser already stored. No live
+        // optimisation call here: ordering must never block on a service being reachable.
+        const activePlan = await slottingPlansApi.getActivePlan(formData.warehouseId);
+        const lines = activePlan?.id ? await slottingPlansApi.getLines(activePlan.id) : [];
+
+        const lineByMaterialId = new Map(lines.map((line) => [line.materialId, line]));
+        const recommendationMap = new Map<number, StoredRecommendation>();
+        formData.items.forEach((item, index) => {
+          const line = lineByMaterialId.get(item.productId);
+          // A manager override (final) beats the optimiser's proposal (recommended).
+          const locationCode = line?.finalPrimaryLocation || line?.recommendedPrimaryLocation;
+          if (!locationCode) {
+            return;
+          }
+          recommendationMap.set(index, {
+            locationCode,
+            reason: line?.moveReason || `From slotting plan ${activePlan.planCode ?? ""}`.trim(),
+            alternatives: (line?.reserveLocations ?? [])
+              .map((reserve) => reserve.finalLocationCode || reserve.locationCode)
+              .filter((code): code is string => Boolean(code) && code !== locationCode),
+          });
         });
-        const recommendationMap = new Map<number, SlottingRecommendationItemResponse>();
-        response.recommendations.forEach((recommendation, index) => recommendationMap.set(index, recommendation));
         setRecommendationsByItem(recommendationMap);
       } catch (err) {
-        logger.error("Failed to load slotting recommendations:", err);
-        setRecommendationError(err instanceof Error ? err.message : "Location recommendations are unavailable.");
+        // No active plan yet is the normal case for a new warehouse, not an error the
+        // buyer needs to see — locations then get assigned during putaway instead.
+        logger.info("No stored slotting recommendations available:", err);
         setRecommendationsByItem(new Map());
       } finally {
         setRecommendationLoading(false);
       }
     }
     void loadRecommendations();
-  }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements, materialById]);
+  }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements]);
 
   function updateItem(index: number, patch: Partial<InboundItemForm>) {
     setFormData((current) => {
@@ -437,7 +437,7 @@ export function CreateInboundOrderModal({
         merged.heightCm = material?.heightCm || 0;
       }
       if (patch.requestedQuantity !== undefined || patch.handlingUnitCount !== undefined || patch.quantityMode !== undefined || patch.productId) {
-        merged.quantityOrdered = roundInboundQuantity(merged, profile);
+        merged.quantityOrdered = roundInboundQuantity(merged, profile, materialById.get(merged.productId));
       }
       next[index] = merged;
       return { ...current, items: next };
@@ -588,14 +588,17 @@ export function CreateInboundOrderModal({
   async function handleConfirmRecommendedLocations() {
     const confirmedItems = formData.items.map((item, idx) => ({
       ...item,
-      locationCode: item.locationCode || recommendationsByItem.get(idx)?.recommended_location_code || "",
+      locationCode: item.locationCode || recommendationsByItem.get(idx)?.locationCode || "",
     }));
     await submitInboundOrder(confirmedItems);
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-base-100 rounded-lg border border-base-300 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+      <div
+        className="bg-base-100 rounded-lg border border-base-300 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        data-tour-target="inbound-create-modal"
+      >
         <div className="flex items-center justify-between p-6 border-b border-base-300">
           <h2 className="text-2xl font-bold text-base-content">Create Inbound Order</h2>
           <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle">
@@ -610,11 +613,15 @@ export function CreateInboundOrderModal({
             <h3 className="text-lg font-semibold text-base-content">Order Details</h3>
             <SelectControl label="Supplier *" value={formData.supplierId} onChange={(value) => setFormData((current) => ({ ...current, supplierId: value, items: [] }))}>
               <option value="">Select supplier</option>
-              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+              {/* Several suppliers share a name, and each carries its own material list, so the
+                  code is shown too — picking a same-named twin silently hides the items. */}
+              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.code ? `${supplier.code} - ${supplier.name}` : supplier.name}</option>)}
             </SelectControl>
             <SelectControl label="Warehouse *" value={formData.warehouseId} onChange={(value) => setFormData((current) => ({ ...current, warehouseId: value, items: current.items.map((item) => ({ ...item, locationCode: "" })) }))}>
               <option value="">Select warehouse</option>
-              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+              {/* Names are not unique across warehouses, so the code is shown too — picking the
+                  wrong same-named site sends the order to a warehouse with no active racks. */}
+              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}</option>)}
             </SelectControl>
             <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData((current) => ({ ...current, orderDate: value }))} />
             <DateControl label="Expected Delivery Date *" value={formData.expectedDeliveryDate} min={formData.orderDate || undefined} onChange={(value) => setFormData((current) => ({ ...current, expectedDeliveryDate: value }))} />
@@ -633,14 +640,21 @@ export function CreateInboundOrderModal({
             {!formData.supplierId && <div className="alert alert-warning"><span>Select a supplier first.</span></div>}
             {formData.supplierId && materials.length === 0 && <div className="alert alert-info"><span>No materials are linked to this supplier.</span></div>}
             {formData.supplierId && materials.length > 0 && !supplierHasMaterialLinks && <div className="alert alert-info"><span>Selected items will initialize the supplier-material mapping.</span></div>}
-            <TextControl label="Filter by SKU or name" value={materialSearch} onChange={setMaterialSearch} />
 
             <div className="space-y-4">
               {formData.items.map((item, idx) => {
                 const profile = profilesByMaterialId.get(item.productId);
                 const material = materialById.get(item.productId);
-                const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || material?.unitsPerHandlingUnit || material?.palletSpaces || 1;
+                const breakdown = resolveInboundQuantity(item, profile, material);
+                const unitsPerHandlingUnit = breakdown.unitsPerHandlingUnit;
                 const handlingLabel = material?.handlingUnitType || material?.unitType || "unit";
+                // Putaway splits by units_per_pallet, which is a different column from the
+                // units_per_handling_unit used for purchasing. Showing the resulting bin
+                // count here stops that difference from being a surprise at putaway time.
+                const unitsPerPallet = positive(material?.unitsPerPallet);
+                const putawayBins = unitsPerPallet && breakdown.quantity > 0
+                  ? Math.ceil(breakdown.quantity / unitsPerPallet)
+                  : null;
                 return (
                   <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg">
                     <div className="flex justify-between items-start mb-3">
@@ -652,7 +666,7 @@ export function CreateInboundOrderModal({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectControl label="Material *" value={item.productId} onChange={(value) => updateItem(idx, { productId: value })}>
                         <option value="">Select material</option>
-                        {filteredMaterials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
+                        {materials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
                       </SelectControl>
                       <SelectControl label="Quantity Mode" value={item.quantityMode} onChange={(value) => updateItem(idx, { quantityMode: value as "units" | "handling" })}>
                         <option value="units">Required units</option>
@@ -667,12 +681,20 @@ export function CreateInboundOrderModal({
                       {material && (
                         <div className="md:col-span-2 rounded-lg border border-base-300 bg-base-100 p-3 text-xs text-base-content/70">
                           <div className="font-semibold text-base-content mb-1">{material.materialCode} packaging</div>
-                          <div>Requested units: {item.quantityMode === "handling" ? item.handlingUnitCount * unitsPerHandlingUnit : item.requestedQuantity}</div>
+                          <div>Requested units: {breakdown.requestedUnits}</div>
                           <div>Rounded purchasing quantity: {item.quantityOrdered || "-"}</div>
                           <div>Rounded by minimum order, order multiple, and units per handling unit.</div>
                           <div>Handling unit: {handlingLabel} | Units/{handlingLabel}: {unitsPerHandlingUnit}</div>
-                          <div>Minimum order: {profile?.effectiveMinimumOrderQuantity ?? material.minOrderQuantity ?? 1} | Order multiple: {profile?.effectiveOrderMultiple ?? material.orderMultiple ?? unitsPerHandlingUnit}</div>
+                          <div>Minimum order: {breakdown.moq} | Order multiple: {breakdown.orderMultiple}</div>
+                          {putawayBins != null && (
+                            <div>Putaway: {breakdown.quantity} units / {unitsPerPallet} per pallet = {putawayBins} bin{putawayBins === 1 ? "" : "s"} to visit</div>
+                          )}
                           <div>Weight: {material.weightKg ?? "-"} kg | Size: {material.lengthCm ?? "-"} x {material.widthCm ?? "-"} x {material.heightCm ?? "-"} cm</div>
+                          {breakdown.raisedByMoq && (
+                            <div className="mt-2 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning-content">
+                              Raised from {breakdown.requestedUnits} to {breakdown.quantity} units by the supplier minimum order of {breakdown.moq}.
+                            </div>
+                          )}
                         </div>
                       )}
                       <TextControl label="Batch Number" value={item.batchNumber} onChange={(value) => updateItem(idx, { batchNumber: value })} />
@@ -747,12 +769,11 @@ export function CreateInboundOrderModal({
         {step === 4 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content">Location Selection</h3>
-            {recommendationError && <div className="alert alert-warning"><span>{recommendationError}</span></div>}
             {warehouseLocations.length === 0 && <div className="alert alert-warning"><span>No storage locations found for this warehouse.</span></div>}
             <div className="space-y-4">
               {formData.items.map((item, idx) => {
                 const recommendation = recommendationsByItem.get(idx);
-                const selectedCode = item.locationCode || recommendation?.recommended_location_code || "";
+                const selectedCode = item.locationCode || recommendation?.locationCode || "";
                 return (
                   <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -762,20 +783,25 @@ export function CreateInboundOrderModal({
                       </div>
                       <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
                     </div>
-                    {recommendationLoading && <div className="flex items-center gap-2 text-sm text-base-content/60"><span className="loading loading-spinner loading-xs"></span>Generating recommendation...</div>}
+                    {recommendationLoading && <div className="flex items-center gap-2 text-sm text-base-content/60"><span className="loading loading-spinner loading-xs"></span>Loading slotting plan...</div>}
                     {!recommendationLoading && recommendation && (
                       <div className="rounded-lg bg-base-100 border border-primary/20 p-4 space-y-2">
-                        <div className="text-xs uppercase text-base-content/60">Recommended Location</div>
-                        <div className="text-2xl font-bold text-primary">{recommendation.recommended_location_code}</div>
+                        <div className="text-xs uppercase text-base-content/60">Planned Location</div>
+                        <div className="text-2xl font-bold text-primary">{recommendation.locationCode}</div>
                         <div className="text-sm text-base-content/70">{recommendation.reason}</div>
                         <div className="flex flex-wrap gap-2">
-                          {recommendation.alternatives.map((alternative) => <span key={alternative.location_id} className="badge badge-ghost">{alternative.location_code}</span>)}
+                          {recommendation.alternatives.map((alternative) => <span key={alternative} className="badge badge-ghost">{alternative}</span>)}
                         </div>
+                      </div>
+                    )}
+                    {!recommendationLoading && !recommendation && (
+                      <div className="text-sm text-base-content/60">
+                        No slotting plan entry for this material — a location will be assigned during putaway.
                       </div>
                     )}
                     <SelectControl label="Final Location" value={selectedCode} onChange={(value) => updateItem(idx, { locationCode: value })}>
                       <option value="">Use recommendation / assign during putaway</option>
-                      {recommendation && <option value={recommendation.recommended_location_code}>{recommendation.recommended_location_code} - recommended</option>}
+                      {recommendation && <option value={recommendation.locationCode}>{recommendation.locationCode} - from slotting plan</option>}
                       {availableWarehouseLocations.map((location) => <option key={location.id} value={location.locationCode}>{location.locationCode}</option>)}
                     </SelectControl>
                   </div>
@@ -884,17 +910,78 @@ function NumberControl({ label, value, onChange, min = 0, step = 1 }: { label: s
   );
 }
 
-function roundInboundQuantity(item: InboundItemForm, profile?: MaterialOrderingProfile): number {
-  const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || 1;
-  const orderMultiple = positive(profile?.effectiveOrderMultiple) || unitsPerHandlingUnit || 1;
-  const moq = positive(profile?.effectiveMinimumOrderQuantity) || 1;
+type InboundQuantityBreakdown = {
+  unitsPerHandlingUnit: number;
+  orderMultiple: number;
+  moq: number;
+  /** What the buyer actually asked for, in units, before any rounding. */
+  requestedUnits: number;
+  /** What gets ordered once the supplier minimum and order multiple are applied. */
+  quantity: number;
+  raisedByMoq: boolean;
+  roundedUpToMultiple: boolean;
+};
+
+/**
+ * Resolves the ordering rules for a line.
+ *
+ * <p>The fallback chain mirrors the backend's ordering-profile endpoint
+ * (supplier rule, then material, then pallet spaces). Falling back to 1 whenever the
+ * profile request had not landed yet is what made a "3 pallets" line submit 3 units
+ * while the summary above it displayed 60 — so display and submission now both read
+ * from this one function rather than computing the multiplier separately.
+ */
+function resolveInboundQuantity(
+  item: InboundItemForm,
+  profile?: MaterialOrderingProfile,
+  material?: Material,
+): InboundQuantityBreakdown {
+  const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit)
+    || positive(material?.unitsPerHandlingUnit)
+    || positive(material?.palletSpaces)
+    || 1;
+  const orderMultiple = positive(profile?.effectiveOrderMultiple)
+    || positive(material?.orderMultiple)
+    || unitsPerHandlingUnit;
+  const moq = positive(profile?.effectiveMinimumOrderQuantity)
+    || positive(material?.minOrderQuantity)
+    || 1;
+
   const rawRequested = item.quantityMode === "handling"
     ? item.handlingUnitCount * unitsPerHandlingUnit
     : item.requestedQuantity;
-  const requested = Math.max(0, Math.ceil(rawRequested || 0));
-  if (requested <= 0) return 0;
-  const base = Math.max(requested, moq);
-  return Math.ceil(base / orderMultiple) * orderMultiple;
+  const requestedUnits = Math.max(0, Math.ceil(rawRequested || 0));
+  if (requestedUnits <= 0) {
+    return {
+      unitsPerHandlingUnit,
+      orderMultiple,
+      moq,
+      requestedUnits: 0,
+      quantity: 0,
+      raisedByMoq: false,
+      roundedUpToMultiple: false,
+    };
+  }
+
+  const base = Math.max(requestedUnits, moq);
+  const quantity = Math.ceil(base / orderMultiple) * orderMultiple;
+  return {
+    unitsPerHandlingUnit,
+    orderMultiple,
+    moq,
+    requestedUnits,
+    quantity,
+    raisedByMoq: base > requestedUnits,
+    roundedUpToMultiple: quantity > base,
+  };
+}
+
+function roundInboundQuantity(
+  item: InboundItemForm,
+  profile?: MaterialOrderingProfile,
+  material?: Material,
+): number {
+  return resolveInboundQuantity(item, profile, material).quantity;
 }
 
 function positive(value?: number | null): number | null {

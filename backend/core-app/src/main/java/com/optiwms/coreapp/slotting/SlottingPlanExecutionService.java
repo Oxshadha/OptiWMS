@@ -113,21 +113,38 @@ public class SlottingPlanExecutionService {
             return new ExecutionResult(0, null, "COMPLETED", 0);
         }
 
-        StockTransfer transfer = new StockTransfer();
-        transfer.setTransferType("slotting_relocation");
-        transfer.setPlanningCycleId(plan.getPlanningCycleId());
-        transfer.setMaterialId(transferLines.get(0).getMaterialId());
-        transfer.setSourceWarehouseId(warehouseId);
-        transfer.setDestWarehouseId(warehouseId);
-        transfer.setQuantity(transferLines.stream().mapToInt(StockTransferLine::getRequestedQuantity).sum());
-        transfer.setStatus("draft");
-        transfer.setNotes("slotting_plan_id:" + plan.getId() + " plan:" + plan.getPlanCode());
-        transfer.setLines(transferLines);
+        // One transfer per relocation. A single document bundling every move
+        // was one job on the floor for work that is many separate pallet moves,
+        // and its header could only name one material, so a 34-move release
+        // showed up as a single job labelled with whichever material happened to
+        // be first.
+        UUID firstTransferId = null;
+        int created = 0;
 
-        StockTransfer created = stockTransferService.create(transfer);
-        StockTransfer released = stockTransferService.releaseForSlotting(created.getId());
+        for (StockTransferLine line : transferLines) {
+            StockTransfer transfer = new StockTransfer();
+            transfer.setTransferType("slotting_relocation");
+            transfer.setPlanningCycleId(plan.getPlanningCycleId());
+            transfer.setMaterialId(line.getMaterialId());
+            transfer.setSourceWarehouseId(warehouseId);
+            transfer.setDestWarehouseId(warehouseId);
+            transfer.setQuantity(line.getRequestedQuantity());
+            transfer.setStatus("draft");
+            transfer.setNotes("slotting_plan_id:" + plan.getId() + " plan:" + plan.getPlanCode());
 
-        return new ExecutionResult(1, released.getId(), "PENDING_MOVES", transferLines.size());
+            // Each document carries exactly its own move, renumbered from one.
+            line.setLineNumber(1);
+            transfer.setLines(new ArrayList<>(List.of(line)));
+
+            StockTransfer saved = stockTransferService.create(transfer);
+            StockTransfer released = stockTransferService.releaseForSlotting(saved.getId());
+            if (firstTransferId == null) {
+                firstTransferId = released.getId();
+            }
+            created++;
+        }
+
+        return new ExecutionResult(created, firstTransferId, "PENDING_MOVES", transferLines.size());
     }
 
     private void applyDefaultLocations(SlottingPlanLineEntity line, UUID warehouseId, String targetPrimary) {

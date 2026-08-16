@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { WarehouseRouteControlPanel } from "@/app/admin/warehouses/components/WarehouseRouteControlPanel";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
@@ -9,6 +10,9 @@ import { logger } from "@/lib/utils/logger";
 
 export default function PathfindingPage() {
   const { admin, hasPermission, isLoading: adminLoading } = useAdmin();
+  const searchParams = useSearchParams();
+  // Set when arriving from the warehouse layout page so the same warehouse stays selected.
+  const warehouseFromUrl = searchParams.get("warehouseId");
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -27,6 +31,7 @@ export default function PathfindingPage() {
           ? items.filter((warehouse) => warehouse.id === admin.warehouseId)
           : items;
         const preferred =
+          available.find((warehouse) => warehouse.id === warehouseFromUrl) ||
           available.find((warehouse) => warehouse.code === "WH-001") ||
           available[0];
         setWarehouses(available);
@@ -45,7 +50,7 @@ export default function PathfindingPage() {
     return () => {
       active = false;
     };
-  }, [admin?.role, admin?.warehouseId, adminLoading, canView]);
+  }, [admin?.role, admin?.warehouseId, adminLoading, canView, warehouseFromUrl]);
 
   const selectedWarehouse = useMemo(
     () => warehouses.find((warehouse) => warehouse.id === selectedWarehouseId),

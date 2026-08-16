@@ -5,7 +5,7 @@ import json
 import httpx
 import uuid
 import time
-import base64
+import logging
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +20,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
+
+import tools as tools_module
 
 # Langchain / SOP Q&A
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -92,6 +94,20 @@ class ChatMessage(Base):
     text_content = Column(Text, nullable=True)
     chat_metadata = Column("metadata", JSON, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+class PolicyExplanationCache(Base):
+    """One cached LLM narration per policy recommendation line, keyed on the
+    line's own `updated_at`. A recalculated line gets a new `updated_at`, so
+    the old cache row is simply orphaned (and overwritten on next lookup)
+    rather than served stale — no time-based expiry needed, since the only
+    thing that should invalidate an explanation is the underlying numbers
+    actually changing."""
+    __tablename__ = 'policy_explanation_cache'
+    line_id = Column(String(36), primary_key=True)
+    line_updated_at = Column(DateTime(timezone=True), nullable=False)  # matches inventory_policy_recommendation_lines.updated_at
+    explanation = Column(Text, nullable=False)
+    model_used = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
 
@@ -175,6 +191,18 @@ def extract_sql(text: str) -> str:
     return ""
 
 
+# ── JSON-safe DataFrame → records ─────────────────────────────────────────────
+def df_records_json_safe(df: pd.DataFrame) -> list[dict]:
+    """`df.to_dict(orient="records")` keeps raw datetime.date/Decimal objects,
+    which the stdlib json encoder (used by the Postgres JSON column and by
+    FastAPI) cannot serialize — a query result with a plain DATE column would
+    silently fail to persist to chat history. Route through pandas' own JSON
+    encoder instead, which already knows how to convert those types."""
+    if df is None:
+        return []
+    return json.loads(df.to_json(orient="records", date_format="iso"))
+
+
 # ── Mode detection ────────────────────────────────────────────────────────────
 def is_report_request(question: str) -> bool:
     q = question.lower()
@@ -183,14 +211,17 @@ def is_report_request(question: str) -> bool:
     return has_report and has_action
 
 
-# ── Chart generation (base64 image) ──────────────────────────────────────────
-def generate_chart(df: pd.DataFrame) -> str | None:
+# ── Chart generation (JSON spec for interactive frontend rendering) ──────────
+def generate_chart_spec(df: pd.DataFrame) -> dict | None:
+    """Pick a chart shape from the result set and return it as a declarative
+    JSON spec — {type, title, xKey, yKey, data} — for the frontend to render
+    with Recharts. No image is produced: the LLM/backend never decides pixels,
+    only which columns to plot, so the chat UI gets real hover/zoom
+    interactivity instead of a static picture."""
     if df is None or df.empty or len(df) < 2:
         return None
 
-    sns.set_theme(style="whitegrid")
     df_display = df.copy()
-
     for col in df_display.columns:
         if "date" in col.lower() or pd.api.types.is_datetime64_any_dtype(df_display[col]):
             try:
@@ -204,73 +235,78 @@ def generate_chart(df: pd.DataFrame) -> str | None:
 
     cat_cols = [
         c for c in df_display.columns
-        if c not in numeric_cols and df_display[c].nunique() <= min(len(df_display), 50)
+        # nunique()==0 means every value is null (e.g. sku_id on raw materials
+        # that are only identified by material_code) — dropna() would then
+        # wipe every row and silently push a good column into the histogram
+        # fallback instead of plotting it.
+        if c not in numeric_cols and 1 <= df_display[c].nunique() <= min(len(df_display), 50)
     ]
-
-    fig, ax = plt.subplots(figsize=(10, 5))
+    date_cols = [c for c in df_display.columns if pd.api.types.is_datetime64_any_dtype(df_display[c])]
 
     try:
-        date_cols = [c for c in df_display.columns if pd.api.types.is_datetime64_any_dtype(df_display[c])]
-
         if date_cols and numeric_cols:
             date_col, metric_col = date_cols[0], numeric_cols[0]
-            df_plot = df_display.dropna(subset=[date_col, metric_col])
+            # A tool's result can carry an extra breakdown dimension (e.g.
+            # order status) that makes the same date repeat with different
+            # values. A line needs one point per x, so collapse repeats by
+            # summing rather than plotting them as separate points on the
+            # same date, which would zigzag nonsensically.
+            df_plot = (
+                df_display.dropna(subset=[date_col, metric_col])
+                .groupby(date_col, as_index=False)[metric_col]
+                .sum()
+                .sort_values(by=date_col)
+            )
             if len(df_plot) >= 2:
-                sns.lineplot(
-                    data=df_plot.sort_values(by=date_col),
-                    x=date_col, y=metric_col, marker="o", ax=ax,
-                    color="#D10654",
-                )
-                ax.set_title(f"{metric_col} over time", fontsize=13, color="#0F1E3C", pad=12)
-                ax.set_xlabel(date_col); ax.set_ylabel(metric_col)
-                ax.xaxis.set_tick_params(rotation=45)
-                plt.tight_layout()
-                return _fig_to_b64(fig)
+                return {
+                    "type": "line",
+                    "title": f"{metric_col} over time",
+                    "xKey": date_col,
+                    "yKey": metric_col,
+                    "data": df_records_json_safe(df_plot[[date_col, metric_col]]),
+                }
 
         if cat_cols and numeric_cols:
             cat_col, metric_col = cat_cols[0], numeric_cols[0]
-            df_plot = df_display[[cat_col, metric_col]].dropna()
+            df_plot = (
+                df_display[[cat_col, metric_col]]
+                .dropna()
+                .groupby(cat_col, as_index=False)[metric_col]
+                .sum()
+            )
             if len(df_plot) >= 2:
-                if df_plot[cat_col].nunique() > 15:
-                    df_plot = (
-                        df_plot.groupby(cat_col, as_index=False)[metric_col]
-                        .sum()
-                        .nlargest(15, metric_col)
-                    )
-                sns.barplot(
-                    data=df_plot, x=cat_col, y=metric_col, ax=ax,
-                    color="#D10654",
-                )
-                ax.set_title(f"{metric_col} by {cat_col}", fontsize=13, color="#0F1E3C", pad=12)
-                ax.set_xlabel(cat_col); ax.set_ylabel(metric_col)
-                ax.xaxis.set_tick_params(rotation=45)
-                plt.tight_layout()
-                return _fig_to_b64(fig)
+                if len(df_plot) > 15:
+                    df_plot = df_plot.nlargest(15, metric_col)
+                return {
+                    "type": "bar",
+                    "title": f"{metric_col} by {cat_col}",
+                    "xKey": cat_col,
+                    "yKey": metric_col,
+                    "data": df_records_json_safe(df_plot),
+                }
 
         if len(numeric_cols) >= 1:
             metric_col = numeric_cols[0]
             df_plot = df_display[metric_col].dropna()
             if len(df_plot) >= 5:
-                sns.histplot(data=df_plot, kde=True, ax=ax, color="#D10654")
-                ax.set_title(f"Distribution of {metric_col}", fontsize=13, color="#0F1E3C", pad=12)
-                ax.set_xlabel(metric_col); ax.set_ylabel("Count")
-                plt.tight_layout()
-                return _fig_to_b64(fig)
+                bins = pd.cut(df_plot, bins=min(10, df_plot.nunique()))
+                counts = bins.value_counts().sort_index()
+                hist_data = [
+                    {"bucket": f"{interval.left:.1f}–{interval.right:.1f}", "count": int(count)}
+                    for interval, count in counts.items()
+                ]
+                return {
+                    "type": "bar",
+                    "title": f"Distribution of {metric_col}",
+                    "xKey": "bucket",
+                    "yKey": "count",
+                    "data": hist_data,
+                }
 
     except Exception as exc:
-        print(f"Chart generation failed: {exc}")
-    finally:
-        plt.close(fig)
+        print(f"Chart spec generation failed: {exc}")
 
     return None
-
-
-def _fig_to_b64(fig) -> str:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return "data:image/png;base64," + base64.b64encode(buf.read()).decode("utf-8")
 
 
 def _fig_to_bytes(fig) -> bytes:
@@ -281,36 +317,123 @@ def _fig_to_bytes(fig) -> bytes:
     return buf.read()
 
 
-# ── Groq API Fallback Helper ─────────────────────────────────────────────────
+# ── Provider quota handling and Groq fallback ────────────────────────────────
+logger = logging.getLogger("optiwms.agent")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+class AIQuotaExceeded(Exception):
+    """Every configured model provider is rate limited or out of quota.
+
+    Raised so the API layer can answer 429 with a clear message instead of a
+    generic 500.
+    """
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    """Detect a rate-limit/quota error across the shapes providers use.
+
+    google-genai raises ResourceExhausted in some paths and a ClientError
+    carrying HTTP 429 in others, and httpx raises HTTPStatusError. Checking the
+    text as a last resort keeps this working across SDK versions.
+    """
+    if isinstance(exc, ResourceExhausted):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        return True
+    if getattr(exc, "code", None) == 429 or getattr(exc, "status_code", None) == 429:
+        return True
+    text = str(exc).upper()
+    return "RESOURCE_EXHAUSTED" in text or "429" in text or "QUOTA" in text or "RATE LIMIT" in text
+
+
+def _generate_with_groq(prompt: str) -> str:
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise AIQuotaExceeded(
+            "The Gemini quota is exhausted and no GROQ_API_KEY fallback is configured."
+        )
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}]},
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:
+        if _is_quota_error(exc):
+            raise AIQuotaExceeded("Both Gemini and Groq are rate limited right now.") from exc
+        raise
+
+
+def _groq_configured() -> bool:
+    return bool(os.getenv("GROQ_API_KEY"))
+
+
 def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-lite") -> tuple[str, bool]:
+    """Return (text, used_fallback).
+
+    Falls back to Groq whenever Gemini cannot answer and a Groq key is set --
+    quota exhaustion, an invalid/revoked key, or the service being unreachable.
+    The reason is always logged so a broken Gemini key stays visible rather than
+    being silently masked by the fallback.
+    """
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-        )
+        response = client.models.generate_content(model=model, contents=prompt)
         return response.text, False
-    except ResourceExhausted:
-        print("Gemini quota exhausted. Falling back to Groq...")
-        groq_key = os.getenv("GROQ_API_KEY")
-        if not groq_key:
-            raise ResourceExhausted("Google Gemini quota exhausted and GROQ_API_KEY not found.")
-        
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {groq_key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "llama3-70b-8192",
-            "messages": [{"role": "user", "content": prompt}]
-        }
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.post(url, headers=headers, json=data)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"], True
+    except Exception as exc:
+        quota = _is_quota_error(exc)
+        if not _groq_configured():
+            if quota:
+                raise AIQuotaExceeded(
+                    "The Gemini quota is exhausted and no GROQ_API_KEY fallback is configured."
+                ) from exc
+            raise
+        reason = "quota exhausted" if quota else f"unavailable ({type(exc).__name__})"
+        logger.warning("Gemini %s: %s. Falling back to Groq [%s].", reason, exc, GROQ_MODEL)
+        return _generate_with_groq(prompt), True
 
-# ── SQL generation ────────────────────────────────────────────────────────────
+# ── Guarded tool selection ────────────────────────────────────────────────────
+def select_tool(question: str) -> dict:
+    """Ask the LLM to pick a tool from the fixed menu (or none). The LLM only
+    ever sees tool names/descriptions/params here — never the DB schema —
+    so it cannot influence what SQL actually runs, only which pre-written
+    query executes and with what parameter values."""
+    prompt = f"""You are a routing assistant for a Warehouse Management System (WMS) data assistant.
+
+Given the list of available tools below, decide which ONE tool (if any) best answers the user's question,
+and extract its parameter values from the question. If no tool fits, return "tool": null.
+
+AVAILABLE TOOLS:
+{tools_module.tool_menu_description()}
+
+USER QUESTION:
+{question}
+
+Respond with ONLY a JSON object, no markdown fences, no explanation, in this exact shape:
+{{"tool": "<tool_name_or_null>", "params": {{...}}}}
+
+Only include parameters the tool actually defines. Omit optional parameters you cannot infer — the tool will use its default."""
+
+    text_out, fallback = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+    raw = text_out.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict) or "tool" not in parsed:
+            return {"tool": None, "params": {}}
+        parsed.setdefault("params", {})
+        return parsed
+    except Exception:
+        return {"tool": None, "params": {}}
+
+
+# ── SQL generation (adhoc fallback — only used when no tool matches) ─────────
 def generate_sql(question: str, schema: str) -> tuple[str, bool]:
     prompt = f"""You are a SQL expert for a Warehouse Management System (WMS) using PostgreSQL.
 
@@ -695,7 +818,7 @@ def _build_chart_bytes_from_df(df: pd.DataFrame) -> bytes | None:
                 pass
 
     numeric_cols = df_display.select_dtypes(include=["number"]).columns.tolist()
-    cat_cols = [c for c in df_display.columns if c not in numeric_cols and df_display[c].nunique() <= 30]
+    cat_cols = [c for c in df_display.columns if c not in numeric_cols and 1 <= df_display[c].nunique() <= 30]
 
     if not numeric_cols:
         return None
@@ -769,42 +892,11 @@ def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
         return None
 
 
-# ── Database analytics ask_database ──────────────────────────────────────────
-def ask_database(question: str):
-    """
-    Returns (df, sql, chart, error, answer, download_url)
-
-    - In Conversational Mode: df, sql, chart, error, answer (natural text), None
-    - In Report Mode:         None, sql, None, error, answer (with link), download_url
-    """
-    engine = get_engine()
-    schema = get_schema_description(engine)
-    report_mode = is_report_request(question)
-    fallback_used = False
-
-    # ── Generate SQL ──────────────────────────────────────────────────────────
-    try:
-        sql, sql_fb = generate_sql(question, schema)
-        fallback_used = fallback_used or sql_fb
-    except ResourceExhausted as e:
-        return None, None, None, str(e), None, None
-    except Exception as e:
-        return None, None, None, f"Failed to generate SQL: {str(e)}", None, None
-
-    if not sql:
-        return None, None, None, "I couldn't generate a valid SQL query for that question.", None, None
-
-    if not is_safe_query(sql):
-        return None, sql, None, "I only run SELECT queries for safety. Please ask a read-only question.", None, None
-
-    # ── Execute SQL ───────────────────────────────────────────────────────────
-    try:
-        with engine.connect() as conn:
-            df = pd.read_sql(text(sql), conn)
-    except Exception as e:
-        return None, sql, None, f"Query failed: {str(e)}", None, None
-
-    # ── Mode 2: Report Generation ─────────────────────────────────────────────
+def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode: bool, fallback_used: bool):
+    """Shared tail for both the guarded-tool path and the adhoc-SQL fallback:
+    turn an executed (sql, df) pair into either a PDF report or a
+    conversational answer + chart. Returns (df, sql, chart, error, answer,
+    download_url)."""
     if report_mode:
         try:
             report_json, rep_fb = generate_report_json(question, sql, df)
@@ -819,8 +911,7 @@ def ask_database(question: str):
         except Exception as e:
             return None, sql, None, f"Report generation failed: {str(e)}", None, None
 
-    # ── Mode 1: Conversational ────────────────────────────────────────────────
-    chart = generate_chart(df)
+    chart = generate_chart_spec(df)
     try:
         answer, conv_fb = generate_conversational_answer(question, sql, df)
         fallback_used = fallback_used or conv_fb
@@ -830,6 +921,78 @@ def ask_database(question: str):
         answer = ""
 
     return df, sql, chart, None, answer, None
+
+
+def _ask_database_adhoc(question: str, engine, report_mode: bool):
+    """Last-resort path when no guarded tool matches: generate free-form SQL
+    against the schema, same as before. Still SELECT-only and
+    allowlist-checked."""
+    schema = get_schema_description(engine)
+    fallback_used = False
+
+    try:
+        sql, sql_fb = generate_sql(question, schema)
+        fallback_used = fallback_used or sql_fb
+    except AIQuotaExceeded:
+        raise
+    except ResourceExhausted as e:
+        return None, None, None, str(e), None, None
+    except Exception as e:
+        return None, None, None, f"Failed to generate SQL: {str(e)}", None, None
+
+    if not sql:
+        return None, None, None, "I couldn't generate a valid SQL query for that question.", None, None
+
+    if not is_safe_query(sql):
+        return None, sql, None, "I only run SELECT queries for safety. Please ask a read-only question.", None, None
+
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql(text(sql), conn)
+    except Exception as e:
+        return None, sql, None, f"Query failed: {str(e)}", None, None
+
+    return _finish_data_response(question, sql, df, report_mode, fallback_used)
+
+
+# ── Database analytics ask_database ──────────────────────────────────────────
+def ask_database(question: str):
+    """
+    Returns (df, sql, chart, error, answer, download_url)
+
+    - In Conversational Mode: df, sql, chart, error, answer (natural text), None
+    - In Report Mode:         None, sql, None, error, answer (with link), download_url
+
+    Tries the guarded tool menu first (fixed, hand-written SQL — the LLM only
+    picks which tool and what parameters). Only falls back to free-form SQL
+    generation when no tool matches the question.
+    """
+    engine = get_engine()
+    report_mode = is_report_request(question)
+
+    # ── Guarded tool selection ────────────────────────────────────────────
+    try:
+        selection = select_tool(question)
+    except AIQuotaExceeded:
+        raise
+    except Exception as e:
+        logger.warning("Tool selection failed, falling back to adhoc SQL: %s", e)
+        selection = {"tool": None, "params": {}}
+
+    tool_name = selection.get("tool")
+    if tool_name and tool_name in tools_module.TOOL_REGISTRY:
+        try:
+            fn = tools_module.TOOL_REGISTRY[tool_name]["fn"]
+            params = selection.get("params") or {}
+            df, sql = fn(engine, **params)
+            return _finish_data_response(question, sql, df, report_mode, fallback_used=False)
+        except AIQuotaExceeded:
+            raise
+        except Exception as e:
+            logger.warning("Tool '%s' failed, falling back to adhoc SQL: %s", tool_name, e)
+
+    # ── Adhoc fallback ─────────────────────────────────────────────────────
+    return _ask_database_adhoc(question, engine, report_mode)
 
 
 # ── RAG / SOP agent load ──────────────────────────────────────────────────────
@@ -876,6 +1039,18 @@ def classify_question(question: str) -> str:
     """
     q_lower = question.lower()
 
+    # ── Fast-path: greetings and pleasantries ─────────────────────────────
+    # Without this the classifier has only SOP, DATA and TOUR to choose from,
+    # so "hi" was forced into one of them and launched a dashboard tour.
+    stripped = re.sub(r"[^a-z\s]", "", q_lower).strip()
+    greetings = {
+        "hi", "hii", "hello", "hey", "yo", "hiya", "howdy", "good morning",
+        "good afternoon", "good evening", "thanks", "thank you", "ok", "okay",
+        "cool", "nice", "great", "bye", "goodbye", "test",
+    }
+    if stripped in greetings or (len(stripped.split()) <= 2 and stripped in {"how are you", "whats up", "sup"}):
+        return "CHAT"
+
     # ── Fast-path: explicit TOUR keyword combinations ──────────────────────
     tour_triggers = ["tour", "guide", "navigate", "how do i use", "show me how", "walk me through", "tutorial", "how to use", "where is the", "where do i find"]
     software_context = ["dashboard", "app", "system", "software", "platform", "admin", "screen", "page", "menu", "button", "tab", "feature", "panel", "widget"]
@@ -891,9 +1066,10 @@ def classify_question(question: str) -> str:
         return "TOUR"
 
     try:
-        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         prompt = f"""You are a query classifier for a Warehouse Management System (WMS).
-Classify the user question into one of these three classes:
+Classify the user question into one of these four classes:
+- 'CHAT': greetings, thanks, small talk, or anything that is not actually a request
+  about the warehouse or the software. Examples: "hi", "how are you", "thanks".
 - 'SOP': Standard Operating Procedures, safety instructions, return policies, operational rules, or physical warehouse locations/equipment.
 - 'DATA': Stock numbers, inventory counts, order status, movement logs, analytics, queries about what is in the postgres database tables, or requests to generate reports.
 - 'TOUR': Requests for a product tour, UI guide, how to use the software dashboard, how to navigate around the application, where things are on screen, or what features exist in the software.
@@ -913,17 +1089,20 @@ CRITICAL CLASSIFICATION RULES:
 User Question: "{question}"
 
 Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other text."""
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=prompt,
-        )
-        res = response.text.strip().upper()
-        if "TOUR" in res:
+        text, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+        res = (text or "").strip().upper()
+        if "CHAT" in res:
+            return "CHAT"
+        elif "TOUR" in res:
             return "TOUR"
         elif "SOP" in res:
             return "SOP"
         elif "DATA" in res:
             return "DATA"
+    except AIQuotaExceeded:
+        # No provider left. Let the caller answer 429 rather than silently
+        # misclassifying via keywords.
+        raise
     except Exception as e:
         print(f"Classifier error: {e}")
 
@@ -944,40 +1123,72 @@ Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other t
 
 
 # ── Tour ID selection ─────────────────────────────────────────────────────────
-def select_tour_id(question: str) -> str:
-    """
-    Given the user's question, return the most appropriate tour config ID
-    from frontend/lib/tours/tourConfig.ts.
-    Falls back to dashboard_overview_tour if no specific match.
-    """
-    q = question.lower()
+# Tour catalog: one line each, doubling as both the LLM's menu description
+# and the spoken intro when a tour starts. Keep in sync with the tour IDs
+# actually defined in frontend/lib/tours/tourConfig.ts.
+TOUR_CATALOG = {
+    "dashboard_overview_tour": "General dashboard overview — orders KPI, inventory health, top products. The default when nothing more specific matches.",
+    "inventory_management_tour": "Managing inventory and checking stock levels for SKUs/products.",
+    "create_inbound_order_tour": "Creating a NEW inbound order (the create wizard specifically, not just viewing orders).",
+    "orders_and_shipments_tour": "Viewing/managing orders and shipments in general (inbound, outbound, purchase, delivery).",
+    "warehouse_layout_tour": "Warehouse layout, bin/rack locations, zones, the warehouse map.",
+    "reports_analytics_tour": "Reports, analytics, KPIs, charts, exporting data.",
+    "workforce_tasks_tour": "Workers, labor, task assignment, picking/packing productivity.",
+    "sop_help_tour": "SOPs, procedures, policies, safety rules, general help.",
+    "forecast_tour": "Demand forecasting, replenishment planning, the forecast chart, and asking why a forecast is high or low.",
+}
 
-    # Inventory / stock related
+
+def _select_tour_id_keyword_fallback(question: str) -> str:
+    """Used only if the LLM tour selector is unavailable (quota/network)."""
+    q = question.lower()
+    if any(k in q for k in ["forecast", "demand plan", "replenishment"]):
+        return "forecast_tour"
     if any(k in q for k in ["inventory", "stock", "sku", "item", "product"]):
         return "inventory_management_tour"
-
-    # Orders / inbound / outbound
+    if "inbound" in q and any(
+        k in q for k in ["creat", "cretae", "new", "add", "raise", "make", "place", "set up", "setup"]
+    ):
+        return "create_inbound_order_tour"
     if any(k in q for k in ["order", "inbound", "outbound", "purchase", "shipment", "delivery"]):
         return "orders_and_shipments_tour"
-
-    # Warehouse / layout / map / locations
     if any(k in q for k in ["warehouse", "layout", "map", "location", "bin", "rack", "zone", "slot"]):
         return "warehouse_layout_tour"
-
-    # Reports / analytics / dashboard metrics
     if any(k in q for k in ["report", "analytic", "metric", "kpi", "chart", "graph", "pdf", "export"]):
         return "reports_analytics_tour"
-
-    # Workers / labor / tasks
     if any(k in q for k in ["worker", "labor", "task", "productivity", "staff", "picking", "packing"]):
         return "workforce_tasks_tour"
-
-    # SOP / help / rules
     if any(k in q for k in ["sop", "procedure", "policy", "rule", "safety", "help"]):
         return "sop_help_tour"
-
-    # Default: general dashboard overview
     return "dashboard_overview_tour"
+
+
+def select_tour_id(question: str) -> str:
+    """Pick the tour config ID (frontend/lib/tours/tourConfig.ts) that best
+    matches the user's question. LLM-picked from the described catalog above
+    rather than hardcoded keyword lists, so it generalizes to phrasing the
+    keyword list was never written for — falls back to a keyword heuristic
+    only if the LLM is unavailable."""
+    menu = "\n".join(f"- {tid}: {desc}" for tid, desc in TOUR_CATALOG.items())
+    prompt = f"""Pick the ONE tour that best matches what the user wants to be guided through.
+
+AVAILABLE TOURS:
+{menu}
+
+USER QUESTION:
+{question}
+
+Respond with ONLY the tour id (exactly as listed above), nothing else."""
+    try:
+        text_out, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+        tour_id = text_out.strip().strip('"').strip("'")
+        if tour_id in TOUR_CATALOG:
+            return tour_id
+    except AIQuotaExceeded:
+        pass
+    except Exception as e:
+        logger.warning("Tour selection failed, falling back to keyword match: %s", e)
+    return _select_tour_id_keyword_fallback(question)
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
@@ -986,15 +1197,30 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
 
-    if mode == "TOUR":
+    if mode == "CHAT":
+        res = {
+            "mode": "CHAT",
+            "answer": (
+                "Hello. I can help with three things:\n\n"
+                "- **Warehouse data** — stock levels, order status, movement history, "
+                "and PDF reports.\n"
+                "- **SOPs** — safety and operating procedures, answered with citations.\n"
+                "- **Guided tours** — I can walk you around a screen if you ask how to "
+                "use something.\n\n"
+                "What would you like to look at?"
+            ),
+        }
+    elif mode == "TOUR":
         tour_id = select_tour_id(question)
         tour_intros = {
             "inventory_management_tour": "Let me show you how to manage inventory and check stock levels.",
+            "create_inbound_order_tour": "Let me show you how to create a new inbound order.",
             "orders_and_shipments_tour": "Let me walk you through managing orders and shipments.",
             "warehouse_layout_tour": "Let me guide you around the warehouse layout and locations.",
             "reports_analytics_tour": "Let me show you the analytics and reporting features.",
             "workforce_tasks_tour": "Let me walk you through workers and task management.",
             "sop_help_tour": "Let me show you where to find SOPs and help resources.",
+            "forecast_tour": "Let me show you the demand forecasting and replenishment planning tools.",
             "dashboard_overview_tour": "Let me give you a quick tour of the dashboard and main features.",
         }
         intro = tour_intros.get(tour_id, tour_intros["dashboard_overview_tour"])
@@ -1005,11 +1231,24 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "tourId": tour_id
         }
     elif mode == "SOP":
-        result = chain.invoke({"query": question})
-        answer = result["result"]
+        try:
+            result = chain.invoke({"query": question})
+            answer = result["result"]
+            source_docs = result["source_documents"]
+        except Exception as exc:
+            if not _groq_configured():
+                raise
+            # Retrieval is local (Chroma); only generation needs a model. Pull the
+            # same context and answer with the fallback provider.
+            logger.warning("Gemini unavailable on SOP chain: %s. Falling back to Groq.", exc)
+            source_docs = chain.retriever.invoke(question)
+            context = "\n\n".join(doc.page_content for doc in source_docs)
+            answer, _ = _generate_content_with_fallback(
+                PROMPT_TEMPLATE.format(context=context, question=question)
+            )
         sources = list(set([
             doc.metadata.get("title") or doc.metadata.get("source") or os.path.basename(doc.metadata.get("source", "Unknown"))
-            for doc in result["source_documents"]
+            for doc in source_docs
         ]))
         res = {
             "mode": "SOP",
@@ -1018,7 +1257,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
         }
     else:
         df, sql, chart, error, answer, download_url = ask_database(question)
-        data = df.to_dict(orient="records") if df is not None else None
+        data = df_records_json_safe(df) if df is not None else None
         res = {
             "mode": "DATA",
             "sql": sql,

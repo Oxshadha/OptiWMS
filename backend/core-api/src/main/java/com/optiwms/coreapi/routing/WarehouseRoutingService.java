@@ -1162,23 +1162,25 @@ public class WarehouseRoutingService {
         double speed = speedFor(vehicleType);
         Map<String, List<ReservationWindow>> byResource = windows.stream()
                 .collect(Collectors.groupingBy(ReservationWindow::resourceKey));
-        Map<String, OffsetDateTime> bestArrival = new HashMap<>();
+        Map<String, Double> bestCost = new HashMap<>();
         Map<String, SearchParent> parent = new HashMap<>();
         PriorityQueue<SearchState> open = new PriorityQueue<>(
-                Comparator.comparing(SearchState::estimatedEpochSeconds)
+                Comparator.comparingDouble(SearchState::estimatedTotalCost)
         );
-        bestArrival.put(start, startAt);
+        bestCost.put(start, 0.0);
         open.add(new SearchState(
                 start,
                 startAt,
-                epoch(startAt) + heuristicSeconds(graph, start, goal, speed)
+                0.0,
+                heuristicSeconds(graph, start, goal, speed)
         ));
         int expanded = 0;
+        final double WAIT_PENALTY_FACTOR = 20.0;
 
         while (!open.isEmpty() && expanded < 100_000) {
             SearchState current = open.poll();
-            OffsetDateTime known = bestArrival.get(current.nodeId());
-            if (known == null || current.arrival().isAfter(known)) {
+            Double known = bestCost.get(current.nodeId());
+            if (known != null && current.cost() > known) {
                 continue;
             }
             if (current.nodeId().equals(goal)) {
@@ -1193,12 +1195,14 @@ public class WarehouseRoutingService {
                         byResource.getOrDefault("EDGE:" + edge.resourceKey(), List.of()),
                         byResource.getOrDefault("NODE:" + edge.to(), List.of())
                 );
-                OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
-                if (arrival.isBefore(bestArrival.getOrDefault(
-                        edge.to(),
-                        OffsetDateTime.MAX
-                ))) {
-                    bestArrival.put(edge.to(), arrival);
+                
+                double waitSeconds = Math.max(0, Duration.between(current.arrival(), depart).toMillis() / 1000.0);
+                double edgeCost = travelSeconds + (waitSeconds * WAIT_PENALTY_FACTOR);
+                double totalCost = current.cost() + edgeCost;
+                
+                if (totalCost < bestCost.getOrDefault(edge.to(), Double.POSITIVE_INFINITY)) {
+                    bestCost.put(edge.to(), totalCost);
+                    OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
                     parent.put(edge.to(), new SearchParent(
                             current.nodeId(),
                             edge,
@@ -1208,7 +1212,8 @@ public class WarehouseRoutingService {
                     open.add(new SearchState(
                             edge.to(),
                             arrival,
-                            epoch(arrival) + heuristicSeconds(graph, edge.to(), goal, speed)
+                            totalCost,
+                            totalCost + heuristicSeconds(graph, edge.to(), goal, speed)
                     ));
                 }
             }
@@ -2208,7 +2213,8 @@ public class WarehouseRoutingService {
     private record SearchState(
             String nodeId,
             OffsetDateTime arrival,
-            double estimatedEpochSeconds
+            double cost,
+            double estimatedTotalCost
     ) {}
 
     private record SearchParent(

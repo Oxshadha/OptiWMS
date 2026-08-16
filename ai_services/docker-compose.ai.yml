@@ -139,8 +139,12 @@ services:
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
       - AI_AGENT_ALLOWED_ORIGINS=${AI_AGENT_ALLOWED_ORIGINS}
-      - DB_HOST=db
-      - DB_PORT=5432
+      # optiwms-db lives on the infra_default network, not
+      # infra_optiwms-network, so the "db" hostname never resolves here.
+      # Reach it through the host-exposed port instead, same as
+      # forecast-service's WMS_RUNTIME_DATABASE_URL does.
+      - DB_HOST=host.docker.internal
+      - DB_PORT=5434
       - DB_NAME=${DB_NAME:-optiwms}
       - DB_USER=${DB_USER:-optiwms}
       - DB_PASSWORD=${DB_PASSWORD:-optiwms}
@@ -148,6 +152,8 @@ services:
       - SPRING_API_BASE_URL=${SPRING_API_BASE_URL:-http://core-api:8080}
       - AI_AGENT_RATE_LIMIT_PER_MINUTE=${AI_AGENT_RATE_LIMIT_PER_MINUTE:-30}
       - AI_AGENT_SQL_ROLES=${AI_AGENT_SQL_ROLES:-ADMIN,MANAGER}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
     depends_on:
       forecast-service:
         condition: service_healthy

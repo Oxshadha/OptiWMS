@@ -22,6 +22,7 @@ import java.util.UUID;
 @Service
 public class PutawayService {
     private static final Pattern PUTAWAY_PROGRESS_PATTERN = Pattern.compile("PUTAWAY_PROGRESS=(\\d+)/(\\d+)");
+    private static final Pattern PUTAWAY_HU_QTY_PATTERN = Pattern.compile("PUTAWAY_HU_QTY=(\\d+)");
     private static final Pattern PUTAWAY_SKIP_REASON_PATTERN = Pattern.compile("(?m)^PUTAWAY_SKIP_REASON=.*(?:\\R|$)");
 
     private final TaskService taskService;
@@ -88,10 +89,16 @@ public class PutawayService {
             if (actualMaterialId == null) {
                 actualMaterialId = orderItem.getMaterialId();
             }
+            // A putaway task is one pallet, so it owes only that pallet's quantity. Falling back
+            // to the whole line total would make each of N pallet tasks demand the full receipt.
+            Integer handlingUnitQuantity = extractHandlingUnitQuantity(task.getNotes());
+            Integer lineQuantity = orderItem.getPickedQuantity() != null
+                    ? orderItem.getPickedQuantity()
+                    : orderItem.getQuantity();
             if (actualQuantity == null || actualQuantity <= 0) {
-                actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+                actualQuantity = handlingUnitQuantity != null ? handlingUnitQuantity : lineQuantity;
             }
-            requiredQuantityForTask = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+            requiredQuantityForTask = handlingUnitQuantity != null ? handlingUnitQuantity : lineQuantity;
         }
 
         if (actualMaterialId == null && task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
@@ -377,6 +384,25 @@ public class PutawayService {
         if (remaining > 0) {
             throw new RuntimeException("Failed to move the complete received quantity into storage");
         }
+    }
+
+    /**
+     * Reads the pallet quantity this task is responsible for, written by PutawayTaskService.
+     * Returns null for legacy line-scoped tasks created before per-pallet splitting.
+     */
+    private Integer extractHandlingUnitQuantity(String notes) {
+        if (notes == null || notes.isBlank()) {
+            return null;
+        }
+        Matcher matcher = PUTAWAY_HU_QTY_PATTERN.matcher(notes);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private Integer extractCompletedQuantity(String notes) {

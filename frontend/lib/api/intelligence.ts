@@ -12,6 +12,8 @@ export interface ActionItem {
   canApprove: boolean;
   blockedReason?: string | null;
   affectedCount: number;
+  /** Set when the action was snoozed; it is still returned so the UI can explain the pause. */
+  deferredUntil?: string | null;
 }
 
 export interface SolverGuidance {

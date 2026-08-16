@@ -1,6 +1,7 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.inventory.InventoryService;
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapp.orders.OrderService;
@@ -37,6 +38,7 @@ public class ReceivingService {
     private final GrnService grnService;
     private final TaskService taskService;
     private final OperationEventService operationEventService;
+    private final HandlingUnitCapacityService handlingUnitCapacityService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -48,7 +50,8 @@ public class ReceivingService {
                            QualityCheckService qualityCheckService,
                            GrnService grnService,
                            TaskService taskService,
-                           OperationEventService operationEventService) {
+                           OperationEventService operationEventService,
+                           HandlingUnitCapacityService handlingUnitCapacityService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -60,6 +63,7 @@ public class ReceivingService {
         this.grnService = grnService;
         this.taskService = taskService;
         this.operationEventService = operationEventService;
+        this.handlingUnitCapacityService = handlingUnitCapacityService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -88,7 +92,7 @@ public class ReceivingService {
         
         for (ReceivedItem receivedItem : receivedItems) {
             // Validate weight limit before processing
-            validatePalletWeight(receivedItem.materialId(), receivedItem.quantity());
+            validateHandlingUnitWeight(receivedItem.materialId(), receivedItem.quantity());
             
             OrderItemEntity orderItem = orderItems.stream()
                     .filter(item -> item.getMaterialId().equals(receivedItem.materialId()))
@@ -198,7 +202,7 @@ public class ReceivingService {
         // Update inventory for each received item
         for (ReceivedItem receivedItem : receivedItems) {
             // Validate weight limit before processing
-            validatePalletWeight(receivedItem.materialId(), receivedItem.quantity());
+            validateHandlingUnitWeight(receivedItem.materialId(), receivedItem.quantity());
             
             UUID itemWarehouseId = warehouseId;
             if (itemWarehouseId == null) {
@@ -299,29 +303,52 @@ public class ReceivingService {
     }
 
     /**
-     * Validates pallet weight against material's maximum weight limit (SOP enforcement)
+     * Validates the SOP pallet weight limit against a single handling unit, not the whole receipt.
+     *
+     * <p>A receipt larger than one pallet is normal: it is split across as many handling units as
+     * it needs. Comparing the full received weight to a per-pallet ceiling rejected every
+     * multi-pallet delivery. The genuine SOP violation is an individual pallet that would be
+     * stacked beyond its limit, which is what this checks.
+     *
      * @param materialId UUID of the material
      * @param quantity Quantity being received (in kg for weight-based materials)
-     * @throws RuntimeException if weight exceeds the limit
+     * @throws RuntimeException if a single handling unit would exceed the limit
      */
-    private void validatePalletWeight(UUID materialId, BigDecimal quantity) {
+    private void validateHandlingUnitWeight(UUID materialId, BigDecimal quantity) {
         Material material = materialService.findById(materialId);
-        
-        // Only validate if max weight is configured
-        if (material.getMaxPalletWeightKg() != null && material.getMaxPalletWeightKg().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal maxWeight = material.getMaxPalletWeightKg();
-            BigDecimal effectiveWeight = calculateEffectiveWeightKg(quantity, material);
 
-            // Check if effective weight exceeds max pallet limit
-            if (effectiveWeight.compareTo(maxWeight) > 0) {
-                throw new RuntimeException(String.format(
-                    "Weight limit exceeded for material %s: %.2f kg > %.2f kg (max). " +
-                    "As per SOP, raw materials are limited to 1500kg and packing materials to 1000kg per pallet.",
-                    material.getMaterialCode(),
-                    effectiveWeight.doubleValue(),
-                    maxWeight.doubleValue()
-                ));
-            }
+        // Only validate if max weight is configured
+        BigDecimal maxWeight = material.getMaxPalletWeightKg();
+        if (maxWeight == null || maxWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        BigDecimal effectiveWeight = calculateEffectiveWeightKg(quantity, material);
+        if (effectiveWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        BigDecimal unitsPerPallet = handlingUnitCapacityService.resolveUnitsPerPallet(
+                material.getUnitsPerPallet(), material.getPalletSpaces());
+        int palletCount = handlingUnitCapacityService.computePalletCount(quantity, unitsPerPallet);
+        if (palletCount <= 0) {
+            return;
+        }
+
+        BigDecimal perPalletWeight = effectiveWeight.divide(
+                BigDecimal.valueOf(palletCount), 2, java.math.RoundingMode.HALF_UP);
+
+        if (perPalletWeight.compareTo(maxWeight) > 0) {
+            throw new RuntimeException(String.format(
+                "Pallet weight limit exceeded for material %s: %s units split across %d pallet(s) "
+                    + "puts %.2f kg on a pallet, above the %.2f kg limit. "
+                    + "Reduce the units per pallet for this material or receive in smaller handling units.",
+                material.getMaterialCode(),
+                quantity.stripTrailingZeros().toPlainString(),
+                palletCount,
+                perPalletWeight.doubleValue(),
+                maxWeight.doubleValue()
+            ));
         }
     }
 

@@ -74,7 +74,7 @@ export default function WorkerProfilePage() {
     warehouse: worker.warehouse,
     status: "Online",
     deviceId: worker.deviceId || "N/A",
-    avatar: worker.avatar || "/assets/avatars/placeholder.svg",
+    avatar: worker.avatar || "/assets/avatars/Jhon Doe.jpg",
     email: worker.email || "N/A",
     phone: worker.phone || "N/A",
     role: worker.role,
@@ -138,41 +138,41 @@ export default function WorkerProfilePage() {
         <h3 className="font-bold text-base-content mb-4">Personal Information</h3>
         <div className="space-y-3">
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0 mr-2">
               <span className="material-symbols-outlined text-base-content/60">email</span>
               <span className="text-sm text-base-content/60">Email</span>
             </div>
-            <span className="font-medium text-base-content">{displayWorker.email}</span>
+            <span className="font-medium text-base-content truncate text-right">{displayWorker.email}</span>
           </div>
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0 mr-2">
               <span className="material-symbols-outlined text-base-content/60">phone</span>
               <span className="text-sm text-base-content/60">Phone</span>
             </div>
-            <span className="font-medium text-base-content">{displayWorker.phone}</span>
+            <span className="font-medium text-base-content truncate text-right">{displayWorker.phone}</span>
           </div>
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0 mr-2">
               <span className="material-symbols-outlined text-base-content/60">warehouse</span>
               <span className="text-sm text-base-content/60">Warehouse</span>
             </div>
-            <span className="font-medium text-base-content">{displayWorker.warehouse}</span>
+            <span className="font-medium text-base-content text-right break-words max-w-[60%]">{displayWorker.warehouse}</span>
           </div>
           {displayWorker.role && (
             <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0 mr-2">
                 <span className="material-symbols-outlined text-base-content/60">badge</span>
                 <span className="text-sm text-base-content/60">Role</span>
               </div>
-              <span className="font-medium text-base-content">{getRoleDisplayName(displayWorker.role)}</span>
+              <span className="font-medium text-base-content text-right truncate">{getRoleDisplayName(displayWorker.role)}</span>
             </div>
           )}
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0 mr-2">
               <span className="material-symbols-outlined text-base-content/60">devices</span>
               <span className="text-sm text-base-content/60">Device ID</span>
             </div>
-            <span className="font-medium text-base-content">{displayWorker.deviceId}</span>
+            <span className="font-medium text-base-content text-right truncate">{displayWorker.deviceId}</span>
           </div>
           {allowedOperations.length > 0 && (
             <div className="p-3 bg-primary/10 rounded-lg">

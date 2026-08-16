@@ -66,6 +66,13 @@ export interface SlottingPlanLine {
   status: string;
 }
 
+export interface SlottingProgress {
+  percent: number;
+  phase: string;
+  running: boolean;
+  updatedAt: string;
+}
+
 export interface SlottingReadiness {
   ready: boolean;
   materialsReadyPct: number;
@@ -96,6 +103,10 @@ export const slottingPlansApi = {
     notes?: string;
   }): Promise<SlottingPlanSummary> =>
     apiClient.post<SlottingPlanSummary>('/v1/slotting/plans', body),
+
+  /** Polled during a run; the reoptimize call itself blocks until it finishes. */
+  getProgress: (planId: string): Promise<SlottingProgress> =>
+    apiClient.get<SlottingProgress>(`/v1/slotting/plans/${planId}/progress`),
 
   reoptimize: (planId: string, body: { expectedVersion: number; lockedLineIds?: string[] }): Promise<SlottingPlanSummary> =>
     apiClient.post<SlottingPlanSummary>(`/v1/slotting/plans/${planId}/reoptimize`, body),
