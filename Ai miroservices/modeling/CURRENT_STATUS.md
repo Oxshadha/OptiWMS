@@ -228,7 +228,7 @@ rather than over-emphasizing forecasting and routing:
   rollback;
 - OR-Tools MILP/flow slotting now has a dedicated section covering all 144
   materials, 3,257 required positions, 14/14 validation, the `OPTIMAL` result
-  and objective `109468.4609`;
+  and stage-1 pick-face objective `129847.4251` (3/3 repeated solves identical);
 - the worker/admin warehouse assistant is documented as a sixth solution
   pillar, including its eight SOP documents, Chroma/MiniLM/Gemini RAG,
   read-only SQL analytics, tables/charts, frontend surfaces, startup and API
@@ -384,7 +384,7 @@ The former statement that v8 physical storage/slotting was gated is superseded. 
 - `2,921` location inventory rows represent current occupancy; assignment capacity uses the larger of current on-hand and proposed maximum stock.
 - All `14/14` artifact checks pass: dimensions, layout continuity, capacity margin, assignment completeness, unique bins, one pick face, weight, volume, ABC compatibility, temperature, hazard and inventory-total reconciliation.
 - Minimum observed assignment headroom is `19.968 kg` by weight and `340,740 cm3` by volume.
-- Independent `ORTOOLS_MILP_FLOW_V3` evaluation returned `OPTIMAL` for `144` materials and all `3,257` pallet positions. The verified objective was `109468.4609`.
+- Independent `ORTOOLS_MILP_FLOW_V3` evaluation returned `OPTIMAL` for `144` materials and all `3,257` pallet positions. The stage-1 pick-face objective is `129847.4251`, reproduced identically over three solves (`outputs/solver_evidence/milp_determinism.json`). The previously recorded `109468.4609` came from an older ORTOOLS_MILP_FLOW_V3 run, exists in no machine-written artifact, and is not reproducible by the current code path.
 - Spring live readiness returns `ready=true`, `materialsReadyPct=100.0` (`144/144`), `locationsReadyPct=100.0` (`4,206/4,206`) and no blockers.
 - Spring warehouse integrity returns `144` total materials, `144` assigned defaults, zero missing defaults, `2,921` inventory rows, zero null locations, zero inactive/blocked defaults, zero duplicate primary locations and zero storage-type mismatches.
 

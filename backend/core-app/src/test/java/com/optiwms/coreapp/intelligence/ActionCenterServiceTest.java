@@ -22,6 +22,84 @@ import static org.mockito.Mockito.when;
 
 class ActionCenterServiceTest {
     @Test
+    void deferredSlottingPlanIsStillReportedWithItsDeferralDate() {
+        UUID warehouse = UUID.randomUUID();
+        UUID planId = UUID.randomUUID();
+        var policies = org.mockito.Mockito.mock(InventoryPolicyRecommendationRunRepository.class);
+        var policyLines = org.mockito.Mockito.mock(InventoryPolicyRecommendationLineRepository.class);
+        var spaces = org.mockito.Mockito.mock(SpaceOptimizationRunRepository.class);
+        var slotting = org.mockito.Mockito.mock(SlottingPlanRepository.class);
+        var orders = org.mockito.Mockito.mock(OrderRepository.class);
+        var decisions = org.mockito.Mockito.mock(PlanningDecisionEventRepository.class);
+
+        SlottingPlanEntity draft = new SlottingPlanEntity();
+        draft.setId(planId);
+        draft.setStatus("DRAFT");
+        draft.setSolverStatus("OPTIMAL");
+        draft.setTotalMovesProposed(284);
+
+        java.time.OffsetDateTime until = java.time.OffsetDateTime.now().plusDays(1);
+        com.optiwms.infra.intelligence.PlanningDecisionEventEntity deferral =
+                new com.optiwms.infra.intelligence.PlanningDecisionEventEntity();
+        deferral.setAction("DEFERRED");
+        deferral.setDeferredUntil(until);
+
+        when(policies.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
+        when(spaces.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
+        when(slotting.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of(draft));
+        when(orders.findOperationalByWarehouseId(warehouse)).thenReturn(List.of());
+        when(decisions.findFirstByRecommendationIdAndRecommendationTypeOrderByCreatedAtDesc(
+                planId, "APPROVE_SLOTTING_PLAN")).thenReturn(java.util.Optional.of(deferral));
+
+        ActionCenterService.ActionCenterSummary result = new ActionCenterService(
+                policies, policyLines, spaces, slotting, orders, decisions).summarize(warehouse);
+
+        ActionCenterService.ActionItem plan = result.actionItems().stream()
+                .filter(item -> "APPROVE_SLOTTING_PLAN".equals(item.type()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("deferred plan should still be reported"));
+        assertEquals(until, plan.deferredUntil());
+        assertEquals(284, plan.affectedCount());
+        // The count that drives the KPI must still exclude it: it is not due yet.
+        assertEquals(0, result.draftSlottingPlans());
+    }
+
+    @Test
+    void undeferredSlottingPlanHasNoDeferralDate() {
+        UUID warehouse = UUID.randomUUID();
+        UUID planId = UUID.randomUUID();
+        var policies = org.mockito.Mockito.mock(InventoryPolicyRecommendationRunRepository.class);
+        var policyLines = org.mockito.Mockito.mock(InventoryPolicyRecommendationLineRepository.class);
+        var spaces = org.mockito.Mockito.mock(SpaceOptimizationRunRepository.class);
+        var slotting = org.mockito.Mockito.mock(SlottingPlanRepository.class);
+        var orders = org.mockito.Mockito.mock(OrderRepository.class);
+        var decisions = org.mockito.Mockito.mock(PlanningDecisionEventRepository.class);
+
+        SlottingPlanEntity draft = new SlottingPlanEntity();
+        draft.setId(planId);
+        draft.setStatus("DRAFT");
+        draft.setSolverStatus("OPTIMAL");
+        draft.setTotalMovesProposed(284);
+
+        when(policies.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
+        when(spaces.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
+        when(slotting.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of(draft));
+        when(orders.findOperationalByWarehouseId(warehouse)).thenReturn(List.of());
+        when(decisions.findFirstByRecommendationIdAndRecommendationTypeOrderByCreatedAtDesc(
+                planId, "APPROVE_SLOTTING_PLAN")).thenReturn(java.util.Optional.empty());
+
+        ActionCenterService.ActionCenterSummary result = new ActionCenterService(
+                policies, policyLines, spaces, slotting, orders, decisions).summarize(warehouse);
+
+        ActionCenterService.ActionItem plan = result.actionItems().stream()
+                .filter(item -> "APPROVE_SLOTTING_PLAN".equals(item.type()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("draft plan should be reported"));
+        assertEquals(null, plan.deferredUntil());
+        assertEquals(1, result.draftSlottingPlans());
+    }
+
+    @Test
     void failedAndRolledBackRunsDoNotCountAsPendingManagerWork() {
         UUID warehouse = UUID.randomUUID();
         var policies = org.mockito.Mockito.mock(InventoryPolicyRecommendationRunRepository.class);

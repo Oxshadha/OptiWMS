@@ -38,18 +38,55 @@ public class StockPlacementPlanner {
         this.capacityService = capacityService;
     }
 
+    /**
+     * Per-run cache of the warehouse-wide reads this planner needs.
+     *
+     * Planning one material re-reads every location and every inventory row in
+     * the warehouse. That is affordable once, but the slotting optimizer plans
+     * each material in turn, so on a large site it re-read a 160k-row inventory
+     * table once per material and the run took minutes. Callers that plan more
+     * than one material should create a context and pass it to every call.
+     *
+     * Not thread-safe and intentionally short-lived: it is a snapshot for the
+     * duration of one planning run, not a cache with an invalidation story.
+     */
+    public static final class PlacementContext {
+        private final Map<UUID, List<LocationEntity>> locations = new HashMap<>();
+        private final Map<UUID, List<InventoryItemEntity>> inventory = new HashMap<>();
+        private final Map<UUID, MaterialEntity> materials = new HashMap<>();
+        private final Map<UUID, LocationLevelEntity> levels = new HashMap<>();
+        private final Set<UUID> levelsLoadedFor = new HashSet<>();
+    }
+
+    public PlacementContext newContext() {
+        return new PlacementContext();
+    }
+
     public PlacementPlan planPlacement(
             UUID warehouseId,
             UUID materialId,
             int totalQuantity,
             String preferredLocationCode,
             Set<String> excludeLocationCodes) {
+        return planPlacement(warehouseId, materialId, totalQuantity, preferredLocationCode,
+                excludeLocationCodes, new PlacementContext());
+    }
+
+    public PlacementPlan planPlacement(
+            UUID warehouseId,
+            UUID materialId,
+            int totalQuantity,
+            String preferredLocationCode,
+            Set<String> excludeLocationCodes,
+            PlacementContext context) {
         if (totalQuantity <= 0) {
             return new PlacementPlan(0, 0, 0, List.of(), List.of("Quantity must be positive"));
         }
 
-        MaterialEntity material = materialRepository.findById(materialId)
-                .orElseThrow(() -> new RuntimeException("Material not found: " + materialId));
+        MaterialEntity material = material(materialId, context);
+        if (material == null) {
+            throw new RuntimeException("Material not found: " + materialId);
+        }
 
         BigDecimal unitsPerPallet = capacityService.resolveUnitsPerPallet(material);
         int requiredPallets = capacityService.computePalletCount(totalQuantity, material);
@@ -61,7 +98,7 @@ public class StockPlacementPlanner {
                         .filter(location -> warehouseId.equals(location.getWarehouseId()))
                         .orElse(null);
 
-        List<LocationEntity> candidates = locationRepository.findByWarehouseId(warehouseId).stream()
+        List<LocationEntity> candidates = warehouseLocations(warehouseId, context).stream()
                 .filter(loc -> "STORAGE".equals(loc.getZoneType()))
                 .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
                 .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
@@ -73,7 +110,7 @@ public class StockPlacementPlanner {
                         .thenComparingInt(loc -> loc.getLevelNumber() != null ? loc.getLevelNumber() : 3))
                 .toList();
 
-        WarehouseOccupancyState state = buildOccupancyState(warehouseId, candidates, excludeLocationCodes);
+        WarehouseOccupancyState state = buildOccupancyState(warehouseId, candidates, excludeLocationCodes, context);
         List<PlacementLine> lines = new ArrayList<>();
         int remainingQty = totalQuantity;
         int remainingPallets = requiredPallets;
@@ -231,12 +268,65 @@ public class StockPlacementPlanner {
         return rackClass != null && rackClass.trim().toUpperCase(Locale.ROOT).endsWith(required);
     }
 
+    /**
+     * Active storage locations, read once per context. The zone and active
+     * filters run in SQL rather than in the stream below, because a warehouse
+     * can hold ~195k rows of which only a few thousand are placement
+     * candidates.
+     */
+    private List<LocationEntity> warehouseLocations(UUID warehouseId, PlacementContext context) {
+        return context.locations.computeIfAbsent(warehouseId,
+                id -> locationRepository.findByWarehouseIdAndZoneTypeAndIsActive(id, "STORAGE", true));
+    }
+
+    /**
+     * Inventory sitting in the given bins, read once per context.
+     *
+     * Cached on the warehouse because the optimizer's candidate set is stable
+     * across materials -- it is the active storage of one warehouse. The codes
+     * are still passed so the database, not the heap, does the filtering.
+     */
+    private List<InventoryItemEntity> occupancyInventory(
+            UUID warehouseId, Set<String> locationCodes, PlacementContext context) {
+        if (locationCodes.isEmpty()) {
+            return List.of();
+        }
+        return context.inventory.computeIfAbsent(warehouseId,
+                id -> inventoryRepository.findByWarehouseIdAndLocationCodeIn(id, locationCodes));
+    }
+
+    private MaterialEntity material(UUID materialId, PlacementContext context) {
+        return context.materials.computeIfAbsent(materialId,
+                id -> materialRepository.findById(id).orElse(null));
+    }
+
+    private Map<UUID, MaterialEntity> materials(Set<UUID> materialIds, PlacementContext context) {
+        List<UUID> missing = materialIds.stream()
+                .filter(id -> !context.materials.containsKey(id))
+                .toList();
+        if (!missing.isEmpty()) {
+            materialRepository.findAllById(missing)
+                    .forEach(entity -> context.materials.put(entity.getId(), entity));
+        }
+        Map<UUID, MaterialEntity> result = new HashMap<>();
+        for (UUID id : materialIds) {
+            MaterialEntity entity = context.materials.get(id);
+            if (entity != null) {
+                result.put(id, entity);
+            }
+        }
+        return result;
+    }
+
     private WarehouseOccupancyState buildOccupancyState(
             UUID warehouseId,
             List<LocationEntity> candidates,
-            Set<String> excludeLocationCodes) {
+            Set<String> excludeLocationCodes,
+            PlacementContext context) {
         Set<String> codes = candidates.stream().map(LocationEntity::getLocationCode).collect(Collectors.toSet());
-        List<InventoryItemEntity> inventory = inventoryRepository.findByWarehouseId(warehouseId).stream()
+        List<InventoryItemEntity> inventory = occupancyInventory(warehouseId, codes, context).stream()
+                // The code filter now runs in SQL; this keeps the per-call
+                // exclusions, which differ between materials.
                 .filter(item -> item.getLocationCode() != null && codes.contains(item.getLocationCode()))
                 .filter(item -> excludeLocationCodes == null || !excludeLocationCodes.contains(item.getLocationCode()))
                 .toList();
@@ -245,8 +335,7 @@ public class StockPlacementPlanner {
                 .map(InventoryItemEntity::getMaterialId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Map<UUID, MaterialEntity> materials = materialRepository.findAllById(materialIds).stream()
-                .collect(Collectors.toMap(MaterialEntity::getId, m -> m));
+        Map<UUID, MaterialEntity> materials = materials(materialIds, context);
 
         Map<String, LocationEntity> locationByCode = candidates.stream()
                 .collect(Collectors.toMap(LocationEntity::getLocationCode, l -> l, (a, b) -> a));
@@ -270,11 +359,11 @@ public class StockPlacementPlanner {
             levelWeight.merge(capacityService.rackLevelKey(loc), weight, BigDecimal::add);
         }
 
-        Map<String, LocationLevelEntity> levelCaps = loadLevelCaps(candidates);
+        Map<String, LocationLevelEntity> levelCaps = loadLevelCaps(candidates, context);
         return new WarehouseOccupancyState(levelWeight, binPallets, levelCaps, capacityService);
     }
 
-    private Map<String, LocationLevelEntity> loadLevelCaps(List<LocationEntity> candidates) {
+    private Map<String, LocationLevelEntity> loadLevelCaps(List<LocationEntity> candidates, PlacementContext context) {
         Map<String, UUID> rep = new HashMap<>();
         for (LocationEntity loc : candidates) {
             String pos = loc.getBinPosition() != null ? loc.getBinPosition().toUpperCase() : "A";
@@ -282,8 +371,17 @@ public class StockPlacementPlanner {
                 rep.putIfAbsent(capacityService.rackLevelKey(loc), loc.getId());
             }
         }
-        Map<UUID, LocationLevelEntity> byLoc = locationLevelRepository.findByLocationIdIn(rep.values()).stream()
-                .collect(Collectors.toMap(LocationLevelEntity::getLocationId, l -> l, (a, b) -> a));
+        // Only fetch levels this context has not seen; on later materials the
+        // candidate set is largely the same, so this is usually a no-op.
+        List<UUID> unseen = rep.values().stream()
+                .filter(id -> !context.levelsLoadedFor.contains(id))
+                .toList();
+        if (!unseen.isEmpty()) {
+            locationLevelRepository.findByLocationIdIn(unseen)
+                    .forEach(level -> context.levels.put(level.getLocationId(), level));
+            context.levelsLoadedFor.addAll(unseen);
+        }
+        Map<UUID, LocationLevelEntity> byLoc = context.levels;
         Map<String, LocationLevelEntity> result = new HashMap<>();
         for (Map.Entry<String, UUID> e : rep.entrySet()) {
             LocationLevelEntity level = byLoc.get(e.getValue());

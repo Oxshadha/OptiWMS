@@ -1,6 +1,34 @@
 """
 generate_evaluation_figures.py
 ================================
+
+!!  WARNING - DO NOT CITE THESE FIGURES AS PROJECT RESULTS  !!
+------------------------------------------------------------------------------
+The figures produced by this script are ILLUSTRATIVE, not measured.
+
+`_build_sku_profiles()` below FABRICATES its own input: 60 SKUs drawn from
+`rng.lognormal(mean=5.5, sigma=0.8)` under `SEED = 42`. That population has no
+connection to the project's evaluation data. It is NOT the 120 RM/PM demand
+series, NOT the 144 physical materials, and NOT the 4,200-position v8 layout.
+No value plotted here can be traced to `v8_controlled_synthetic_validation/
+outputs/`.
+
+The solvers genuinely execute - PuLP and DEAP are hard requirements that raise
+rather than silently substituting fake numbers, which is correct. But a real
+solver run on an invented problem still yields an invented chart.
+
+Consequence for the dissertation:
+  * These PNGs MUST NOT appear in Chapter 7 as evaluation results.
+  * They must not be described as measured savings, measured stockout
+    reduction, or measured procurement cost.
+  * If a figure is needed for these claims, it must be regenerated from the
+    retained pipeline artifacts, and the claim must be dropped if no such
+    artifact exists.
+
+Chapter 7 currently cites none of these files. Keep it that way unless the
+underlying data source is changed to real retained evidence.
+------------------------------------------------------------------------------
+
 Generates the 5 evaluation figures for the OptiWMS dissertation Chapter 7.
 
 Figures produced:
@@ -56,8 +84,20 @@ DPI       = 150
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _build_sku_profiles(n=60):
-    """Return a DataFrame with per-SKU inventory-policy parameters
-    generated from the same probabilistic model used in the notebook."""
+    """FABRICATED INPUT - see the warning at the top of this file.
+
+    This function INVENTS a 60-SKU population from a log-normal draw under
+    SEED = 42. It does not read, and is not calibrated to, any project
+    artifact. Every figure downstream of it is therefore illustrative only
+    and must not be cited as a measured project result.
+
+    To make these figures real, this function must be replaced by a loader
+    that reads the retained evidence, e.g.
+        v8_controlled_synthetic_validation/outputs/inventory_policy_simulation.csv
+        v8_controlled_synthetic_validation/outputs/physical_materials.csv
+    and any claim with no corresponding retained artifact must be dropped
+    rather than approximated here.
+    """
 
     rng = np.random.default_rng(SEED)
 
@@ -278,12 +318,14 @@ def fig_procurement_cost(df):
 
     try:
         import pulp
-    except ImportError:
-        print("  ⚠ PuLP not installed – skipping MILP procurement optimisation.")
-        print("    Install with:  pip install pulp")
-        print("    Generating a simulated version of the figure instead.")
-        _fig_procurement_cost_simulated(df)
-        return
+    except ImportError as exc:
+        # This figure must come from an actually-solved MILP, never a
+        # substituted number — fail loudly instead of faking a result that
+        # looks identical to a real one in the saved PNG.
+        raise RuntimeError(
+            "PuLP is required to generate procurement_cost_comparison.png. "
+            "Install it with `pip install pulp` — this figure is never simulated."
+        ) from exc
 
     # Build a small supplier selection problem per ABC class
     # to show cost savings from multi-supplier MILP splitting
@@ -317,31 +359,19 @@ def fig_procurement_cost(df):
 
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
-            if pulp.LpStatus[prob.status] == "Optimal":
-                cost_milp = float(pulp.value(prob.objective))
-            else:
-                cost_milp = cost_baseline * 0.88   # fallback: ~12% saving
+            status = pulp.LpStatus[prob.status]
+            if status != "Optimal":
+                raise RuntimeError(
+                    f"MILP supplier-split solve returned status '{status}' for ABC class "
+                    f"'{abc_cls}' — refusing to substitute a hardcoded saving figure."
+                )
+            cost_milp = float(pulp.value(prob.objective))
 
             results.append({"abc": abc_cls,
                             "cost_baseline": cost_baseline,
                             "cost_milp": cost_milp})
 
     res_df = pd.DataFrame(results).groupby("abc")[["cost_baseline", "cost_milp"]].sum().reindex(["A", "B", "C"])
-    _plot_procurement_bars(res_df)
-
-
-def _fig_procurement_cost_simulated(df):
-    """Fallback version with analytically-simulated costs (no PuLP needed)."""
-    rng = np.random.default_rng(SEED + 2)
-    rows = []
-    for abc_cls in ["A", "B", "C"]:
-        sub = df[df["abc"] == abc_cls]
-        base = (sub["ss_milp"] + sub["d_bar"] * sub["L"]).sum() * rng.uniform(10, 18)
-        saving_pct = {"A": 0.14, "B": 0.10, "C": 0.07}[abc_cls]
-        rows.append({"abc": abc_cls,
-                     "cost_baseline": base,
-                     "cost_milp":     base * (1 - saving_pct)})
-    res_df = pd.DataFrame(rows).set_index("abc")
     _plot_procurement_bars(res_df)
 
 
@@ -456,12 +486,25 @@ def fig_solver_determinism(df):
       Right: GA solver    – run 1 vs run 2 → scatter around diagonal (stochastic).
     """
 
+    # This figure exists to prove an empirical claim (MILP is deterministic,
+    # GA is stochastic) by actually running both solvers twice each. A
+    # substituted/analytical stand-in would defeat the entire point of the
+    # figure, so both dependencies are required up front rather than
+    # silently faked if missing.
     try:
         from deap import base, creator, tools, algorithms
-        HAS_DEAP = True
-    except ImportError:
-        HAS_DEAP = False
-        print("  ℹ DEAP not installed – GA data will be analytically simulated.")
+    except ImportError as exc:
+        raise RuntimeError(
+            "DEAP is required to generate solver_determinism.png. "
+            "Install it with `pip install deap` — this figure is never simulated."
+        ) from exc
+    try:
+        import pulp
+    except ImportError as exc:
+        raise RuntimeError(
+            "PuLP is required to generate solver_determinism.png. "
+            "Install it with `pip install pulp` — this figure is never simulated."
+        ) from exc
 
     n_items   = 40                     # number of SKUs to slot
     n_locs    = 80                     # available rack locations
@@ -469,97 +512,83 @@ def fig_solver_determinism(df):
     rng       = np.random.default_rng(SEED)
 
     # ── MILP assignment (deterministic) ──────────────────────────────────────
-    try:
-        import pulp
-        sub = df.head(n_items).reset_index(drop=True)
-        sub["zone_prio"] = sub["abc"].map({"A": 1, "B": 5, "C": 9})
+    sub = df.head(n_items).reset_index(drop=True)
+    sub["zone_prio"] = sub["abc"].map({"A": 1, "B": 5, "C": 9})
 
-        def _milp_assign(seed_unused):
-            prob = pulp.LpProblem("slot", pulp.LpMinimize)
-            x = pulp.LpVariable.dicts("x",
-                    ((i, j) for i in range(n_items) for j in range(n_locs)),
-                    cat="Binary")
-            for i in range(n_items):
-                prob += pulp.lpSum(x[i, j] for j in range(n_locs)) == 1
+    def _milp_assign(seed_unused):
+        prob = pulp.LpProblem("slot", pulp.LpMinimize)
+        x = pulp.LpVariable.dicts("x",
+                ((i, j) for i in range(n_items) for j in range(n_locs)),
+                cat="Binary")
+        for i in range(n_items):
+            prob += pulp.lpSum(x[i, j] for j in range(n_locs)) == 1
+        for j in range(n_locs):
+            prob += pulp.lpSum(x[i, j] for i in range(n_items)) <= 1
+        cost = []
+        for i in range(n_items):
+            zp = sub.loc[i, "zone_prio"]
             for j in range(n_locs):
-                prob += pulp.lpSum(x[i, j] for i in range(n_items)) <= 1
-            cost = []
-            for i in range(n_items):
-                zp = sub.loc[i, "zone_prio"]
-                for j in range(n_locs):
-                    cost.append(abs(zp / 9.0 - j / n_locs) * sub.loc[i, "d_bar"] * x[i, j])
-            prob += pulp.lpSum(cost)
-            prob.solve(pulp.PULP_CBC_CMD(msg=0))
-            assign = []
-            for i in range(n_items):
-                for j in range(n_locs):
-                    if pulp.value(x[i, j]) == 1:
-                        assign.append(j)
-                        break
-                else:
-                    assign.append(0)
-            return assign
+                cost.append(abs(zp / 9.0 - j / n_locs) * sub.loc[i, "d_bar"] * x[i, j])
+        prob += pulp.lpSum(cost)
+        prob.solve(pulp.PULP_CBC_CMD(msg=0))
+        status = pulp.LpStatus[prob.status]
+        if status != "Optimal":
+            raise RuntimeError(f"MILP slot assignment returned status '{status}', expected 'Optimal'.")
+        assign = []
+        for i in range(n_items):
+            for j in range(n_locs):
+                if pulp.value(x[i, j]) == 1:
+                    assign.append(j)
+                    break
+            else:
+                assign.append(0)
+        return assign
 
-        milp_run1 = _milp_assign(SEED)
-        milp_run2 = _milp_assign(SEED + 99)   # different seed label, same result
-
-    except ImportError:
-        # Simulate perfect determinism: run1 == run2
-        milp_run1 = list(range(n_items))
-        milp_run2 = list(range(n_items))
+    milp_run1 = _milp_assign(SEED)
+    milp_run2 = _milp_assign(SEED + 99)   # different seed label, same result
 
     # ── GA assignment (stochastic) ────────────────────────────────────────────
-    if HAS_DEAP:
-        zone_priorities = np.array([{"A": 1, "B": 5, "C": 9}[c]
-                                    for c in df.head(n_items)["abc"]])
-        demands         = df.head(n_items)["d_bar"].values
+    zone_priorities = np.array([{"A": 1, "B": 5, "C": 9}[c]
+                                for c in df.head(n_items)["abc"]])
+    demands         = df.head(n_items)["d_bar"].values
 
-        if hasattr(creator, "FitnessMin"):
-            del creator.FitnessMin
-        if hasattr(creator, "Individual"):
-            del creator.Individual
-        creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-        creator.create("Individual", list, fitness=creator.FitnessMin)
+    if hasattr(creator, "FitnessMin"):
+        del creator.FitnessMin
+    if hasattr(creator, "Individual"):
+        del creator.Individual
+    creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+    creator.create("Individual", list, fitness=creator.FitnessMin)
 
-        def _eval(ind):
-            score = sum(
-                abs(zone_priorities[i] / 9.0 - ind[i] / n_locs) * demands[i]
-                for i in range(n_items)
-            )
-            return (score,)
+    def _eval(ind):
+        score = sum(
+            abs(zone_priorities[i] / 9.0 - ind[i] / n_locs) * demands[i]
+            for i in range(n_items)
+        )
+        return (score,)
 
-        toolbox = base.Toolbox()
-        toolbox.register("individual", tools.initIterate, creator.Individual,
-                         lambda: list(np.random.randint(0, n_locs, size=n_items)))
-        toolbox.register("population",  tools.initRepeat, list, toolbox.individual)
-        toolbox.register("evaluate",    _eval)
-        toolbox.register("mate",        tools.cxTwoPoint)
-        toolbox.register("mutate",      tools.mutUniformInt, low=0, up=n_locs, indpb=0.05)
-        toolbox.register("select",      tools.selTournament, tournsize=3)
+    toolbox = base.Toolbox()
+    toolbox.register("individual", tools.initIterate, creator.Individual,
+                     lambda: list(np.random.randint(0, n_locs, size=n_items)))
+    toolbox.register("population",  tools.initRepeat, list, toolbox.individual)
+    toolbox.register("evaluate",    _eval)
+    toolbox.register("mate",        tools.cxTwoPoint)
+    toolbox.register("mutate",      tools.mutUniformInt, low=0, up=n_locs, indpb=0.05)
+    toolbox.register("select",      tools.selTournament, tournsize=3)
 
-        def _ga_run(seed_val):
-            np.random.seed(seed_val)
-            pop = toolbox.population(n=100)
-            for _ in range(NGEN):
-                offspring = algorithms.varAnd(pop, toolbox, cxpb=0.7, mutpb=0.2)
-                fits = list(map(toolbox.evaluate, offspring))
-                for ind, fit in zip(offspring, fits):
-                    ind.fitness.values = fit
-                pop = toolbox.select(offspring, k=len(pop))
-            best = tools.selBest(pop, 1)[0]
-            return list(best)
+    def _ga_run(seed_val):
+        np.random.seed(seed_val)
+        pop = toolbox.population(n=100)
+        for _ in range(NGEN):
+            offspring = algorithms.varAnd(pop, toolbox, cxpb=0.7, mutpb=0.2)
+            fits = list(map(toolbox.evaluate, offspring))
+            for ind, fit in zip(offspring, fits):
+                ind.fitness.values = fit
+            pop = toolbox.select(offspring, k=len(pop))
+        best = tools.selBest(pop, 1)[0]
+        return list(best)
 
-        ga_run1 = _ga_run(SEED)
-        ga_run2 = _ga_run(SEED + 1)
-
-    else:
-        # Simulate GA variance analytically
-        ga_run1 = list(np.random.default_rng(SEED).integers(0, n_locs, size=n_items))
-        ga_run2 = ga_run1.copy()
-        n_diff  = int(n_items * 0.42)          # ~42% different (matches notebook finding)
-        diff_idx = np.random.default_rng(SEED + 7).choice(n_items, size=n_diff, replace=False)
-        for idx in diff_idx:
-            ga_run2[idx] = int(np.random.default_rng(SEED + idx).integers(0, n_locs))
+    ga_run1 = _ga_run(SEED)
+    ga_run2 = _ga_run(SEED + 1)
 
     # ── Plot ──────────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))

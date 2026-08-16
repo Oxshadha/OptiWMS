@@ -348,13 +348,13 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               workerData = {
                 id: userInfo.userId,
                 workerId: employeeId, // Use employeeId format, not UUID
-                name: userInfo.name || "Worker",
+                name: `${userInfo.firstName || ''} ${userInfo.lastName || ''}`.trim() || userInfo.name || userInfo.username || "Worker",
                 warehouse: warehouseName,
                 warehouseId: warehouseId || undefined, // Use found warehouseId (from API or fallback) - explicitly set to undefined if null
                 role: normalizedRole as WorkerRole,
-                avatar: undefined,
+                avatar: userInfo.avatarUrl || undefined,
                 email: userInfo.email,
-                phone: undefined,
+                phone: userInfo.phone || undefined,
                 deviceId: undefined,
               };
             }

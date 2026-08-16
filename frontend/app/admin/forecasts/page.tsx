@@ -1922,7 +1922,7 @@ export default function ForecastsPage() {
       </div>
 
       {/* Global SKU Selector & Search Bar */}
-      <div className="card bg-base-100 border border-base-300 p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+      <div data-tour-target="forecast-sku-search" className="card bg-base-100 border border-base-300 p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">Planning item:</span>
           <div className="badge badge-outline badge-md font-mono text-primary px-3 py-2 font-bold bg-base-200">
@@ -2050,7 +2050,7 @@ export default function ForecastsPage() {
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
-          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+          <div data-tour-target="forecast-chart" className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <SectionHeader title="Historical Demand vs Forecast — 24-Month View" sub={hasBacktestActuals ? "Historical backtest followed by the promoted 12-month forecast" : "Published forecast only — historical comparison is unavailable"} />
             <div className="h-80 w-full mt-3">
               {processedForecastData.length === 0 ? (

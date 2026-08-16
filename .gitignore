@@ -220,6 +220,7 @@ recovery_backups/
 # container startup, WMS loading, and planner verification.
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_forecasts.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_backtest_metrics.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/champion_prediction_intervals.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/inventory_policy_simulation.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/selection_backtest_rows.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data/*.csv
@@ -265,3 +266,7 @@ Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
 
 # Legacy root docs and scripts
 archive_scripts_and_docs/
+
+# Local dev database dump: too large for git and contains password hashes.
+# Distribute out of band or via Git LFS.
+scripts/optiwms_local_seed.sql.gz

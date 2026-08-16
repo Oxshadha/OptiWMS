@@ -7,6 +7,8 @@ import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -25,6 +27,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/orders")
 public class OrderController {
+
+    private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
 
     private final OrderService orderService;
     private final OrderStatusService orderStatusService;
@@ -212,16 +216,22 @@ public class OrderController {
 
         Order created = orderService.create(order);
 
-        // Do not fail order creation if task auto-generation fails.
+        // Do not fail order creation if task auto-generation fails, but never swallow it
+        // silently: an order left with no tasks is invisible to workers until someone
+        // notices the empty queue.
         if ("outbound".equals(created.getOrderType())) {
             try {
                 outboundWorkflowService.createPickingTasksForOrder(created.getId());
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException taskCreationFailure) {
+                logger.error("Order {} created but picking task generation failed; order has no tasks",
+                        created.getOrderNumber(), taskCreationFailure);
             }
         } else if ("inbound".equals(created.getOrderType())) {
             try {
                 inboundWorkflowService.createReceivingTasksForOrder(created.getId());
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException taskCreationFailure) {
+                logger.error("Order {} created but receiving task generation failed; order has no tasks",
+                        created.getOrderNumber(), taskCreationFailure);
             }
         }
 

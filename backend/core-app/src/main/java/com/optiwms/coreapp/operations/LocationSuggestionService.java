@@ -65,96 +65,109 @@ public class LocationSuggestionService {
             UUID materialId,
             Integer quantity,
             String materialType) {
-        
-        logger.info("Suggesting putaway location for material: {}, warehouse: {}", materialId, warehouseId);
-        
-        // FIRST: Check if material has default location assigned in catalog
-        try {
-            com.optiwms.domain.master.MaterialDefaultLocation defaultLoc = 
-                defaultLocationService.getPrimaryLocation(materialId, warehouseId);
-            if (defaultLoc != null && defaultLoc.getLocationCode() != null) {
-                // Verify location is still valid and available
-                try {
-                    Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
-                    if (location != null
-                        && warehouseId.equals(location.getWarehouseId())
-                        && Boolean.TRUE.equals(location.getIsActive())
-                        && isRackStatusPutawayAllowed(location.getRackStatus())
-                        && ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
-                        PutawayCapacityPlanningService.SplitPlanResult splitPlan =
-                                putawayCapacityPlanningService.suggestSplitPlan(
-                                        warehouseId,
-                                        materialId,
-                                        quantity != null ? quantity : 1,
-                                        defaultLoc.getLocationCode());
-                        if (!splitPlan.allocations().isEmpty()) {
-                            PutawayCapacityPlanningService.SplitPlanLine firstLine = splitPlan.allocations().get(0);
-                            logger.info("Using capacity-checked default location from catalog: {}", firstLine.locationCode());
-                            return new LocationSuggestion(
-                                    firstLine.locationCode(),
-                                    splitPlan.feasible()
-                                            ? "Default location from material catalog with capacity check"
-                                            : "Partial default-location split plan; review remaining quantity",
-                                    false
-                            );
-                        }
-                        logger.warn("Default location {} has no capacity for material {}; falling back",
-                                defaultLoc.getLocationCode(), materialId);
-                    }
-                } catch (Exception e) {
-                    logger.warn("Default location {} is invalid, falling back: {}", defaultLoc.getLocationCode(), e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Could not check default locations: {}", e.getMessage());
+
+        PutawayCapacityPlanningService.SplitPlanResult plan =
+                suggestPutawayPlan(warehouseId, materialId, quantity, materialType);
+        if (plan.allocations().isEmpty()) {
+            throw new RuntimeException("No capacity-valid location found for putaway");
         }
-        
-        // Try AI service (non-blocking, graceful degradation)
-        Optional<LocationSuggestion> aiSuggestion = aiServiceAdapter.suggestOptimalStorage(
-            warehouseId, materialId, quantity, materialType);
-        
-        if (aiSuggestion.isPresent() && aiSuggestion.get().isAiEnhanced()) {
-            logger.info("Using AI-enhanced location suggestion: {}", aiSuggestion.get().getLocationCode());
-            return aiSuggestion.get();
-        }
-        
-        // Fall back to rule-based suggestion
-        logger.info("AI service unavailable, using rule-based location suggestion");
-        return suggestLocationByRules(warehouseId, materialId, quantity, materialType);
+        PutawayCapacityPlanningService.SplitPlanLine first = plan.allocations().get(0);
+        return new LocationSuggestion(first.locationCode(), first.reason(), false);
     }
 
     /**
-     * Industry-standard rule-based location suggestion
-     * 
-     * Rules (in priority order):
-     * 1. Same material consolidation (if material already exists, use same location)
-     * 2. Zone-based assignment (fast-moving items near entrance)
-     * 3. First available location (FIFO for empty locations)
-     * 4. Capacity-based selection (avoid overfilling)
+     * Full multi-pallet destination plan for a putaway.
+     *
+     * <p>A quantity larger than one pallet legitimately lands in several bins. Callers that
+     * create work (putaway tasks) need every allocation, not just the first one — collapsing
+     * the plan to a single location is what made a 25-pallet receipt become one job pointing
+     * at one bin. {@link #suggestPutawayLocation} remains for callers that genuinely want a
+     * single bin, and is now a thin wrapper over this method so both share one code path.
      */
-    private LocationSuggestion suggestLocationByRules(
+    public PutawayCapacityPlanningService.SplitPlanResult suggestPutawayPlan(
             UUID warehouseId,
             UUID materialId,
             Integer quantity,
             String materialType) {
-        // One capacity-planning pass loads warehouse inventory, material data and
-        // eligible bins in batches. The old fallback called validation once per
-        // rack, repeatedly reloading the whole warehouse and exhausting the pool.
-        PutawayCapacityPlanningService.SplitPlanResult plan =
-                putawayCapacityPlanningService.suggestSplitPlan(
-                        warehouseId,
-                        materialId,
-                        quantity != null ? quantity : 1,
-                        null);
-        if (plan.allocations().isEmpty()) {
-            throw new RuntimeException("No capacity-valid location found for putaway");
+        return suggestPutawayPlan(warehouseId, materialId, quantity, materialType, null);
+    }
+
+    /**
+     * As {@link #suggestPutawayPlan(UUID, UUID, Integer, String)}, but starting from a caller-supplied
+     * bin — used when an inbound line already carries a capacity-checked destination. The anchor is
+     * honoured for the pallets that fit; the remainder is planned into other bins.
+     */
+    public PutawayCapacityPlanningService.SplitPlanResult suggestPutawayPlan(
+            UUID warehouseId,
+            UUID materialId,
+            Integer quantity,
+            String materialType,
+            String preferredLocationCode) {
+
+        logger.info("Planning putaway destinations for material: {}, warehouse: {}", materialId, warehouseId);
+
+        int effectiveQuantity = quantity != null && quantity > 0 ? quantity : 1;
+
+        // Caller-supplied destination wins; otherwise fall back to the catalog default location.
+        String anchorLocationCode = preferredLocationCode != null && !preferredLocationCode.isBlank()
+                ? preferredLocationCode
+                : resolveDefaultLocationAnchor(warehouseId, materialId);
+
+        // Try AI service (non-blocking, graceful degradation). The adapter returns a single
+        // bin, so it is used to anchor the split plan rather than to replace it.
+        if (anchorLocationCode == null) {
+            Optional<LocationSuggestion> aiSuggestion = aiServiceAdapter.suggestOptimalStorage(
+                warehouseId, materialId, effectiveQuantity, materialType);
+            if (aiSuggestion.isPresent() && aiSuggestion.get().isAiEnhanced()) {
+                logger.info("Anchoring putaway plan on AI-enhanced location: {}", aiSuggestion.get().getLocationCode());
+                anchorLocationCode = aiSuggestion.get().getLocationCode();
+            } else {
+                logger.info("AI service unavailable, using rule-based putaway planning");
+            }
         }
 
-        PutawayCapacityPlanningService.SplitPlanLine first = plan.allocations().get(0);
-        return new LocationSuggestion(
-                first.locationCode(),
-                first.reason(),
-                false);
+        PutawayCapacityPlanningService.SplitPlanResult plan =
+                putawayCapacityPlanningService.suggestSplitPlan(
+                        warehouseId, materialId, effectiveQuantity, anchorLocationCode);
+
+        // An anchored plan that yields nothing must still fall back to a free search,
+        // otherwise a stale default location blocks putaway entirely.
+        if (plan.allocations().isEmpty() && anchorLocationCode != null) {
+            logger.warn("Anchor location {} has no capacity for material {}; replanning without it",
+                    anchorLocationCode, materialId);
+            plan = putawayCapacityPlanningService.suggestSplitPlan(
+                    warehouseId, materialId, effectiveQuantity, null);
+        }
+
+        return plan;
+    }
+
+    /**
+     * Returns the catalog default location when it is still a valid putaway target, else null.
+     */
+    private String resolveDefaultLocationAnchor(UUID warehouseId, UUID materialId) {
+        try {
+            com.optiwms.domain.master.MaterialDefaultLocation defaultLoc =
+                defaultLocationService.getPrimaryLocation(materialId, warehouseId);
+            if (defaultLoc == null || defaultLoc.getLocationCode() == null) {
+                return null;
+            }
+            try {
+                Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
+                if (location != null
+                    && warehouseId.equals(location.getWarehouseId())
+                    && Boolean.TRUE.equals(location.getIsActive())
+                    && isRackStatusPutawayAllowed(location.getRackStatus())
+                    && ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
+                    return defaultLoc.getLocationCode();
+                }
+            } catch (Exception e) {
+                logger.warn("Default location {} is invalid, falling back: {}", defaultLoc.getLocationCode(), e.getMessage());
+            }
+        } catch (Exception e) {
+            logger.debug("Could not check default locations: {}", e.getMessage());
+        }
+        return null;
     }
 
     /**

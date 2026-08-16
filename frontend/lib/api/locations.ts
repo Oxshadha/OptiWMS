@@ -165,6 +165,32 @@ export interface UpdateRackRequest {
   maxLpnCount?: number;
 }
 
+export interface BulkRackUpdateRequest {
+  warehouseId: string;
+  rackId: string;
+  attributes: UpdateRackRequest;
+}
+
+export interface BulkRackUpdateResponse {
+  message: string;
+  rackId: string;
+  updatedLocations: number;
+  locations: Location[];
+}
+
+export interface CapacityProfileRequest {
+  warehouseId: string;
+  /** Zone letter, or "ALL"/omitted for the whole warehouse. */
+  zone?: string;
+  levels?: Array<{ level: number; attributes: UpdateRackRequest }>;
+  defaults?: UpdateRackRequest;
+}
+
+export interface CapacityProfileResponse {
+  message: string;
+  updatedLocations: number;
+}
+
 export interface BulkCreateRacksRequest {
   warehouseId: string;
   area: string;
@@ -299,6 +325,16 @@ export const locationsApi = {
   // Rack-specific endpoints
   updateRack: async (id: string, updates: UpdateRackRequest): Promise<Location> => {
     return apiClient.put<Location>(`/master/locations/racks/${id}`, updates);
+  },
+
+  /** Update every bin of a rack in one transaction (all-or-nothing). */
+  updateRackBulk: async (request: BulkRackUpdateRequest): Promise<BulkRackUpdateResponse> => {
+    return apiClient.put<BulkRackUpdateResponse>('/master/locations/racks/bulk', request);
+  },
+
+  /** Apply a per-level capacity profile across a zone in one transaction. */
+  applyCapacityProfile: async (request: CapacityProfileRequest): Promise<CapacityProfileResponse> => {
+    return apiClient.put<CapacityProfileResponse>('/master/locations/racks/capacity-profile', request);
   },
 
   bulkCreateRacks: async (request: BulkCreateRacksRequest): Promise<BulkCreateRacksResponse> => {

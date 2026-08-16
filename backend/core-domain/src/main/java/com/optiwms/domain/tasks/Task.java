@@ -19,6 +19,8 @@ public class Task extends BaseEntity {
     private String locationCode;
     private String referenceType;
     private UUID referenceId;
+    /** Pallet (handling unit) sequence within the referenced line, 1-based. */
+    private Integer handlingUnitSeq;
     private String notes;
 
     // Getters and Setters
@@ -48,6 +50,9 @@ public class Task extends BaseEntity {
     public void setReferenceType(String referenceType) { this.referenceType = referenceType; }
     public UUID getReferenceId() { return referenceId; }
     public void setReferenceId(UUID referenceId) { this.referenceId = referenceId; }
+
+    public Integer getHandlingUnitSeq() { return handlingUnitSeq; }
+    public void setHandlingUnitSeq(Integer handlingUnitSeq) { this.handlingUnitSeq = handlingUnitSeq; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
 }

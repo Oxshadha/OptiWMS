@@ -9,6 +9,11 @@ import { locationsApi, Location } from "@/lib/api/locations";
 import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
 import { addToSyncQueue } from "@/lib/indexeddb";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import {
+  QUANTITY_INPUT_PROPS,
+  parseQuantityInput,
+  quantityInputValue,
+} from "@/lib/utils/quantity-input";
 import { logger } from "@/lib/utils/logger";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { showToast } from "@/lib/utils/toast";
@@ -443,11 +448,11 @@ export default function CycleCountPage() {
                 <span className="material-symbols-outlined">remove</span>
               </button>
               <input
-                type="number"
+                {...QUANTITY_INPUT_PROPS}
                 className="input input-bordered flex-1 text-center text-xl font-bold"
-                value={countedQty}
-                onChange={(e) => setCountedQty(Math.max(0, parseInt(e.target.value) || 0))}
-                min="0"
+                value={quantityInputValue(countedQty)}
+                onChange={(e) => setCountedQty(parseQuantityInput(e.target.value))}
+                placeholder="0"
               />
               <button
                 onClick={() => setCountedQty(countedQty + 1)}

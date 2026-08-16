@@ -24,10 +24,24 @@ public class SlottingPlanController {
 
     private final SlottingPlanService slottingPlanService;
     private final AiProxyService aiProxyService;
+    private final com.optiwms.coreapp.slotting.SlottingProgressTracker progressTracker;
 
-    public SlottingPlanController(SlottingPlanService slottingPlanService, AiProxyService aiProxyService) {
+    public SlottingPlanController(SlottingPlanService slottingPlanService, AiProxyService aiProxyService,
+            com.optiwms.coreapp.slotting.SlottingProgressTracker progressTracker) {
         this.slottingPlanService = slottingPlanService;
         this.aiProxyService = aiProxyService;
+        this.progressTracker = progressTracker;
+    }
+
+    /**
+     * Polled while an optimization is running. Kept separate from the blocking
+     * reoptimize call, which cannot report anything until it returns.
+     */
+    @GetMapping("/{id}/progress")
+    public com.optiwms.coreapp.slotting.SlottingProgressTracker.Progress progress(@PathVariable UUID id,
+            Authentication authentication) {
+        authorizedPlan(id, authentication);
+        return progressTracker.get(id);
     }
 
     @GetMapping

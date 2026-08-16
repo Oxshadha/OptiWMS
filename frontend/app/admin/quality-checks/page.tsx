@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { materialsApi, type Material } from "@/lib/api/materials";
 import { qualityChecksApi } from "@/lib/api/qualityChecks";
 import {
   useInvalidateAdminList,
@@ -46,9 +48,40 @@ export default function QualityChecksPage() {
   const usersQuery = useReferenceUsers();
   const reload = useInvalidateAdminList(["admin-quality-checks"]);
 
+  // The shared materials reference list only carries operational-tier materials, so a
+  // check against an archived or untiered material would otherwise render as "Unknown".
+  // Those few are fetched by id, which the API serves regardless of tier.
+  const missingMaterialIds = useMemo(() => {
+    const known = new Set((materialsQuery.data || []).map((material) => material.id));
+    const missing = new Set<string>();
+    (qualityChecksQuery.data || []).forEach((check) => {
+      if (check.materialId && !check.materialDescription && !known.has(check.materialId)) {
+        missing.add(check.materialId);
+      }
+    });
+    return Array.from(missing).sort();
+  }, [materialsQuery.data, qualityChecksQuery.data]);
+
+  const extraMaterialsQuery = useQuery({
+    queryKey: ["quality-check-materials", missingMaterialIds],
+    enabled: missingMaterialIds.length > 0,
+    staleTime: 15 * 60 * 1000,
+    queryFn: async () => {
+      const fetched = await Promise.all(
+        missingMaterialIds.map((id) =>
+          materialsApi.getById(id).catch((error) => {
+            logger.warn("Failed to load material for quality check:", id, error);
+            return null;
+          })
+        )
+      );
+      return fetched.filter((material): material is Material => material !== null);
+    },
+  });
+
   const qualityChecks = useMemo<QualityCheckDisplay[]>(() => {
     const materialsMap = new Map<string, { name: string; sku: string }>();
-    (materialsQuery.data || []).forEach((material) => {
+    [...(materialsQuery.data || []), ...(extraMaterialsQuery.data || [])].forEach((material) => {
       materialsMap.set(material.id, {
         name: material.description || "Unknown",
         sku: material.materialCode || material.id,
@@ -86,8 +119,8 @@ export default function QualityChecksPage() {
         id: qualityCheck.id,
         checkId: `QC-${qualityCheck.id.substring(0, 8).toUpperCase()}`,
         inboundOrderNumber: qualityCheck.grnId ? `GRN-${qualityCheck.grnId.substring(0, 8).toUpperCase()}` : "N/A",
-        productName: material?.name || "Unknown",
-        sku: material?.sku || "N/A",
+        productName: qualityCheck.materialDescription || material?.name || "Unknown",
+        sku: qualityCheck.materialCode || material?.sku || "N/A",
         quantityChecked: qtyReceived,
         quantityPassed: qtyPassed,
         quantityFailed: qtyRejected,
@@ -99,7 +132,7 @@ export default function QualityChecksPage() {
         warehouseName: "Unknown",
       };
     });
-  }, [materialsQuery.data, qualityChecksQuery.data, usersQuery.data]);
+  }, [extraMaterialsQuery.data, materialsQuery.data, qualityChecksQuery.data, usersQuery.data]);
 
   const qualityChecksForWarehouse =
     isWarehouseManager && assignedWarehouseName
