@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,10 +21,12 @@ import {
   AlertCircle,
   Trash2,
   PanelLeftClose,
-  Clock
+  Clock,
+  ArrowRight
 } from "lucide-react";
 import {
   askWarehouseAI,
+  askWarehouseAIStream,
   askInventoryIntelligence,
   getChatHistory,
   getSessionMessages,
@@ -33,8 +35,10 @@ import {
   WarehouseAISource,
   normalizeSources,
   downloadReport,
+  getSuggestions,
+  checkAIHealth,
 } from "@/services/aiService";
-import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
+import { useDesignTokens, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
 import { tours } from "@/lib/tours/tourConfig";
 import { startProductTour } from "@/lib/tours/tourEngine";
 
@@ -52,6 +56,9 @@ type ChatMessage = {
   timestamp?: string | Date;
   action?: string;
   tourId?: string;
+  confidence?: number;
+  response_type?: "FACT" | "INSIGHT" | "RECOMMENDATION";
+  actions?: Array<{ type: string; label: string; payload?: any }>;
 };
 
 const getBaseUrl = () => {
@@ -155,18 +162,41 @@ export function WarehouseAssistant({
   fullPage = false,
   userId,
 }: WarehouseAssistantProps) {
+  const T = useDesignTokens();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+
+  useEffect(() => {
+    let mounted = true;
+    const check = async () => {
+      const status = await checkAIHealth();
+      if (mounted) setIsOnline(status);
+    };
+    check();
+    const interval = setInterval(check, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Chat History states
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (isOpen && chatHistory.length === 0 && suggestions.length === 0) {
+      getSuggestions(window.location.pathname).then(setSuggestions).catch(console.error);
+    }
+  }, [isOpen, chatHistory.length]);
 
   useEffect(() => {
     if (chatHistory.length > 0) {
@@ -253,6 +283,7 @@ export function WarehouseAssistant({
     setChatHistory([]);
     setCurrentSessionId(undefined);
     setShowHistory(false);
+    getSuggestions(window.location.pathname).then(setSuggestions).catch(console.error);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -283,7 +314,24 @@ export function WarehouseAssistant({
     setLoading(true);
 
     try {
-      let response = await askWarehouseAI(trimmedQuery, userRole, currentSessionId);
+      const msgId = `assistant-${Date.now()}`;
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          id: msgId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      let response = await askWarehouseAIStream(trimmedQuery, userRole, currentSessionId, (textChunk) => {
+        setChatHistory((prev) =>
+          prev.map((msg) =>
+            msg.id === msgId ? { ...msg, content: msg.content + textChunk } : msg
+          )
+        );
+      });
 
       // Generated-SQL analytics is limited to elevated roles. Everyone else can
       // still get live figures through the typed, read-only Spring tools.
@@ -291,32 +339,31 @@ export function WarehouseAssistant({
         response = await askInventoryIntelligence(trimmedQuery);
       }
 
-      // Derive text content for message bubble
+      // Final update of the message bubble with all metadata
       const content = response.error
         ? response.error
         : response.answer
           ? response.answer
           : response.chart || (response.data && response.data.length > 0)
             ? ""
-            : "No details returned.";
+            : "";
 
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content,
-          sources: response.sources,
-          sql: response.sql,
-          data: response.data,
-          chart: response.chart,
-          error: response.error,
-          download_url: response.download_url,
-          timestamp: new Date().toISOString(),
-          action: response.action,
-          tourId: response.tourId,
-        },
-      ]);
+      setChatHistory((prev) =>
+        prev.map((msg) =>
+          msg.id === msgId ? {
+            ...msg,
+            content: content || msg.content,
+            sources: response.sources,
+            sql: response.sql,
+            data: response.data,
+            chart: response.chart,
+            error: response.error,
+            download_url: response.download_url,
+            action: response.action,
+            tourId: response.tourId,
+          } : msg
+        )
+      );
 
       if (response.session_id) {
         setCurrentSessionId(response.session_id);
@@ -382,7 +429,7 @@ export function WarehouseAssistant({
     );
   };
 
-  // ── Full page ─────────────────────────────────────────────────────────────
+  // â”€â”€ Full page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (fullPage) {
     return (
       <div
@@ -391,7 +438,7 @@ export function WarehouseAssistant({
           flexDirection: "column",
           height: "calc(100vh - 73px)",
           overflow: "hidden",
-          background: T.bg,
+          background: T.aiBubble,
           padding: 0,
           margin: "-24px",
           position: "relative",
@@ -406,20 +453,21 @@ export function WarehouseAssistant({
             flexDirection: "column",
             flex: "1 1 0%",
             minHeight: 0,
-            background: T.bg,
+            background: "transparent",
             color: T.text,
             overflow: "hidden",
             position: "relative",
           }}
         >
           <AssistantHeader
-            title="Warehouse Assistant"
-            subtitle="Operations Copilot & Analytics"
+            title="Warehouse Copilot"
+            subtitle="Your AI operations assistant"
             onClose={() => router.back()}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
             isPopUp={false}
             isHistoryOpen={showHistory}
+            isOnline={isOnline}
           />
 
           <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
@@ -472,7 +520,7 @@ export function WarehouseAssistant({
     );
   }
 
-  // ── Manager drawer ────────────────────────────────────────────────────────
+  // â”€â”€ Manager drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const managerDrawer = (
     <>
       <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
@@ -541,9 +589,9 @@ export function WarehouseAssistant({
               borderRadius: 16,
               border: `1px solid ${T.border}`,
               borderTop: `2px solid ${T.accent}`,
-              background: T.bg,
+              background: T.panel,
               color: T.text,
-              boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
+              boxShadow: "0 32px 80px rgba(207, 15, 71, 0.12), 0 8px 32px rgba(0,0,0,0.08)",
               display: "flex",
               height: "44rem",
               maxHeight: "78vh",
@@ -556,13 +604,14 @@ export function WarehouseAssistant({
             }}
           >
             <AssistantHeader
-              title="Warehouse Assistant"
-              subtitle="Operations Copilot & Analytics"
+              title="Warehouse Copilot"
+              subtitle="Your AI operations assistant"
               onClose={() => setIsOpen(false)}
               userId={userId}
               onToggleHistory={() => setShowHistory(!showHistory)}
               isPopUp={true}
               isHistoryOpen={showHistory}
+              isOnline={isOnline}
             />
 
             <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
@@ -599,7 +648,7 @@ export function WarehouseAssistant({
                       color: T.textFaint,
                     }}
                   >
-                    AI Operations Hub
+                    Warehouse Copilot
                   </span>
                   <Link
                     href="/admin/assistant"
@@ -612,7 +661,7 @@ export function WarehouseAssistant({
                     }}
                     className="wa-link"
                   >
-                    Full screen ↗
+                    Full screen â†—
                   </Link>
                 </div>
 
@@ -644,7 +693,7 @@ export function WarehouseAssistant({
     </>
   );
 
-  // ── Worker overlay ────────────────────────────────────────────────────────
+  // â”€â”€ Worker overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const workerOverlay = (
     <>
       <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
@@ -700,13 +749,14 @@ export function WarehouseAssistant({
           }}
         >
           <AssistantHeader
-            title="Warehouse Assistant"
-            subtitle="Operations Copilot & Analytics"
+            title="Warehouse Copilot"
+            subtitle="Your AI operations assistant"
             onClose={() => setIsOpen(false)}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
             isPopUp={true}
             isHistoryOpen={showHistory}
+            isOnline={isOnline}
           />
 
           <div
@@ -715,11 +765,11 @@ export function WarehouseAssistant({
               flex: "1 1 0%",
               minHeight: 0,
               position: "relative",
-              background: T.bg,
+              background: T.panel,
               border: `1px solid ${T.border}`,
               borderTop: `2px solid ${T.accent}`,
               borderRadius: 16,
-              boxShadow: "0 24px 60px rgba(0,0,0,0.10)",
+              boxShadow: "0 32px 80px rgba(207, 15, 71, 0.12), 0 8px 32px rgba(0,0,0,0.08)",
               margin: 10,
               overflow: "hidden",
             }}
@@ -770,7 +820,7 @@ export function WarehouseAssistant({
                   }}
                   className="wa-link"
                 >
-                  Full screen ↗
+                  Full screen â†—
                 </Link>
               </div>
 
@@ -830,7 +880,7 @@ export function WarehouseAssistant({
   return userRole === "manager" ? managerDrawer : workerOverlay;
 }
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+// â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function AssistantHeader({
   title,
@@ -840,6 +890,7 @@ function AssistantHeader({
   onToggleHistory,
   isPopUp = false,
   isHistoryOpen = false,
+  isOnline = true,
 }: {
   title: string;
   subtitle: string;
@@ -848,13 +899,18 @@ function AssistantHeader({
   onToggleHistory?: () => void;
   isPopUp?: boolean;
   isHistoryOpen?: boolean;
+  isOnline?: boolean;
 }) {
+  const T = useDesignTokens();
   return (
     <div
       style={{
         flexShrink: 0,
         borderBottom: `1px solid ${T.border}`,
-        background: "#ffffff",
+        background: T.glassHeader,
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.03)",
         padding: "12px 16px",
         display: "flex",
         alignItems: "center",
@@ -875,17 +931,29 @@ function AssistantHeader({
           >
             {title}
           </h2>
-          <p
-            style={{
-              fontSize: 11,
-              fontWeight: 400,
-              color: T.textMuted,
-              margin: "2px 0 0",
-              lineHeight: 1.3,
-            }}
-          >
-            {subtitle}
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: isOnline ? T.ok : T.warn,
+                boxShadow: isOnline ? `0 0 6px ${T.ok}` : "none",
+              }}
+              title={isOnline ? "AI Agent Online" : "AI Agent Offline"}
+            />
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 400,
+                color: T.textMuted,
+                margin: 0,
+                lineHeight: 1.3,
+              }}
+            >
+              {subtitle} â€¢ {isOnline ? "Online" : "Offline"}
+            </p>
+          </div>
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -900,7 +968,7 @@ function AssistantHeader({
               justifyContent: "center",
               borderRadius: 6,
               border: `1px solid ${isHistoryOpen ? T.accentBorder : T.border}`,
-              background: isHistoryOpen ? T.accentBg : "#ffffff",
+              background: isHistoryOpen ? T.accentBg : T.bg,
               color: isHistoryOpen ? T.accent : T.textMuted,
               cursor: "pointer",
               transition: "all 0.15s ease",
@@ -924,7 +992,7 @@ function AssistantHeader({
             justifyContent: "center",
             borderRadius: 6,
             border: `1px solid ${T.border}`,
-            background: "#ffffff",
+            background: T.bg,
             color: T.textMuted,
             cursor: "pointer",
             transition: "all 0.15s ease",
@@ -959,6 +1027,7 @@ function HistorySidebar({
   onDeleteSession: (id: string) => Promise<void>;
   isPopUp: boolean;
 }) {
+  const T = useDesignTokens();
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const grouped = getGroupedSessions(historyList);
 
@@ -1025,7 +1094,7 @@ function HistorySidebar({
             alignItems: "center",
             justifyContent: "center",
             gap: 8,
-            background: "#ffffff",
+            background: T.bg,
             border: `1px solid ${T.border}`,
             color: T.textMuted,
             borderRadius: 9,
@@ -1281,25 +1350,104 @@ function AssistantBody({
   loading: boolean;
   onSuggestionClick: (suggestion: string) => void;
 }) {
+  const T = useDesignTokens();
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, loading]);
 
+  let contextualLoadingText = "Thinking";
+  if (loading && chatHistory.length > 0) {
+    const lastUserMsg = [...chatHistory].reverse().find(m => m.role === "user");
+    if (lastUserMsg) {
+      const q = lastUserMsg.content.toLowerCase();
+      if (q.includes("report") || q.includes("analysis") || q.includes("chart")) contextualLoadingText = "Generating report";
+      else if (q.includes("inventory") || q.includes("stock") || q.includes("order") || q.includes("data") || q.includes("how many") || q.includes("low")) contextualLoadingText = "Retrieving data";
+      else if (q.includes("sop") || q.includes("policy") || q.includes("procedure") || q.includes("rule")) contextualLoadingText = "Searching documents";
+      else if (q.includes("tour") || q.includes("how to") || q.includes("walkthrough") || q.includes("show me")) contextualLoadingText = "Finding workflow";
+      else contextualLoadingText = "Analyzing";
+    }
+  }
+
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
+    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: T.bg }}>
       {chatHistory.length === 0 && !loading && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
-          <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} />
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
-            How can I help you today?
-          </h3>
-          <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 24px 0", maxWidth: 320, lineHeight: 1.5 }}>
-            {userRole === "manager"
-              ? "Ask about SOPs, inventory counts, pending orders, or request reports."
-              : "Ask about SKU locations, safety protocols, or task steps."}
-          </p>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "30px 16px", width: "100%", maxWidth: 640, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 48, height: 48, borderRadius: 16, background: "linear-gradient(135deg, rgba(207, 15, 71, 0.1), rgba(207, 15, 71, 0.05))", color: T.accent, marginBottom: 16 }}>
+              <Sparkles style={{ width: 24, height: 24 }} />
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: T.text, margin: "0 0 6px 0", letterSpacing: "-0.01em" }}>
+              Warehouse Copilot
+            </h2>
+            <p style={{ fontSize: 13, color: T.accent, fontWeight: 600, margin: "0 0 12px 0" }}>
+              Your AI operations assistant
+            </p>
+            <p style={{ fontSize: 13, color: T.textMuted, margin: 0, lineHeight: 1.5 }}>
+              Ask questions about your warehouse, inventory, orders, SOPs and reports.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", marginBottom: 32, width: "100%" }}>
+            {[
+              { icon: "ðŸ“¦", title: "Inventory & Orders", desc: "Check stock, shortages & status" },
+              { icon: "ðŸ“‹", title: "SOPs & Policies", desc: "Ask about procedures & rules" },
+              { icon: "ðŸ“„", title: "Reports & Analysis", desc: "Generate on-the-fly PDF reports" },
+              { icon: "ðŸ§­", title: "Guided Tours", desc: "Walkthroughs of how to use WMS" }
+            ].map((item, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  textAlign: "left",
+                  padding: 14,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 12,
+                  width: "calc(50% - 6px)",
+                  minWidth: 160,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 16 }}>{item.icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.title}</span>
+                </div>
+                <span style={{ fontSize: 12, color: T.textMuted }}>{item.desc}</span>
+              </div>
+            ))}
+
+            {/* Forecast Intelligence Doorway */}
+            <Link
+              href="/admin/forecasts?open_assistant=true"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "14px 20px",
+                background: "linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.02) 100%)",
+                border: "1px solid rgba(139, 92, 246, 0.3)",
+                borderRadius: 12,
+                width: "100%",
+                textDecoration: "none",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.6)")}
+              onMouseOut={(e) => (e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.3)")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>âœ¨</span>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#7c3aed" }}>Forecast Intelligence</span>
+                  <span style={{ fontSize: 12, color: T.textMuted }}>Understand ML predictions & demand</span>
+                </div>
+              </div>
+              <ArrowRight style={{ width: 16, height: 16, color: "#7c3aed" }} />
+            </Link>
+          </div>
         </div>
       )}
 
@@ -1311,7 +1459,7 @@ function AssistantBody({
             gap: 12,
             alignItems: "flex-start",
             justifyContent: message.role === "user" ? "flex-end" : "flex-start",
-            animation: "fcb-fadein 0.22s ease",
+            animation: "fcb-message-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
 
@@ -1320,9 +1468,10 @@ function AssistantBody({
               style={
                 message.role === "user"
                   ? {
-                    background: T.userBubble,
+                    background: T.userBubbleGradient,
                     color: T.userText,
-                    borderRadius: "14px 14px 3px 14px",
+                    borderRadius: "16px 16px 4px 16px",
+                    boxShadow: "0 4px 12px rgba(207, 15, 71, 0.25)",
                     fontSize: 13,
                     lineHeight: 1.6,
                     padding: "9px 13px",
@@ -1332,9 +1481,9 @@ function AssistantBody({
                   : {
                     background: T.aiBubble,
                     color: T.text,
-                    borderRadius: "3px 14px 14px 14px",
-                    borderLeft: `2px solid ${T.accent}`,
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                    borderRadius: "4px 16px 16px 16px",
+                    border: `1px solid ${T.border}`,
+                    boxShadow: T.aiBubbleShadow,
                     fontSize: 13,
                     lineHeight: 1.6,
                     padding: "10px 14px",
@@ -1673,10 +1822,69 @@ function AssistantBody({
                 </div>
               )}
             </div>
-            {message.timestamp && (
-              <span style={{ fontSize: 10, color: T.textFaint, marginTop: 4, padding: "0 4px" }}>
-                {formatMessageTime(message.timestamp)}
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, padding: "0 4px" }}>
+              {message.timestamp && (
+                <span style={{ fontSize: 10, color: T.textFaint }}>
+                  {formatMessageTime(message.timestamp)}
+                </span>
+              )}
+              {message.response_type && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.05em",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    color: message.response_type === "FACT" ? T.ok : message.response_type === "INSIGHT" ? "#3b82f6" : "#f59e0b",
+                    background: message.response_type === "FACT" ? "#dcfce7" : message.response_type === "INSIGHT" ? "#dbeafe" : "#fef3c7",
+                    border: `1px solid ${
+                      message.response_type === "FACT" ? "#bbf7d0" : message.response_type === "INSIGHT" ? "#bfdbfe" : "#fde68a"
+                    }`,
+                  }}
+                >
+                  {message.response_type} {message.confidence ? `(${(message.confidence * 100).toFixed(0)}%)` : ""}
+                </span>
+              )}
+            </div>
+            
+            {message.actions && message.actions.length > 0 && (
+              <div style={{ marginTop: 6, padding: "0 4px", display: "flex", gap: 6, flexWrap: "wrap", justifyContent: message.role === "user" ? "flex-end" : "flex-start" }}>
+                {message.actions.map((action, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      if (action.type === "START_TOUR" && action.payload?.tourId) {
+                        onSuggestionClick(`Start tour: ${action.payload.tourId}`);
+                      } else {
+                        onSuggestionClick(action.label);
+                      }
+                    }}
+                    style={{
+                      padding: "5px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 6,
+                      border: `1px solid ${T.accentBorder}`,
+                      background: T.accentBg,
+                      color: T.accent,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = T.accent;
+                      e.currentTarget.style.color = "#ffffff";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = T.accentBg;
+                      e.currentTarget.style.color = T.accent;
+                    }}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -1684,20 +1892,21 @@ function AssistantBody({
 
       {loading && (
         <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-end", gap: 12 }}>
-
           <div
             style={{
               background: T.aiBubble,
               border: `1px solid ${T.borderSub}`,
               borderLeft: `2px solid ${T.accent}`,
               borderRadius: "3px 14px 14px 14px",
-              padding: "10px 14px",
+              padding: "8px 14px",
               boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
               display: "flex",
               alignItems: "center",
+              gap: 12,
               height: 38,
             }}
           >
+            <span style={{ fontSize: 12, fontWeight: 500, color: T.textDim }}>{contextualLoadingText}</span>
             <TypingDots />
           </div>
         </div>
@@ -1725,12 +1934,15 @@ function AssistantComposer({
   onQueryChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
+  const T = useDesignTokens();
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
       style={{
         borderTop: `1px solid ${T.border}`,
-        background: "#ffffff",
+        background: T.glassHeader,
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
         padding: "10px 14px",
         display: "flex",
         flexDirection: "column",
@@ -1742,7 +1954,7 @@ function AssistantComposer({
           display: "flex",
           alignItems: "flex-end",
           gap: 8,
-          background: "#ffffff",
+          background: "transparent",
         }}
       >
         <textarea
@@ -1838,7 +2050,7 @@ function AssistantComposer({
         >
           Enter
         </kbd>{" "}
-        to send ·{" "}
+        to send Â·{" "}
         <kbd
           style={{
             background: T.inputBg,
@@ -1863,5 +2075,6 @@ export function WarehouseAssistantFullPage({
   userRole: WarehouseAIRole;
   userId?: string;
 }) {
+  const T = useDesignTokens();
   return <WarehouseAssistant userRole={userRole} fullPage userId={userId} />;
 }

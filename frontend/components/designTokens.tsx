@@ -1,15 +1,18 @@
 import React from "react";
 
-// Design tokens (Light mode palette)
-export const T = {
+import { useTheme } from "@/lib/hooks/useTheme";
+
+export const LIGHT_T = {
   // Backgrounds
   bg: "#ffffff",
   bgSub: "#f8f9fa",
   bgMuted: "#f0f2f5",
+  panel: "#ffffff",
 
   // Borders
   border: "#eef0f2",
   borderSub: "#e4e4e7",
+  chipBorder: "#e4e4e7",
 
   // Brand / Accent
   accent: "#CF0F47",
@@ -33,13 +36,69 @@ export const T = {
 
   // Bubbles
   userBubble: "#CF0F47",
+  userBubbleGradient: "linear-gradient(135deg, #CF0F47 0%, #E6175C 100%)",
   userText: "#ffffff",
-  aiBubble: "#f0f2f5",
+  aiBubble: "#ffffff", // Make it white for pop against grey background
+  aiBubbleShadow: "0 4px 15px rgba(0, 0, 0, 0.05)",
 
-  // Input
+  // Input & Header
   inputBg: "#ffffff",
-  inputBorder: "#d1d5db",
+  inputBorder: "#e5e7eb",
+  glassHeader: "rgba(255, 255, 255, 0.85)",
 };
+
+export const DARK_T = {
+  // Backgrounds
+  bg: "#111827",       // gray-900
+  bgSub: "#1f2937",    // gray-800
+  bgMuted: "#374151",  // gray-700
+  panel: "#1f2937",
+
+  // Borders
+  border: "#374151",
+  borderSub: "#4b5563",
+  chipBorder: "#4b5563",
+
+  // Brand / Accent
+  accent: "#F43F5E",    // lighter rose for dark mode visibility
+  accentHover: "#E11D48",
+  accentGlow: "rgba(244, 63, 94, 0.18)",
+  accentBg: "rgba(244, 63, 94, 0.1)",
+  accentBorder: "rgba(244, 63, 94, 0.3)",
+
+  // Status
+  ok: "#22c55e",
+  okBg: "rgba(34, 197, 94, 0.1)",
+  warn: "#f59e0b",
+  error: "#ef4444",
+  errorBg: "rgba(239, 68, 68, 0.1)",
+
+  // Text
+  text: "#f9fafb",      // gray-50
+  textDim: "#e5e7eb",   // gray-200
+  textMuted: "#9ca3af", // gray-400
+  textFaint: "#6b7280", // gray-500
+
+  // Bubbles
+  userBubble: "#F43F5E",
+  userBubbleGradient: "linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)",
+  userText: "#ffffff",
+  aiBubble: "#374151",  // gray-700
+  aiBubbleShadow: "0 4px 15px rgba(0, 0, 0, 0.2)",
+
+  // Input & Header
+  inputBg: "#374151",
+  inputBorder: "#4b5563",
+  glassHeader: "rgba(17, 24, 39, 0.85)",
+};
+
+// Deprecated: Only export for legacy direct usages.
+export const T = LIGHT_T;
+
+export function useDesignTokens() {
+  const { isDark } = useTheme();
+  return isDark ? DARK_T : LIGHT_T;
+}
 
 export const SHARED_KEYFRAMES = `
   @keyframes fcb-bounce {
@@ -58,6 +117,10 @@ export const SHARED_KEYFRAMES = `
     0%   { box-shadow: 0 0 0 0 rgba(207, 15, 71, 0.5); }
     70%  { box-shadow: 0 0 0 10px rgba(207, 15, 71, 0); }
     100% { box-shadow: 0 0 0 0 rgba(207, 15, 71, 0); }
+  }
+  @keyframes fcb-message-pop {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 
   /* ── Quick action chips ── */

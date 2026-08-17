@@ -14,9 +14,10 @@ from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Response, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+import asyncio
 
 from agent import (
     ChatMessage,
@@ -26,6 +27,7 @@ from agent import (
     get_db_session,
     init_chat_db,
     load_agent,
+    generate_suggestions,
 )
 from explain_router import router as explain_router
 from ingest import ingest
@@ -94,6 +96,9 @@ class QuestionRequest(BaseModel):
     timestamp: Optional[str] = None
     session_id: Optional[str] = None
 
+class SuggestionRequest(BaseModel):
+    page_context: str
+
 
 class DataResponse(BaseModel):
     mode: Optional[str] = None
@@ -108,6 +113,9 @@ class DataResponse(BaseModel):
     session_id: Optional[str] = None
     action: Optional[str] = None        # e.g. "START_TOUR" for guided product tours
     tourId: Optional[str] = None        # Tour config key in frontend/lib/tours/tourConfig.ts
+    confidence: Optional[float] = None
+    response_type: Optional[str] = None # FACT, INSIGHT, RECOMMENDATION
+    actions: List[dict[str, Any]] = []
     facts: dict[str, Any] = {}
     warnings: List[str] = []
     toolCalls: List[dict[str, Any]] = []
@@ -207,6 +215,15 @@ def assert_owns_session(identity: dict[str, Any], session: Any) -> None:
 def health():
     return {"status": "ok", "sqlRoles": sorted(sql_roles)}
 
+@app.post("/suggestions")
+def get_suggestions(
+    request: SuggestionRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer)
+):
+    authenticate(credentials)
+    suggestions = generate_suggestions(request.page_context)
+    return {"suggestions": suggestions}
+
 
 # ── Unified AI assistant (SOP RAG + WMS database query + report) ──────────────
 @app.post("/ask", response_model=DataResponse)
@@ -278,9 +295,73 @@ def ask_question(
         session_id=res.get("session_id"),
         action=res.get("action"),
         tourId=res.get("tourId"),
+        confidence=res.get("confidence"),
+        response_type=res.get("response_type"),
+        actions=res.get("actions", []),
         toolCalls=[{"name": res.get("mode"), "outcome": "error" if res.get("error") else "ok"}],
         correlationId=correlation_id,
     )
+
+@app.post("/ask/stream")
+async def ask_question_stream(
+    request: QuestionRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer),
+):
+    identity = authenticate(credentials)
+    question = (request.message or request.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="A message is required.")
+
+    role = identity_role(identity)
+    user_id = str(identity.get("id") or "") or None
+
+    async def stream_generator():
+        try:
+            loop = asyncio.get_running_loop()
+            res = await loop.run_in_executor(
+                None,
+                lambda: ask(
+                    chain,
+                    question,
+                    user_id=user_id,
+                    session_id=request.session_id,
+                    mode=None,
+                    jwt_token=credentials.credentials,
+                )
+            )
+            
+            # Streaming simulated chunk by chunk for the UI
+            answer = res.get("error") if res.get("error") else res.get("answer", "")
+            if answer:
+                words = answer.split(" ")
+                for word in words:
+                    chunk = {"type": "chunk", "text": word + " "}
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    await asyncio.sleep(0.03)
+            
+            # Yield final payload
+            final = {
+                "type": "final",
+                "mode": res.get("mode"),
+                "sql": res.get("sql"),
+                "data": res.get("data"),
+                "chart": res.get("chart"),
+                "error": res.get("error"),
+                "download_url": res.get("download_url"),
+                "sources": res.get("sources"),
+                "session_id": res.get("session_id"),
+                "action": res.get("action"),
+                "tourId": res.get("tourId"),
+                "confidence": res.get("confidence"),
+                "response_type": res.get("response_type"),
+                "actions": res.get("actions", [])
+            }
+            yield f"data: {json.dumps(final)}\n\n"
+        except Exception as e:
+            err = {"type": "error", "error": str(e)}
+            yield f"data: {json.dumps(err)}\n\n"
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 @app.post("/reindex")

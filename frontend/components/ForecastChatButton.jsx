@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
+import { useSearchParams } from "next/navigation";
+import { useDesignTokens, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
 
 
 // ─── Quick action suggestions ────────────────────────────────────────────────
@@ -45,6 +46,7 @@ function renderMarkdownLite(text) {
 
 // ─── Message bubble ──────────────────────────────────────────────────────────
 function Bubble({ msg, isLast }) {
+  const T = useDesignTokens();
   const isUser = msg.role === "user";
   const isEmpty = !msg.content;
 
@@ -106,6 +108,7 @@ function Bubble({ msg, isLast }) {
 
 // ─── Quick action chip ───────────────────────────────────────────────────────
 function QuickChip({ icon, label, onClick, disabled }) {
+  const T = useDesignTokens();
   const [hovered, setHovered] = useState(false);
   return (
     <button
@@ -163,7 +166,9 @@ export default function ForecastChatButton({
   onSkuChange,
   onOpen,
 }) {
-  const [open, setOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const T = useDesignTokens();
+  const [open, setOpen] = useState(() => searchParams.get("open_assistant") === "true");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -174,6 +179,8 @@ export default function ForecastChatButton({
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
+  const [shapDrivers, setShapDrivers] = useState(null);
+
   // Keep activeSku in sync when parent changes selectedSku
   useEffect(() => {
     setActiveSku(sku || "");
@@ -183,6 +190,28 @@ export default function ForecastChatButton({
   useEffect(() => {
     setActiveMonth(selectedMonth || "");
   }, [selectedMonth]);
+
+  // Fetch SHAP drivers when SKU changes
+  useEffect(() => {
+    async function fetchShap() {
+      if (!activeSku || activeSku === "all") {
+        setShapDrivers(null);
+        return;
+      }
+      try {
+        const { apiClient } = await import("@/lib/api/client");
+        const res = await apiClient.get(`/v1/shap/explanation?sku=${encodeURIComponent(activeSku)}&horizon=3`);
+        if (res && res.top_features) {
+          setShapDrivers(res.top_features);
+        } else {
+          setShapDrivers(null);
+        }
+      } catch (err) {
+        setShapDrivers(null);
+      }
+    }
+    fetchShap();
+  }, [activeSku]);
 
   // Auto-scroll
   useEffect(() => {
@@ -617,17 +646,34 @@ export default function ForecastChatButton({
                 </strong>
               </span>
             )}
-            {confPct && (
-              <span>
-                <span style={{ color: T.textMuted }}>Confidence: </span>
-                <strong style={{ color: T.warn }}>{confPct}</strong>
-              </span>
-            )}
             {mapeStr && (
-              <span>
-                <span style={{ color: T.textMuted }}>MAPE: </span>
-                <strong style={{ color: T.text }}>{mapeStr}</strong>
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", marginTop: 4 }}>
+                <span style={{ color: T.textMuted, width: 70, fontSize: 10 }}>Confidence</span>
+                <div style={{ flex: 1, background: T.borderSub, height: 6, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.max(0, Math.min(100, 100 - (mape || 0)))}%`, 
+                    height: "100%", 
+                    background: (mape || 0) < 15 ? T.ok : (mape || 0) < 30 ? T.warn : T.error
+                  }} />
+                </div>
+                <strong style={{ color: T.text, fontSize: 10 }}>{Math.max(0, 100 - (mape || 0)).toFixed(1)}%</strong>
+              </div>
+            )}
+            
+            {shapDrivers && shapDrivers.length > 0 && (
+              <div style={{ width: "100%", marginTop: 8, borderTop: `1px solid ${T.borderSub}`, paddingTop: 6 }}>
+                <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 4 }}>Top Drivers (SHAP)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {shapDrivers.slice(0, 3).map((f, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                      <span style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.label || f.feature}</span>
+                      <span style={{ color: f.shap_value >= 0 ? T.ok : T.error, fontWeight: 600, marginLeft: 8 }}>
+                        {f.shap_value > 0 ? "+" : ""}{f.shap_value.toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 

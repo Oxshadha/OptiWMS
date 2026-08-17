@@ -20,6 +20,13 @@ export interface WarehouseAIResponse {
   raw?: unknown;
   action?: string;
   tourId?: string;
+  confidence?: number;
+  response_type?: "FACT" | "INSIGHT" | "RECOMMENDATION";
+  actions?: Array<{
+    type: string;
+    label: string;
+    payload?: Record<string, any>;
+  }>;
 }
 
 interface ToolEnvelope {
@@ -222,6 +229,9 @@ export async function askWarehouseAI(
       session_id: typeof data.session_id === "string" ? data.session_id : undefined,
       action: typeof data.action === "string" ? data.action : undefined,
       tourId: typeof data.tourId === "string" ? data.tourId : undefined,
+      confidence: typeof data.confidence === "number" ? data.confidence : undefined,
+      response_type: typeof data.response_type === "string" ? (data.response_type as "FACT" | "INSIGHT" | "RECOMMENDATION") : undefined,
+      actions: Array.isArray(data.actions) ? data.actions as any[] : undefined,
       raw: data,
     };
   } catch (error) {
@@ -237,6 +247,116 @@ export async function askWarehouseAI(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function getSuggestions(pageContext: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${AI_SERVICE_BASE}/suggestions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ page_context: pageContext }),
+    });
+    if (!response.ok) {
+      return [];
+    }
+    const data = await response.json();
+    return data.suggestions || [];
+  } catch (error) {
+    console.error("Failed to fetch suggestions:", error);
+    return [];
+  }
+}
+
+export async function checkAIHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(`${AI_SERVICE_BASE}/health`, {
+      method: "GET",
+      // Short timeout for health checks
+      signal: AbortSignal.timeout(3000)
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function askWarehouseAIStream(
+  query: string,
+  role: WarehouseAIRole,
+  sessionId: string | undefined,
+  onChunk: (text: string) => void
+): Promise<WarehouseAIResponse> {
+  const response = await fetch(`${AI_SERVICE_BASE}/ask/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({
+      message: query,
+      context: role,
+      timestamp: new Date(),
+      session_id: sessionId,
+    }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("Your session has expired.");
+    if (response.status === 403) throw new Error("Access denied.");
+    throw new Error("AI service unavailable.");
+  }
+
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let finalData: any = {};
+
+  if (reader) {
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.substring(6));
+            if (data.type === "chunk") {
+              onChunk(data.text);
+            } else if (data.type === "final") {
+              finalData = data;
+            } else if (data.type === "error") {
+              throw new Error(data.error);
+            }
+          } catch (e) {
+            console.error("SSE parse error", e);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    mode: finalData.mode,
+    answer: "",
+    sources: normalizeSources(finalData.sources, role),
+    sql: finalData.sql,
+    data: finalData.data,
+    chart: finalData.chart,
+    error: finalData.error,
+    download_url: finalData.download_url,
+    session_id: finalData.session_id,
+    action: finalData.action,
+    tourId: finalData.tourId,
+    confidence: finalData.confidence,
+    response_type: finalData.response_type,
+    actions: finalData.actions,
+    raw: finalData,
+  };
 }
 
 /**

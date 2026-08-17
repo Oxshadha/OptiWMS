@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
 import { authApi } from "@/lib/api/auth";
 import { getRoleDisplayName } from "@/lib/admin-roles";
@@ -36,8 +36,9 @@ export function Topbar({
   onToggleSidebar?: () => void;
   showToggle?: boolean;
 }) {
-  const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
+  const pathname = usePathname();
+  const { admin, role, clearAdmin } = useAdmin();
   const { isDark, toggleTheme, mounted } = useTheme();
   const [query, setQuery] = useState("");
   const [openProfile, setOpenProfile] = useState(false);
@@ -540,10 +541,9 @@ export function Topbar({
           </button>
         )}
 
-        <WarehouseAssistant userRole="manager" userId={admin?.id} />
-        <div className="hidden md:block">
-          <WarehouseAssistant userRole="manager" />
-        </div>
+        {(!pathname || !pathname.includes("/assistant")) && (
+          <WarehouseAssistant userRole="manager" userId={admin?.id} />
+        )}
 
         <div className="relative profile-dropdown">
           <button

@@ -24,7 +24,7 @@ import seaborn as sns
 # Langchain / SOP Q&A
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_classic.chains import RetrievalQA
+from langchain.chains import ConversationalRetrievalChain
 from langchain_core.prompts import PromptTemplate
 
 # ReportLab
@@ -158,6 +158,11 @@ def is_safe_query(sql: str) -> bool:
     forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
     if not sql_upper.startswith("SELECT"):
         return False
+        
+    # Block system catalog access
+    if re.search(r'\b(PG_|INFORMATION_SCHEMA)\b', sql_upper):
+        return False
+        
     for word in forbidden:
         if re.search(r'\b' + word + r'\b', sql_upper):
             return False
@@ -167,12 +172,18 @@ def is_safe_query(sql: str) -> bool:
 # ── SQL extraction ────────────────────────────────────────────────────────────
 def extract_sql(text: str) -> str:
     match = re.search(r"```(?:sql)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    match = re.search(r"(SELECT\s.+?)(?:;|$)", text, re.DOTALL | re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    return ""
+    sql = match.group(1).strip() if match else ""
+    if not sql:
+        match = re.search(r"(SELECT\s.+?)(?:;|$)", text, re.DOTALL | re.IGNORECASE)
+        sql = match.group(1).strip() if match else ""
+        
+    if sql and is_safe_query(sql):
+        sql_upper = sql.upper()
+        if "LIMIT " not in sql_upper:
+            # Enforce strict 100 row limit
+            sql = sql.rstrip(";") + " LIMIT 100"
+            
+    return sql
 
 
 # ── Mode detection ────────────────────────────────────────────────────────────
@@ -855,11 +866,10 @@ def load_agent():
         input_variables=["context", "question"]
     )
 
-    qa_chain = RetrievalQA.from_chain_type(
+    qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        chain_type="stuff",
         retriever=vectorstore.as_retriever(search_kwargs={"k": 4}),
-        chain_type_kwargs={"prompt": prompt},
+        combine_docs_chain_kwargs={"prompt": prompt},
         return_source_documents=True
     )
 
@@ -873,6 +883,7 @@ def classify_question(question: str) -> str:
     - 'SOP': Standard Operating Procedures, instructions, policies, rules, maps.
     - 'DATA': Database numbers, inventory, orders, stock levels, or reports.
     - 'TOUR': Requests for an interactive UI guide or product tour on how to use the admin dashboard.
+    - 'FORECAST': Questions about machine learning predictions, demand forecasts, or SHAP factors.
     """
     q_lower = question.lower()
 
@@ -893,26 +904,30 @@ def classify_question(question: str) -> str:
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         prompt = f"""You are a query classifier for a Warehouse Management System (WMS).
-Classify the user question into one of these three classes:
+Classify the user question into one of these five classes:
 - 'SOP': Standard Operating Procedures, safety instructions, return policies, operational rules, or physical warehouse locations/equipment.
 - 'DATA': Stock numbers, inventory counts, order status, movement logs, analytics, queries about what is in the postgres database tables, or requests to generate reports.
 - 'TOUR': Requests for a product tour, UI guide, how to use the software dashboard, how to navigate around the application, where things are on screen, or what features exist in the software.
+- 'FORECAST': Any question about demand forecasts, predictions, predicting future demand, SHAP values, or factors driving a forecast.
+- 'GENERAL': Greetings (hello, hi, hey), small talk, off-topic questions, or anything that doesn't fit the above.
 
 CRITICAL CLASSIFICATION RULES:
 1. If the user asks ANY question about what is in the dashboard, how to use the software, how to navigate, where a feature is on screen, or how the UI works → CLASSIFY AS 'TOUR'.
 2. 'SOP' is ONLY for physical warehouse operations (like forklifts, safety, damaged goods, PPT usage, cycle count steps, etc).
 3. If the user asks "how do I..." or "where is..." or "what's in the dashboard" about the software → it is 'TOUR', not 'SOP'.
-4. Examples:
+4. Greetings like "hello", "hi", "dd", etc. MUST be classified as 'GENERAL'.
+5. Examples:
    - "whats in the dashboard and how to use them" → TOUR
-   - "show me how to manage inventory in the app" → TOUR
+   - "helloooo" → GENERAL
    - "how to use a forklift safely" → SOP
    - "where is SKU-001 stored physically" → SOP
    - "where is the inventory page" → TOUR
    - "show me inventory count for SKU-001" → DATA
+   - "why is the forecast so high" → FORECAST
 
 User Question: "{question}"
 
-Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other text."""
+Answer ONLY with 'SOP', 'DATA', 'TOUR', 'FORECAST', or 'GENERAL'. Do not add any explanation or other text."""
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=prompt,
@@ -920,16 +935,23 @@ Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other t
         res = response.text.strip().upper()
         if "TOUR" in res:
             return "TOUR"
+        elif "FORECAST" in res:
+            return "FORECAST"
         elif "SOP" in res:
             return "SOP"
         elif "DATA" in res:
             return "DATA"
+        elif "GENERAL" in res:
+            return "GENERAL"
     except Exception as e:
         print(f"Classifier error: {e}")
 
     # Fallback keyword matching
     if "report" in q_lower or "pdf" in q_lower:
         return "DATA"
+    forecast_keywords = ["forecast", "predict", "shap", "demand prediction", "future demand", "driving the forecast"]
+    if any(k in q_lower for k in forecast_keywords):
+        return "FORECAST"
     tour_keywords = [
         "tour", "guide", "navigate", "dashboard", "where is", "show me how",
         "walk me through", "tutorial", "how to use", "feature", "screen", "page",
@@ -940,6 +962,11 @@ Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other t
     sop_keywords = ["sop", "procedure", "policy", "rule", "step", "safety", "standard", "map", "location", "forklift", "ppt", "pallet", "stacker"]
     if any(k in q_lower for k in sop_keywords):
         return "SOP"
+    
+    # If it's a short meaningless string, default to GENERAL
+    if len(q_lower.strip()) < 5 and q_lower.strip() not in ["tour", "data", "sop"]:
+        return "GENERAL"
+        
     return "DATA"
 
 
@@ -980,13 +1007,74 @@ def select_tour_id(question: str) -> str:
     return "dashboard_overview_tour"
 
 
+def _get_recent_chat_history(session_id: str, limit: int = 6) -> list:
+    if not session_id:
+        return []
+    try:
+        with get_db_session() as db:
+            messages = (
+                db.query(ChatMessage)
+                .filter(ChatMessage.session_id == session_id)
+                .order_by(ChatMessage.timestamp.desc())
+                .limit(limit)
+                .all()
+            )
+            return messages[::-1]
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return []
+
+# ── Suggestions Generation ──────────────────────────────────────────────────
+def generate_suggestions(page_context: str) -> list[str]:
+    prompt = f"""You are a helpful AI assistant in a Warehouse Management System (OptiWMS).
+The user has just opened the chat interface while on the following page or context:
+"{page_context}"
+
+Generate EXACTLY 3 short, highly relevant suggested questions the user might want to ask you based on this context.
+Return ONLY a valid JSON array of 3 strings. No markdown formatting, no explanations.
+Example output:
+["Show me today's inbound orders", "Which shipments are delayed?", "Generate a receiving report"]
+"""
+    try:
+        text, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+        raw = text.strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+        return json.loads(raw)
+    except Exception as e:
+        print(f"Failed to generate suggestions: {e}")
+        return ["How do I use the dashboard?", "Show me an inventory summary", "Are there any delayed orders?"]
+
 # ── Unified ask function ──────────────────────────────────────────────────────
 def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None, jwt_token: str = None) -> dict:
     # The API layer classifies first so it can apply role checks before any SQL
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
 
-    if mode == "TOUR":
+    history = _get_recent_chat_history(session_id)
+    langchain_history = []
+    langgraph_history = []
+    
+    current_human = None
+    for msg in history:
+        if msg.sender == "user":
+            current_human = msg.text_content
+            langgraph_history.append(("user", msg.text_content))
+        elif msg.sender == "ai":
+            langgraph_history.append(("assistant", msg.text_content))
+            if current_human:
+                langchain_history.append((current_human, msg.text_content))
+                current_human = None
+
+    if mode == "FORECAST":
+        return {
+            "mode": "FORECAST",
+            "answer": "To get a detailed, plain-English explanation of this forecast (including its driving factors), please navigate to the Forecast Dashboard and click the **Explain Forecast** button next to the specific prediction.",
+            "confidence": 1.0,
+            "response_type": "text",
+            "actions": []
+        }
+    elif mode == "TOUR":
         tour_id = select_tour_id(question)
         tour_intros = {
             "inventory_management_tour": "Let me show you how to manage inventory and check stock levels.",
@@ -1002,11 +1090,14 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "mode": "TOUR",
             "answer": f"{intro} Starting the interactive tour now — just follow the highlighted steps on your screen.",
             "action": "START_TOUR",
-            "tourId": tour_id
+            "tourId": tour_id,
+            "confidence": 0.99,
+            "response_type": "RECOMMENDATION",
+            "actions": [{"type": "START_TOUR", "label": "Start Tour", "payload": {"tourId": tour_id}}]
         }
     elif mode == "SOP":
-        result = chain.invoke({"query": question})
-        answer = result["result"]
+        result = chain.invoke({"question": question, "chat_history": langchain_history})
+        answer = result["answer"]
         sources = list(set([
             doc.metadata.get("title") or doc.metadata.get("source") or os.path.basename(doc.metadata.get("source", "Unknown"))
             for doc in result["source_documents"]
@@ -1014,7 +1105,30 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
         res = {
             "mode": "SOP",
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "confidence": 0.85,
+            "response_type": "FACT",
+            "actions": []
+        }
+    elif mode == "GENERAL":
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0.7
+        )
+        sys_msg = "You are a helpful and friendly warehouse operations assistant for OptiWMS. A user is saying hello or making general conversation. Keep it brief and polite. E.g. 'Hello! How can I help you with your warehouse today?'"
+        
+        messages = [("system", sys_msg)]
+        messages.extend(langchain_history[-3:]) # just the last few
+        messages.append(("user", question))
+        
+        response = llm.invoke(messages)
+        res = {
+            "mode": "GENERAL",
+            "answer": response.content,
+            "confidence": 1.0,
+            "response_type": "FACT",
+            "actions": []
         }
     else:
         # DATA mode - Use Tool-Calling Agent
@@ -1036,22 +1150,33 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
         agent_executor = create_react_agent(llm, tools)
         
         try:
-            sys_msg = "You are an intelligent warehouse operations assistant for OptiWMS. Use the provided tools to answer the user's questions. If a standard tool doesn't match the request, you can use the adhoc query tool for database queries."
-            result = agent_executor.invoke({"messages": [("system", sys_msg), ("user", question)]})
+            sys_msg = "You are an intelligent warehouse operations assistant for OptiWMS. Use the provided tools to answer the user's questions. If a standard tool doesn't match the request, you can use the adhoc query tool for database queries. If no data is available or tools fail, clearly state that the requested data could not be found."
+            
+            messages = [("system", sys_msg)]
+            messages.extend(langgraph_history)
+            messages.append(("user", question))
+            
+            result = agent_executor.invoke({"messages": messages})
             answer = result["messages"][-1].content
             error = None
         except Exception as e:
             answer = ""
             error = str(e)
             
+        if not answer.strip():
+            answer = "I could not retrieve the requested data. It may not be available in the current database, or there was an error processing the request."
+            
         res = {
             "mode": "DATA",
-            "sql": None, # Kept null as SQL fallback handles it internally now
+            "sql": None, 
             "data": None,
             "chart": None,
             "error": error,
             "answer": answer,
-            "download_url": None
+            "download_url": None,
+            "confidence": 0.95,
+            "response_type": "FACT",
+            "actions": [{"type": "GENERATE_REPORT", "label": "Generate Report", "payload": {}}]
         }
 
     # ── Database Persistence ──────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Web Framework & Server
 fastapi
-uvicorn[standard]
+uvicorn[standard]==0.29.0
 python-dotenv
 httpx
 
@@ -10,10 +10,9 @@ sqlalchemy
 pandas
 
 # Core LangChain Framework
-langchain
-langchain-core
-langchain-community
-langchain-classic
+langchain==0.2.16
+langchain-core==0.2.43
+langchain-community==0.2.17
 langchain-text-splitters
 
 # AI Models & Ecosystem Integrations
@@ -30,3 +29,4 @@ plotly
 matplotlib
 seaborn
 reportlab
+langgraph
