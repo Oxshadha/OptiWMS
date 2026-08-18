@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import ExtraTreesRegressor
 
+from pipeline.explainability import explain_frame
 from pipeline.modeling import CAUSAL_FEATURES, build_features
 
 
@@ -61,8 +62,16 @@ def recursive_forecast(
     future_covariates: pd.DataFrame,
     origin: pd.Timestamp,
     horizon: int = DEFAULT_HORIZON,
+    explain_sink: list[pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
-    """Forecast H1-H12 recursively while never inserting future actual demand."""
+    """Forecast H1-H12 recursively while never inserting future actual demand.
+
+    When ``explain_sink`` is supplied, each step's SHAP attributions are appended
+    to it. They are computed from the same frame the step predicted on, so the
+    explanation describes the prediction that was actually served rather than a
+    reconstruction of it.
+    """
+    explainer = None
     working = history[history["month"] < origin].copy()
     rows: list[pd.DataFrame] = []
     months = pd.date_range(origin, periods=horizon, freq="MS")
@@ -87,6 +96,21 @@ def recursive_forecast(
         step_rows["horizon"] = step
         step_rows["prediction"] = prediction
         rows.append(step_rows)
+
+        if explain_sink is not None:
+            if explainer is None:
+                import shap
+
+                explainer = shap.TreeExplainer(model)
+            explain_sink.append(
+                explain_frame(
+                    model,
+                    target[CAUSAL_FEATURES],
+                    step_rows[["material_id", "material_code", "target_month"]],
+                    horizon=step,
+                    explainer=explainer,
+                )
+            )
 
         future["demand_units"] = prediction
         working = pd.concat([working, future], ignore_index=True, sort=False)
@@ -265,7 +289,10 @@ def build_operational_forecast(output: Path = OUTPUT) -> dict:
     model.fit(supervised[CAUSAL_FEATURES], np.log1p(supervised["target"]))
     origin = demand["month"].max().to_period("M").to_timestamp() + pd.offsets.MonthBegin(1)
     future = _future_covariates(demand, origin, DEFAULT_HORIZON)
-    forecast = recursive_forecast(model, demand, future, origin, DEFAULT_HORIZON)
+    explanations: list[pd.DataFrame] = []
+    forecast = recursive_forecast(
+        model, demand, future, origin, DEFAULT_HORIZON, explain_sink=explanations
+    )
 
     selection = pd.read_csv(output / "selection_backtest_rows.csv")
     selection = selection[selection["model"].eq("extra_trees_causal")].copy()
@@ -298,6 +325,11 @@ def build_operational_forecast(output: Path = OUTPUT) -> dict:
     backtest_path = output / "operational_recursive_backtest_rows.csv.gz"
     forecast.to_csv(forecast_path, index=False)
     metrics.to_csv(metrics_path, index=False)
+    if explanations:
+        shap_frame = pd.concat(explanations, ignore_index=True)
+        shap_frame["model_name"] = MODEL_NAME
+        shap_frame["dataset"] = DATASET
+        shap_frame.to_csv(output / "operational_shap.csv", index=False)
     backtest.to_csv(backtest_path, index=False, compression="gzip")
     if not comparison.empty:
         comparison.to_csv(output / "operational_model_comparison.csv", index=False)

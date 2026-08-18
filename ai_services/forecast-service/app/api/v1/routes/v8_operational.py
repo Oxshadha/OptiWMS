@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
+from app.services.shap_service import load_shap_snapshot
 from app.db.models import (
     ForecastMetric,
     ForecastPrediction,
@@ -190,6 +191,16 @@ def _publish_service_snapshot(
         registry.is_champion = 1
         registry.priority = 1
         registry.metrics_json = registry_metrics
+    # Per-decision SHAP attributions, computed by the modelling pipeline against
+    # the exact feature frame behind each recursive step.
+    shap_rows = load_shap_snapshot(
+        db=db,
+        run_id=run.id,
+        output_dir=output_dir,
+        dataset=DATASET,
+        model_name=MODEL_NAME,
+    )
+
     db.commit()
     reset_provider()
     return {
@@ -197,6 +208,7 @@ def _publish_service_snapshot(
         "forecast_rows": int(len(forecasts)),
         "metric_rows": int(len(metrics)),
         "inventory_rows": int(len(policy)),
+        "shap_explanations": shap_rows,
         "registry_champion": MODEL_NAME,
     }
 

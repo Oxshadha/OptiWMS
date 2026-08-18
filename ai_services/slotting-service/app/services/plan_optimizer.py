@@ -92,6 +92,11 @@ class PlanAssignmentResponse(BaseModel):
     zone_upgrade: Optional[str] = None
     move_reason: str = ""
     gain_score: float = 0
+    objective_cost: Optional[float] = None
+    # Exact breakdown of this location's objective contribution, plus the same
+    # figures for the next-best candidate. The solver already computes these; they
+    # were previously summed into a scalar and discarded.
+    decision_evidence: Optional[Dict[str, Any]] = None
     relocation_applied: bool = False
     status: str = "PROPOSED"
 
@@ -270,6 +275,63 @@ def _candidate_locations(
     ))
     return compatible[:max_candidates]
 
+
+# Which cost component moved the decision, in words a warehouse manager uses.
+_COMPONENT_PHRASING = {
+    "travel": "shorter travel to dispatch",
+    "accessibility": "better pick accessibility for this velocity class",
+    "vertical_handling": "easier level to handle",
+    "relocation": "avoids a relocation",
+    "stockout_offset": "higher stockout protection",
+}
+
+
+def _explain_choice(
+    selected_code: str,
+    selected: Dict[str, float],
+    runner_up_code: Optional[str],
+    runner_up: Optional[Dict[str, float]],
+) -> tuple[str, Dict[str, Any]]:
+    """Explain a MILP assignment by what it beat and by how much.
+
+    The solver minimises a sum of named costs, so the honest explanation is the
+    per-component difference against the next-best candidate. Nothing is
+    approximated here: these are the exact terms the objective was built from.
+    """
+    evidence: Dict[str, Any] = {
+        "method": "milp_objective_decomposition",
+        "selected_location": selected_code,
+        "selected_components": selected,
+        "runner_up_location": runner_up_code,
+        "runner_up_components": runner_up,
+    }
+
+    if not runner_up or runner_up_code is None:
+        evidence["note"] = "Only one feasible candidate survived the constraint filter."
+        return (
+            f"{selected_code} was the only location satisfying zone, capacity, weight "
+            f"and volume constraints for this material."
+        ), evidence
+
+    margin = runner_up["total"] - selected["total"]
+    deltas = {
+        key: round(runner_up.get(key, 0.0) - selected.get(key, 0.0), 3)
+        for key in selected
+        if key != "total"
+    }
+    evidence["margin"] = round(margin, 3)
+    evidence["component_deltas"] = deltas
+
+    drivers = sorted(deltas.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    leading = [
+        _COMPONENT_PHRASING.get(name, name.replace("_", " "))
+        for name, value in drivers[:2]
+        if abs(value) > 1e-6 and value > 0
+    ]
+    because = " and ".join(leading) if leading else "a lower total handling cost"
+    return (
+        f"{selected_code} beat {runner_up_code} by {margin:.1f} cost units - {because}."
+    ), evidence
 
 def _milp_candidate_locations(
     material: PlanMaterialInput,
@@ -468,6 +530,8 @@ def _ortools_full_milp_optimize_plan(
 
     move_terms = []
     objective_terms = []
+    # (material_id, location_code) -> named cost components for the primary term.
+    cost_components: Dict[tuple, Dict[str, float]] = {}
     max_issue_count = max(1, max(material.issue_count for material in movable_materials))
     max_demand = max(1.0, max(material.forecast_demand or material.issue_volume / 12.0 for material in movable_materials))
     max_positions = max(1, max(_max_stock_pp(material) for material in movable_materials))
@@ -490,9 +554,18 @@ def _ortools_full_milp_optimize_plan(
             relocation_cost = 25.0 if moving else 0.0
             carrying_cost = 0.001 * max(0.0, material.unit_cost or 0.0)
             stockout_cost = 2.0 * max(0.1, material.stockout_cost_weight) * critical_weight
-            objective_terms.append((travel_cost + access_cost + vertical_cost + relocation_cost - stockout_cost) * primary[(material.material_id, loc.location_code)])
+            primary_cost = travel_cost + access_cost + vertical_cost + relocation_cost - stockout_cost
+            objective_terms.append(primary_cost * primary[(material.material_id, loc.location_code)])
             reserve_travel = 0.10 * travel_cost if not _is_pick_face(loc) else 0.25 * travel_cost
             objective_terms.append((reserve_travel + carrying_cost) * allocation[(material.material_id, loc.location_code)])
+            cost_components[(material.material_id, loc.location_code)] = {
+                "travel": round(travel_cost, 3),
+                "accessibility": round(access_cost, 3),
+                "vertical_handling": round(vertical_cost, 3),
+                "relocation": round(relocation_cost, 3),
+                "stockout_offset": round(-stockout_cost, 3),
+                "total": round(primary_cost, 3),
+            }
 
     if move_terms:
         solver.Add(sum(move_terms) <= relocation_cap)
@@ -568,6 +641,24 @@ def _ortools_full_milp_optimize_plan(
             and allocation[(material.material_id, loc.location_code)].solution_value() > 0.5
         ]
         reserve_pp = sum(r.reserve_pallet_positions for r in reserves)
+        selected_components = cost_components.get(
+            (material.material_id, selected.location_code)) if selected else None
+        runner_up_code, runner_up_components = None, None
+        if selected and selected_components is not None:
+            rivals = [
+                (loc.location_code, cost_components[(material.material_id, loc.location_code)])
+                for loc in candidates[material.material_id]
+                if loc.location_code != selected.location_code
+                and (material.material_id, loc.location_code) in cost_components
+            ]
+            if rivals:
+                runner_up_code, runner_up_components = min(rivals, key=lambda kv: kv[1]["total"])
+        if selected_components is not None:
+            reason_text, evidence = _explain_choice(
+                selected.location_code, selected_components, runner_up_code, runner_up_components)
+        else:
+            reason_text, evidence = "No feasible MILP assignment for this material.", None
+
         selected_distance = _distance(selected, anchor) if selected else 0.0
         incumbent_loc = next((loc for loc in all_locations if loc.location_code == incumbent), None)
         distance_saved = max(0.0, (_distance(incumbent_loc, anchor) if incumbent_loc else selected_distance) - selected_distance)
@@ -582,8 +673,10 @@ def _ortools_full_milp_optimize_plan(
             max_stock_pallet_positions=max_pp,
             reserve_locations=reserves,
             distance_saved_meters=distance_saved,
-            move_reason="OR-Tools MILP pallet assignment under physical, compatibility, occupancy, and relocation constraints",
+            move_reason=reason_text,
             gain_score=max(0.0, distance_saved),
+            objective_cost=(selected_components or {}).get("total"),
+            decision_evidence=evidence,
             relocation_applied=relocation,
             status="PROPOSED",
         ))
@@ -715,6 +808,10 @@ def _ortools_optimize_plan(
     primary_by_location: Dict[str, List[Any]] = {}
     move_terms: List[Any] = []
     objective_terms: List[Any] = []
+    # (material_id, location_code) -> named cost components. The solver already
+    # computes each term; keeping them makes the choice explainable without
+    # re-deriving or approximating anything.
+    cost_components: Dict[tuple, Dict[str, float]] = {}
     max_issue_count = max(1, max(m.issue_count for m in movable))
     max_demand = max(1.0, max(m.forecast_demand or m.issue_volume / 12.0 for m in movable))
     max_positions = max(1, max(_max_stock_pp(m) for m in movable))
@@ -741,7 +838,16 @@ def _ortools_optimize_plan(
             vertical = max(0, loc.level_number - 1) * (
                 8.0 * frequency_weight + 5.0 * demand_weight + 4.0 * space_weight
             )
-            objective_terms.append((travel + access + vertical + (25.0 if moving else 0.0)) * variable)
+            relocation_cost = 25.0 if moving else 0.0
+            candidate_cost = travel + access + vertical + relocation_cost
+            objective_terms.append(candidate_cost * variable)
+            cost_components[key] = {
+                "travel": round(travel, 3),
+                "accessibility": round(access, 3),
+                "vertical_handling": round(vertical, 3),
+                "relocation": round(relocation_cost, 3),
+                "total": round(candidate_cost, 3),
+            }
         solver.Add(sum(variables) == 1)
     for variables in primary_by_location.values():
         solver.Add(sum(variables) <= 1)
@@ -899,6 +1005,25 @@ def _ortools_optimize_plan(
             PlanReserveAssignment(location_code=code, reserve_pallet_positions=count)
             for code, count in sorted(flow_assignments[material.material_id].items())
         ]
+        selected_components = cost_components.get((material.material_id, selected.location_code))
+        runner_up_code, runner_up_components = None, None
+        rivals = [
+            (loc.location_code, cost_components[(material.material_id, loc.location_code)])
+            for loc in primary_candidates[material.material_id]
+            if loc.location_code != selected.location_code
+            and (material.material_id, loc.location_code) in cost_components
+        ]
+        if rivals:
+            runner_up_code, runner_up_components = min(rivals, key=lambda kv: kv[1]["total"])
+        if selected_components is not None:
+            reason_text, evidence = _explain_choice(
+                selected.location_code, selected_components, runner_up_code, runner_up_components)
+            if evidence is not None:
+                evidence["candidates_considered"] = len(primary_candidates[material.material_id])
+        else:
+            reason_text, evidence = (
+                "OR-Tools MILP pick face plus integer min-cost-flow reserve allocation", None)
+
         assignments.append(PlanAssignmentResponse(
             material_id=material.material_id,
             material_code=material.material_code,
@@ -910,8 +1035,10 @@ def _ortools_optimize_plan(
             max_stock_pallet_positions=max_pp,
             reserve_locations=reserves,
             distance_saved_meters=distance_saved,
-            move_reason="OR-Tools MILP pick face plus integer min-cost-flow reserve allocation",
+            move_reason=reason_text,
             gain_score=distance_saved,
+            objective_cost=(selected_components or {}).get("total"),
+            decision_evidence=evidence,
             relocation_applied=relocation,
             status="PROPOSED",
         ))

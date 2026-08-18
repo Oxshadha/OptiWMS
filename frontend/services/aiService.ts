@@ -2,6 +2,8 @@ import { apiClient } from "@/lib/api/client";
 
 export type WarehouseAIRole = "manager" | "worker";
 
+import type { PageContext } from "@/lib/pageContext";
+
 export interface WarehouseAISource {
   label: string;
   href?: string;
@@ -202,7 +204,8 @@ export function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Wa
 export async function askWarehouseAI(
   query: string,
   role: WarehouseAIRole,
-  session_id?: string
+  session_id?: string,
+  pageContext?: PageContext
 ): Promise<WarehouseAIResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -219,6 +222,9 @@ export async function askWarehouseAI(
         context: role,
         timestamp: new Date(),
         session_id,
+        // What the user is looking at. Lets "why is this one low?" resolve without
+        // making them retype a material code that is already on screen.
+        page_context: pageContext && Object.keys(pageContext).length ? pageContext : undefined,
       }),
       signal: controller.signal,
     });

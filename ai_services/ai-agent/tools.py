@@ -167,34 +167,53 @@ def get_forecast(engine: Engine, search: str, limit: int = 12) -> tuple[pd.DataF
 
 
 def get_forecast_explanation(engine: Engine, search: str, horizon: int = 3) -> tuple[pd.DataFrame, str]:
-    """Why the forecast model predicted what it did for a material — SHAP
-    feature attributions from the forecast-service (the same model-internals
-    data the Forecast dashboard's explain widget uses), fetched live rather
-    than guessed by the LLM. Falls back to a plain explanatory row (not an
-    error) when no mapping or SHAP data exists yet for this material."""
-    mapping_sql = """
-        SELECT fsm.forecast_sku, fsm.dataset
-        FROM forecast_sku_mapping fsm
-        JOIN materials m ON m.id = fsm.wms_material_id
-        WHERE fsm.is_active = true
-          AND (m.material_code ILIKE :pattern OR m.description ILIKE :pattern)
+    """Why the forecast model predicted what it did for a material — exact SHAP
+    attributions from the forecast-service, fetched live rather than guessed by
+    the LLM. Falls back to a plain explanatory row (not an error) when no mapping
+    or SHAP data exists yet for this material."""
+    # Two SKU spaces coexist. The live v8 champion (PROJECT_OPS_RM_PM) is keyed by
+    # the material code itself; forecast_sku_mapping is the legacy dataset-'B'
+    # translation and holds none of the v8 codes. Resolve the material first, then
+    # fall back to the mapping only if the direct code is unknown to the forecast.
+    direct_sql = """
+        SELECT material_code
+        FROM materials
+        WHERE material_code ILIKE :pattern OR description ILIKE :pattern
+        ORDER BY CASE WHEN material_code ILIKE :exact THEN 0 ELSE 1 END, material_code
         LIMIT 1
     """
-    mapping = pd.read_sql(text(mapping_sql), engine, params={"pattern": f"%{search}%"})
+    direct = pd.read_sql(
+        text(direct_sql), engine, params={"pattern": f"%{search}%", "exact": search}
+    )
     call_desc = f"-- forecast-service SHAP explanation for '{search}', horizon={horizon} months ahead --"
 
-    if mapping.empty:
-        return (
-            pd.DataFrame([{"note": f"No active forecast mapping found for '{search}', so no SHAP explanation is available."}]),
-            call_desc,
-        )
+    forecast_sku, dataset = None, None
+    if not direct.empty:
+        forecast_sku = direct.iloc[0]["material_code"]
 
-    forecast_sku, dataset = mapping.iloc[0]["forecast_sku"], mapping.iloc[0]["dataset"]
+    if forecast_sku is None:
+        mapping_sql = """
+            SELECT fsm.forecast_sku, fsm.dataset
+            FROM forecast_sku_mapping fsm
+            JOIN materials m ON m.id = fsm.wms_material_id
+            WHERE fsm.is_active = true
+              AND (m.material_code ILIKE :pattern OR m.description ILIKE :pattern)
+            LIMIT 1
+        """
+        mapping = pd.read_sql(text(mapping_sql), engine, params={"pattern": f"%{search}%"})
+        if mapping.empty:
+            return (
+                pd.DataFrame([{"note": f"No material matching '{search}' was found, so no forecast explanation is available."}]),
+                call_desc,
+            )
+    
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(
                 f"{FORECAST_SERVICE_BASE}/api/v1/shap/explanation",
-                params={"sku": forecast_sku, "horizon": horizon, "dataset": dataset},
+                params={k: v for k, v in
+                        {"sku": forecast_sku, "horizon": horizon, "dataset": dataset}.items()
+                        if v is not None},
             )
         if resp.status_code == 404:
             return (
@@ -213,11 +232,33 @@ def get_forecast_explanation(engine: Engine, search: str, horizon: int = 3) -> t
     if not features:
         return pd.DataFrame([{"note": "SHAP data returned but had no feature attributions."}]), call_desc
 
-    df = pd.DataFrame(features)  # feature, label, shap_value, feature_value
+    # The stored `shap_value` is a log-space contribution -- the model is fitted on
+    # log1p(demand). Only `delta_units` is meaningful as a unit count, so that is
+    # what reaches the user and the chart. Quoting the log value here would render
+    # a 4,351-unit baseline as "8.4 units".
+    _SOURCE = {
+        "observed": "actual history",
+        "predicted": "model's own earlier forecast",
+        "partly_predicted": "partly model's own forecast",
+        "mixed": "mixed",
+    }
+    df = pd.DataFrame([
+        {
+            "driver": f["label"],
+            "effect_on_forecast_units": round(float(f.get("delta_units") or 0.0), 1),
+            "current_value": f.get("feature_value"),
+            "based_on": _SOURCE.get(f.get("lag_provenance"), f.get("lag_provenance") or ""),
+        }
+        for f in features
+    ])
+
+    baseline = float(payload.get("baseline_units") or 0.0)
+    predicted = float(payload.get("prediction_units") or 0.0)
     call_desc = (
-        f"-- forecast-service SHAP explanation for sku={forecast_sku}, {horizon} months ahead: "
-        f"prediction={payload.get('prediction')}, base_value={payload.get('base_value')}, "
-        f"model={payload.get('model_name')} --"
+        f"-- forecast-service SHAP attribution for sku={forecast_sku}, {horizon} months ahead. "
+        f"Average across all materials {baseline:,.0f} units; this material {predicted:,.0f} units; "
+        f"difference {predicted - baseline:+,.0f} units, decomposed below. "
+        f"model={payload.get('model_name')}, exact TreeExplainer attribution --"
     )
     return df, call_desc
 

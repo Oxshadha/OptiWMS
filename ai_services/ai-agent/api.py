@@ -90,6 +90,9 @@ class QuestionRequest(BaseModel):
     context: Optional[str] = None
     timestamp: Optional[str] = None
     session_id: Optional[str] = None
+    # What the user is looking at: {route, entityType, entityId, entityLabel, filters}.
+    # Advisory only -- it can fill in an unstated subject, never widen access.
+    page_context: Optional[dict[str, Any]] = None
 
 
 class DataResponse(BaseModel):
@@ -288,6 +291,7 @@ def ask_question(
             user_id=user_id,
             session_id=request.session_id,
             mode=mode,
+            page_context=request.page_context,
         )
     except AIQuotaExceeded as exc:
         raise quota_exceeded(exc, correlation_id, identity) from exc

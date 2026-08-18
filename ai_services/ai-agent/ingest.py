@@ -1,5 +1,6 @@
 from agent import DB_HOST
 import os
+from pathlib import Path
 import shutil
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -11,7 +12,11 @@ from langchain_chroma import Chroma
 
 load_dotenv()
 
-DB_PATH = "db"
+# Anchored to this file, not the working directory. A relative "db" meant the
+# vector store was created, read, or wiped somewhere different depending on where
+# the process happened to be started from -- so a seed run from the repo root and
+# the service started from this directory disagreed about where the index lived.
+DB_PATH = str((Path(__file__).resolve().parent / "db"))
 
 def ingest():
     print("Loading documents from PostgreSQL database...")

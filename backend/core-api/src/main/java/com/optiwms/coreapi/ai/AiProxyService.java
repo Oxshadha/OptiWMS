@@ -401,6 +401,21 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    /**
+     * Per-forecast SHAP attribution for one material and horizon.
+     *
+     * <p>Contributions are additive in the model's log1p output space -- the payload carries both
+     * that space and the units-space view, and the two must not be conflated by callers.
+     */
+    public ResponseEntity<Object> getShapExplanation(String sku, Integer horizon, String dataset, String model) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/api/v1/shap/explanation")
+                .queryParam("sku", sku)
+                .queryParam("horizon", horizon);
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model_name", model);
+        return exchangeGet(ub.toUriString());
+    }
+
     public ResponseEntity<Object> postForecastService(String path, Object payload) {
         HttpEntity<Object> request = new HttpEntity<>(payload, headers());
         ResponseEntity<Map> response = restTemplate.exchange(forecastBaseUrl + path, HttpMethod.POST, request, Map.class);
