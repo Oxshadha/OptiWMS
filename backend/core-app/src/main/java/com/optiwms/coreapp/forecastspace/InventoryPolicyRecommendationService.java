@@ -597,6 +597,118 @@ public class InventoryPolicyRecommendationService {
                 expiryPass ? "Expiry cap does not create a high-risk excess." : "Proposed max stock conflicts with expiry-safe stock."));
     }
 
+
+    /** The five inputs the lead-time demand simulation is driven by. */
+    // Package-private and static: no instance state is involved, and the simulation
+    // is the part that most needs to be testable on its own.
+    record SimulationInputs(
+            double dailyMean, double dailyStd, double leadMean, double leadStd,
+            double currentLevel, double proposedLevel) {
+
+        SimulationInputs scaled(String factor, double multiplier) {
+            return switch (factor) {
+                case "daily_mean" -> new SimulationInputs(dailyMean * multiplier, dailyStd, leadMean, leadStd, currentLevel, proposedLevel);
+                case "daily_std"  -> new SimulationInputs(dailyMean, dailyStd * multiplier, leadMean, leadStd, currentLevel, proposedLevel);
+                case "lead_mean"  -> new SimulationInputs(dailyMean, dailyStd, Math.max(1, leadMean * multiplier), leadStd, currentLevel, proposedLevel);
+                case "lead_std"   -> new SimulationInputs(dailyMean, dailyStd, leadMean, leadStd * multiplier, currentLevel, proposedLevel);
+                case "target_stock" -> new SimulationInputs(dailyMean, dailyStd, leadMean, leadStd, currentLevel, proposedLevel * multiplier);
+                default -> this;
+            };
+        }
+    }
+
+    record SimulationOutcome(
+            double fillRate, double demandTotal,
+            double currentShortage, double proposedShortage,
+            double currentHolding, double proposedHolding,
+            int currentStockoutTrials, int proposedStockoutTrials,
+            double[] sortedDemand) {
+
+        /** Percentile of simulated lead-time demand, by nearest rank. */
+        double percentile(double p) {
+            if (sortedDemand.length == 0) return 0.0;
+            int index = (int) Math.ceil(p / 100.0 * sortedDemand.length) - 1;
+            return sortedDemand[Math.max(0, Math.min(sortedDemand.length - 1, index))];
+        }
+    }
+
+    /**
+     * One pass of the lead-time demand simulation.
+     *
+     * <p>The seed is derived from (run, material) rather than the clock, so a policy
+     * run can be re-derived months later and reproduce the same draws. That is also
+     * what makes the sensitivity below meaningful: perturbing one input while the
+     * seed is held fixed isolates the input, because both passes see the same random
+     * sequence rather than two different samples.
+     */
+    static SimulationOutcome runTrials(long seed, SimulationInputs in) {
+        Random random = new Random(seed);
+        double demandTotal = 0, currentShortage = 0, proposedShortage = 0;
+        double currentHolding = 0, proposedHolding = 0;
+        int currentStockoutTrials = 0, proposedStockoutTrials = 0;
+        double[] demands = new double[POLICY_SIMULATION_TRIALS];
+
+        for (int trial = 0; trial < POLICY_SIMULATION_TRIALS; trial++) {
+            double sampledLeadDays = Math.max(1, in.leadMean() + in.leadStd() * random.nextGaussian());
+            double demand = Math.max(0, in.dailyMean() * sampledLeadDays
+                    + in.dailyStd() * Math.sqrt(sampledLeadDays) * random.nextGaussian());
+            demands[trial] = demand;
+            demandTotal += demand;
+            double currentGap = Math.max(0, demand - in.currentLevel());
+            double proposedGap = Math.max(0, demand - in.proposedLevel());
+            currentShortage += currentGap;
+            proposedShortage += proposedGap;
+            currentHolding += Math.max(0, in.currentLevel() - demand) / 2.0;
+            proposedHolding += Math.max(0, in.proposedLevel() - demand) / 2.0;
+            if (currentGap > 0) currentStockoutTrials++;
+            if (proposedGap > 0) proposedStockoutTrials++;
+        }
+        double fillRate = demandTotal > 0 ? 1.0 - proposedShortage / demandTotal : 1.0;
+        double[] sorted = demands.clone();
+        Arrays.sort(sorted);
+        return new SimulationOutcome(fillRate, demandTotal, currentShortage, proposedShortage,
+                currentHolding, proposedHolding, currentStockoutTrials, proposedStockoutTrials, sorted);
+    }
+
+    /** Inputs perturbed for sensitivity, in the order a tornado chart reads best. */
+    private static final List<String> SENSITIVITY_FACTORS =
+            List.of("daily_mean", "daily_std", "lead_mean", "lead_std", "target_stock");
+    private static final double SENSITIVITY_STEP = 0.20;
+
+    /**
+     * One-factor-at-a-time sensitivity of the achieved fill rate.
+     *
+     * <p>Answers the question the headline fill rate cannot: which input is this
+     * recommendation actually resting on. A policy whose service level collapses on a
+     * 20% lead-time slip is a different proposition from one that barely moves, even
+     * when both simulate to the same number today.
+     *
+     * <p>OAT rather than a variance-based global method because the factors here are
+     * few, the model is monotone in each, and the result has to be readable by a
+     * warehouse manager as "what would have to change to break this".
+     */
+    static String sensitivityJson(long seed, SimulationInputs base, double baseFillRate) {
+        record Swing(String factor, double low, double high, double swing) {}
+        List<Swing> swings = new ArrayList<>();
+        for (String factor : SENSITIVITY_FACTORS) {
+            double low = runTrials(seed, base.scaled(factor, 1 - SENSITIVITY_STEP)).fillRate();
+            double high = runTrials(seed, base.scaled(factor, 1 + SENSITIVITY_STEP)).fillRate();
+            swings.add(new Swing(factor, low, high, Math.abs(high - low)));
+        }
+        swings.sort(Comparator.comparingDouble(Swing::swing).reversed());
+
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < swings.size(); i++) {
+            Swing s = swings.get(i);
+            if (i > 0) json.append(',');
+            json.append(String.format(Locale.ROOT,
+                    "{\"factor\":\"%s\",\"step_pct\":%.0f,\"base_fill_rate\":%.6f,"
+                            + "\"low_fill_rate\":%.6f,\"high_fill_rate\":%.6f,\"swing\":%.6f}",
+                    s.factor(), SENSITIVITY_STEP * 100, baseFillRate, s.low(), s.high(), s.swing()));
+        }
+        return json.append(']').toString();
+    }
+
     private InventoryPolicySimulationEvidenceEntity simulatePolicy(
             UUID runId,
             MaterialEntity material,
@@ -612,31 +724,20 @@ public class InventoryPolicyRecommendationService {
         double unitCost = Math.max(0.01, nz(line.getUnitCost()).doubleValue());
         double currentLevel = Math.max(0, nz(line.getCurrentMaxStock()).max(nz(line.getCurrentAvailableStock())).doubleValue());
         double proposedLevel = Math.max(0, nz(line.getProposedTargetStock()).doubleValue());
-        double currentShortage = 0;
-        double proposedShortage = 0;
-        double demandTotal = 0;
-        double currentHolding = 0;
-        double proposedHolding = 0;
-        int currentStockoutTrials = 0;
-        int proposedStockoutTrials = 0;
-        Random random = new Random(Objects.hash(runId, material.getId(), "POLICY_MONTE_CARLO_V1"));
+        SimulationInputs inputs = new SimulationInputs(
+                dailyMean, dailyStd, leadMean, leadStd, currentLevel, proposedLevel);
+        long seed = Objects.hash(runId, material.getId(), "POLICY_MONTE_CARLO_V1");
+        SimulationOutcome outcome = runTrials(seed, inputs);
 
-        for (int trial = 0; trial < POLICY_SIMULATION_TRIALS; trial++) {
-            double sampledLeadDays = Math.max(1, leadMean + leadStd * random.nextGaussian());
-            double demand = Math.max(0,
-                    dailyMean * sampledLeadDays + dailyStd * Math.sqrt(sampledLeadDays) * random.nextGaussian());
-            demandTotal += demand;
-            double currentGap = Math.max(0, demand - currentLevel);
-            double proposedGap = Math.max(0, demand - proposedLevel);
-            currentShortage += currentGap;
-            proposedShortage += proposedGap;
-            currentHolding += Math.max(0, currentLevel - demand) / 2.0;
-            proposedHolding += Math.max(0, proposedLevel - demand) / 2.0;
-            if (currentGap > 0) currentStockoutTrials++;
-            if (proposedGap > 0) proposedStockoutTrials++;
-        }
+        double demandTotal = outcome.demandTotal();
+        double currentShortage = outcome.currentShortage();
+        double proposedShortage = outcome.proposedShortage();
+        double currentHolding = outcome.currentHolding();
+        double proposedHolding = outcome.proposedHolding();
+        int currentStockoutTrials = outcome.currentStockoutTrials();
+        int proposedStockoutTrials = outcome.proposedStockoutTrials();
 
-        double proposedFillRate = demandTotal > 0 ? 1.0 - proposedShortage / demandTotal : 1.0;
+        double proposedFillRate = outcome.fillRate();
         double annualizedHoldingFactor = DEFAULT_HOLDING_COST_RATE.doubleValue() * (leadMean / DAYS_PER_YEAR.doubleValue());
         double currentExpectedCost = currentHolding / POLICY_SIMULATION_TRIALS * unitCost * annualizedHoldingFactor
                 + currentShortage / POLICY_SIMULATION_TRIALS * unitCost * SHORTAGE_COST_MULTIPLIER.doubleValue();
@@ -659,6 +760,12 @@ public class InventoryPolicyRecommendationService {
         evidence.setStockoutDaysCurrent((int) Math.round(leadMean * currentStockoutTrials / POLICY_SIMULATION_TRIALS));
         evidence.setStockoutDaysProposed((int) Math.round(leadMean * proposedStockoutTrials / POLICY_SIMULATION_TRIALS));
         evidence.setCapacityFeasible(capacityFeasible);
+        evidence.setDemandP5(BigDecimal.valueOf(outcome.percentile(5)).setScale(4, RoundingMode.HALF_UP));
+        evidence.setDemandP25(BigDecimal.valueOf(outcome.percentile(25)).setScale(4, RoundingMode.HALF_UP));
+        evidence.setDemandP50(BigDecimal.valueOf(outcome.percentile(50)).setScale(4, RoundingMode.HALF_UP));
+        evidence.setDemandP75(BigDecimal.valueOf(outcome.percentile(75)).setScale(4, RoundingMode.HALF_UP));
+        evidence.setDemandP95(BigDecimal.valueOf(outcome.percentile(95)).setScale(4, RoundingMode.HALF_UP));
+        evidence.setSensitivityJson(sensitivityJson(seed, inputs, proposedFillRate));
         evidence.setSimulationMethod("SEEDED_MONTE_CARLO_LEAD_TIME_DEMAND_V1_1000_TRIALS");
         evidence.setSourceLineage(String.format(Locale.ROOT,
                 "{\"forecast_source\":\"forecast_results_p10_p50_p90\",\"policy\":\"stochastic_s_S\",\"trials\":%d,\"seed_scope\":\"run_material\"}",
