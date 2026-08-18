@@ -478,6 +478,71 @@ def format_turns(turns: list[tuple[str, str]]) -> str:
     return "\n".join(f"{role}: {text}" for role, text in turns)
 
 
+
+# Suggestions are grounded in what the assistant can actually do, per page. An LLM
+# asked to invent prompts will happily propose "show me today's inbound orders" on a
+# page with no such tool, and the user's first interaction is then a failure. These
+# map to real entries in TOOL_REGISTRY.
+_PAGE_SUGGESTIONS: dict[str, list[str]] = {
+    "/admin/forecasts": [
+        "Why is demand {subject} this high?",
+        "What is driving the forecast {subject}?",
+        "Show the demand trend {subject}",
+    ],
+    "/admin/inventory-intelligence": [
+        "What is this recommendation most sensitive to?",
+        "Why did the min and max change {subject}?",
+        "Which materials are below their reorder point?",
+    ],
+    "/admin/slotting-plans": [
+        "Why was this location chosen {subject}?",
+        "Which materials are moving in this plan?",
+        "How much travel distance does this plan save?",
+    ],
+    "/admin/inventory": [
+        "What is the stock level {subject}?",
+        "Which materials need reordering?",
+        "Show the top movers this quarter",
+    ],
+    "/admin/dashboard": [
+        "Which materials are below their reorder point?",
+        "Show inbound order volume over the last 90 days",
+        "What are the top moving materials?",
+    ],
+}
+_DEFAULT_SUGGESTIONS = [
+    "Which materials are below their reorder point?",
+    "What are the top moving materials?",
+    "How do I use this dashboard?",
+]
+_WORKER_SUGGESTIONS = [
+    "How do I operate a forklift safely?",
+    "What are the steps for a cycle count?",
+    "How do I report damaged goods?",
+]
+
+
+def suggestions_for(page_context: dict | None, role: str | None = None) -> list[str]:
+    """Three prompts worth offering, given where the user is standing.
+
+    Deterministic rather than generated: these are cheap, instant, and cannot
+    propose a capability that does not exist.
+    """
+    if (role or "").lower() == "worker":
+        return list(_WORKER_SUGGESTIONS)
+
+    route = (page_context or {}).get("route") or ""
+    templates = _PAGE_SUGGESTIONS.get(route, _DEFAULT_SUGGESTIONS)
+
+    label = (page_context or {}).get("entityLabel") or (page_context or {}).get("entityId")
+    subject = f"for {label}" if label else ""
+    rendered = []
+    for template in templates:
+        text = template.format(subject=subject) if "{subject}" in template else template
+        rendered.append(" ".join(text.split()).replace(" ?", "?"))
+    return rendered
+
+
 PAGE_ROUTE_LABELS = {
     "/admin/forecasts": "the demand forecast dashboard",
     "/admin/inventory-intelligence": "the inventory policy (min/max) workspace",

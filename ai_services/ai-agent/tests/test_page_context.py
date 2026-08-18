@@ -62,3 +62,41 @@ def test_a_tool_without_a_search_parameter_is_left_alone():
     """reorder_alerts takes no subject; injecting one would be a made-up filter."""
     out = apply_page_context_defaults({"tool": "reorder_alerts", "params": {}}, CTX)
     assert "search" not in out["params"]
+
+
+# ── Page-aware suggestions ───────────────────────────────────────────────────
+from agent import suggestions_for  # noqa: E402
+
+
+def test_suggestions_name_the_selected_entity():
+    prompts = suggestions_for({"route": "/admin/forecasts", "entityLabel": "RM-0001"})
+    assert all("RM-0001" in p for p in prompts)
+
+
+def test_suggestions_read_cleanly_without_an_entity():
+    """The subject placeholder must not leave a double space or a dangling 'for'."""
+    for p in suggestions_for({"route": "/admin/forecasts"}):
+        assert "  " not in p
+        assert not p.rstrip("?").endswith("for")
+
+
+def test_each_page_gets_its_own_prompts():
+    forecasts = suggestions_for({"route": "/admin/forecasts"})
+    policy = suggestions_for({"route": "/admin/inventory-intelligence"})
+    assert forecasts != policy
+
+
+def test_an_unknown_route_still_gets_useful_prompts():
+    assert len(suggestions_for({"route": "/admin/something-new"})) == 3
+
+
+def test_workers_are_offered_procedures_not_analytics():
+    """The worker role cannot run the analytics tools, so proposing them would
+    lead straight to a permission denial."""
+    prompts = suggestions_for({"route": "/worker/tasks"}, role="worker")
+    assert any("forklift" in p.lower() or "cycle count" in p.lower() for p in prompts)
+
+
+def test_suggestions_are_always_three():
+    for ctx in ({"route": "/admin/forecasts"}, {"route": "/admin/dashboard"}, None, {}):
+        assert len(suggestions_for(ctx)) == 3

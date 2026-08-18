@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   askWarehouseAI,
+  fetchSuggestions,
   askInventoryIntelligence,
   getChatHistory,
   getSessionMessages,
@@ -1462,7 +1463,33 @@ function AssistantBody({
     { icon: "autorenew", title: "Shift Handover", text: "What are the steps for shift handover?" },
   ];
 
-  const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+  const fallbackSuggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+
+  // Page-aware prompts, fetched once the panel is open. The hardcoded set stays as
+  // the fallback: a blank panel is worse than a generic prompt.
+  const [livePrompts, setLivePrompts] = useState<string[]>([]);
+  const [pageCtx, setPageCtx] = useState<PageContext>(getPageContext);
+  useEffect(() => subscribePageContext(setPageCtx), []);
+  const pathnameForPrompts = usePathname();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSuggestions(userRole, { ...pageCtx, route: pathnameForPrompts ?? undefined })
+      .then((prompts) => {
+        if (!cancelled) setLivePrompts(prompts);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole, pathnameForPrompts, pageCtx.entityId, pageCtx.entityType]);
+
+  const suggestions = livePrompts.length
+    ? livePrompts.map((text, i) => ({
+        icon: fallbackSuggestions[i]?.icon ?? "chat_bubble",
+        title: fallbackSuggestions[i]?.title ?? "Ask",
+        text,
+      }))
+    : fallbackSuggestions;
 
   return (
     <div style={{ padding: chatHistory.length === 0 ? 0 : 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff", height: chatHistory.length === 0 ? "100%" : "auto" }}>
