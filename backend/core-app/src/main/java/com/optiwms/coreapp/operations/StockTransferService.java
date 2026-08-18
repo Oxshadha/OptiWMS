@@ -637,6 +637,10 @@ public class StockTransferService {
     private StockTransferLine toLineDomain(StockTransferLineEntity entity) {
         StockTransferLine line = new StockTransferLine();
         line.setId(entity.getId());
+        // Resolved rather than stored: the task is keyed by reference, so the line stays the
+        // single source of truth and cannot drift from it.
+        Task lineTask = findLineTask(entity.getId());
+        line.setTaskId(lineTask != null ? lineTask.getId() : null);
         line.setTransferId(entity.getTransferId());
         line.setLineNumber(entity.getLineNumber());
         line.setMaterialId(entity.getMaterialId());
