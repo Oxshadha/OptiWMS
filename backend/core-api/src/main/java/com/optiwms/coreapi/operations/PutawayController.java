@@ -3,6 +3,7 @@ package com.optiwms.coreapi.operations;
 import com.optiwms.coreapp.operations.LocationSuggestionService;
 import com.optiwms.coreapp.operations.PutawayService;
 import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
+import com.optiwms.coreapp.operations.PutawayCapacityRejectedException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,6 +43,19 @@ public class PutawayController {
                                         result.success(),
                                         result.message(),
                                         result.taskId().toString()));
+                } catch (PutawayCapacityRejectedException capacityRejection) {
+                        // The bin is full, but the worker is standing at the rack holding a pallet.
+                        // Hand back where it will fit rather than only why it will not go here.
+                        return ResponseEntity.badRequest().body(new PutawayResponse(
+                                        false,
+                                        capacityRejection.getMessage(),
+                                        null,
+                                        capacityRejection.getAlternatives().stream()
+                                                        .map(alternative -> new AlternativeLocationDto(
+                                                                        alternative.locationCode(),
+                                                                        alternative.allocatableQuantity(),
+                                                                        alternative.reason()))
+                                                        .toList()));
                 } catch (RuntimeException e) {
                         return ResponseEntity.badRequest()
                                         .body(new PutawayResponse(false, e.getMessage(), null));
@@ -154,7 +168,19 @@ public class PutawayController {
         public record SkipPutawayRequest(String reason, String workerId) {
         }
 
-        public record PutawayResponse(boolean success, String message, String taskId) {
+        public record PutawayResponse(
+                        boolean success,
+                        String message,
+                        String taskId,
+                        /** Where else this pallet will fit, when the chosen bin refused it. */
+                        List<AlternativeLocationDto> alternatives) {
+
+                public PutawayResponse(boolean success, String message, String taskId) {
+                        this(success, message, taskId, List.of());
+                }
+        }
+
+        public record AlternativeLocationDto(String locationCode, int allocatableQuantity, String reason) {
         }
 
         public record SuggestLocationRequest(

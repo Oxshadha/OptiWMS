@@ -26,6 +26,9 @@ public class MaterialLocationAssignmentService {
     private static final java.util.Set<String> BLOCKED_RACK_STATUSES =
             java.util.Set.of("reserved", "maintenance", "out_of_service");
 
+    /** Enough to give a worker a real choice without turning a refusal into a wall of text. */
+    private static final int MAX_SUGGESTED_ALTERNATIVES = 3;
+
     private final InventoryService inventoryService;
     private final LocationService locationService;
     private final LocationSuggestionService locationSuggestionService;
@@ -122,7 +125,34 @@ public class MaterialLocationAssignmentService {
                 location.getLocationCode()
         );
         if (!validation.valid()) {
-            throw new RuntimeException(String.join("; ", validation.violations()));
+            // Refusing without saying where else to go is what stranded workers at a full rack.
+            throw new PutawayCapacityRejectedException(
+                    location.getLocationCode(),
+                    validation.violations(),
+                    findAlternatives(warehouseId, materialId, putawayQuantity, location.getLocationCode()));
+        }
+    }
+
+    /**
+     * Bins that can take this pallet, excluding the one that just refused it.
+     *
+     * <p>Best-effort: a worker who cannot be given an alternative still gets the plain refusal,
+     * which is no worse than before.
+     */
+    private List<PutawayCapacityRejectedException.Alternative> findAlternatives(
+            UUID warehouseId, UUID materialId, Integer quantity, String rejectedLocationCode) {
+        try {
+            var plan = locationSuggestionService.suggestPutawayPlan(
+                    warehouseId, materialId, quantity, null);
+            return plan.allocations().stream()
+                    .filter(line -> line.locationCode() != null
+                            && !line.locationCode().equalsIgnoreCase(rejectedLocationCode))
+                    .limit(MAX_SUGGESTED_ALTERNATIVES)
+                    .map(line -> new PutawayCapacityRejectedException.Alternative(
+                            line.locationCode(), line.allocatedQuantity(), line.reason()))
+                    .toList();
+        } catch (RuntimeException replanFailure) {
+            return List.of();
         }
     }
 

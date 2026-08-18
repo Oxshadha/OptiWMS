@@ -24,7 +24,7 @@ export function PutawayOrderSelection({
   onOpenScanner: () => void;
   onCloseScanner: () => void;
   onPOScan: (result: string) => void;
-  onSelectOrder: (order: { id: string; orderNumber: string }) => void;
+  onSelectOrder: (order: { id: string; orderNumber: string; status?: string }) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -71,7 +71,7 @@ export function PutawayOrderSelection({
               <button
                 key={order.id}
                 className="btn btn-outline w-full justify-start"
-                onClick={() => onSelectOrder({ id: order.id, orderNumber: order.orderNumber })}
+                onClick={() => onSelectOrder({ id: order.id, orderNumber: order.orderNumber, status: order.status })}
               >
                 <span className="material-symbols-outlined">receipt</span>
                 <span className="font-mono font-bold">{order.orderNumber}</span>
