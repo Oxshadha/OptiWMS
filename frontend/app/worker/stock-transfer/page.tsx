@@ -8,6 +8,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import {
   QUANTITY_INPUT_PROPS,
   parseQuantityInput,
@@ -31,6 +32,26 @@ export default function StockTransferPage() {
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [processing, setProcessing] = useState(false);
+  // A line must be claimed before it is walked. Selecting alone left it available to everyone, so
+  // two drivers could set off for the same pallet and neither route was reserved against the other.
+  const [claiming, setClaiming] = useState(false);
+  const [step, setStep] = useState<"list" | "brief" | "move">("list");
+  // Stops the driver has finished. Passing these to the route guide is what releases the edge
+  // reservations behind them; a completed move that never reports would keep its aisle booked and
+  // push other forklifts onto longer detours.
+  const [completedStops, setCompletedStops] = useState<string[]>([]);
+
+  // Stable identity: the route guide keys its effect on this array, so it must not be rebuilt
+  // on every render or the request is cancelled and restarted indefinitely.
+  const routeStops = useMemo(
+    () => (selectedLineId
+      ? [
+          lines.find((line) => line.id === selectedLineId)?.sourceLocationCode,
+          lines.find((line) => line.id === selectedLineId)?.destLocationCode,
+        ].filter((code): code is string => !!code)
+      : []),
+    [lines, selectedLineId]
+  );
 
   const selectedLine = useMemo(
     () => lines.find((line) => line.id === selectedLineId),
@@ -39,21 +60,31 @@ export default function StockTransferPage() {
 
   const loadData = async () => {
     if (!workerId) return;
+    setLoading(true);
+
+    // The transfer lines are the work; the material catalogue only supplies display names.
+    // These were loaded with Promise.all, so a failure on the catalogue -- which a worker role is
+    // not always permitted to read -- rejected the pair and left the driver looking at
+    // "Open Transfer Lines (0)" while real work sat waiting. The work is loaded on its own now.
     try {
-      setLoading(true);
-      const [lineData, materialData] = await Promise.all([
-        operationsApi.getExecutableStockTransferLines(workerId, warehouseId),
-        materialsApi.getAll(),
-      ]);
-      setLines(lineData);
+      setLines(await operationsApi.getExecutableStockTransferLines(workerId, warehouseId));
+    } catch (error) {
+      logger.error("Failed to load stock transfer lines:", error);
+      showToast.error("Failed to load stock transfer tasks");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const materialData = await materialsApi.getAll();
       const map: MaterialMap = {};
       materialData.forEach((m) => {
         map[m.id] = { code: m.materialCode || m.id, name: m.description || "Material" };
       });
       setMaterials(map);
     } catch (error) {
-      logger.error("Failed to load stock transfer lines:", error);
-      showToast.error("Failed to load stock transfer tasks");
+      // Names are cosmetic: the line still shows its material code, source and destination.
+      logger.warn("Material names unavailable; showing codes only.", error);
     } finally {
       setLoading(false);
     }
@@ -74,6 +105,23 @@ export default function StockTransferPage() {
       setQuantity(remaining);
     }
   }, [selectedLineId]);
+
+  /** Claims the line for this worker, which is also what opens a reserved route for it. */
+  const handleClaim = async () => {
+    if (!workerId || !selectedLine) return;
+    setClaiming(true);
+    try {
+      await operationsApi.assignStockTransferLine(selectedLine.id, workerId, workerId);
+      showToast.success("Move assigned to you. Follow the route to the source bin.");
+      await loadData();
+      setStep("move");
+    } catch (error) {
+      logger.error("Failed to claim transfer line:", error);
+      showToast.error("Could not assign this move. It may already be taken.");
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   const handleExecute = async () => {
     if (!workerId || !selectedLine) return;
@@ -127,6 +175,8 @@ export default function StockTransferPage() {
         setSelectedLineId("");
         return;
       }
+      const finishedStops = [selectedLine.sourceLocationCode, selectedLine.destLocationCode]
+        .filter((code): code is string => !!code);
       await operationsApi.executeStockTransferLine(selectedLine.id, {
         workerId,
         sourceScanLocation,
@@ -135,9 +185,14 @@ export default function StockTransferPage() {
         notes,
       });
       showToast.success("Stock transfer move confirmed");
+      // Release this move's edge reservations before leaving the screen, so the corridor frees up
+      // for the next driver instead of staying booked until the lease expires.
+      setCompletedStops(finishedStops);
       setNotes("");
       await loadData();
       setSelectedLineId("");
+      setStep("list");
+      setCompletedStops([]);
     } catch (error) {
       logger.error("Failed to execute stock transfer line:", error);
       showToast.error(error instanceof Error ? error.message : "Failed to confirm transfer");
@@ -188,6 +243,7 @@ export default function StockTransferPage() {
       setNotes("");
       await loadData();
       setSelectedLineId("");
+      setStep("list");
     } catch (error) {
       logger.error("Failed to skip stock transfer line:", error);
       showToast.error(error instanceof Error ? error.message : "Failed to skip line");
@@ -226,7 +282,7 @@ export default function StockTransferPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {step === "list" && <div className="grid grid-cols-1 gap-4">
         <div className="card bg-base-100 border border-base-300">
           <div className="card-body">
             <h2 className="card-title text-lg">Open Transfer Lines ({lines.length})</h2>
@@ -242,7 +298,7 @@ export default function StockTransferPage() {
                     className={`text-left border rounded-lg p-3 w-full transition ${
                       active ? "border-primary bg-primary/5" : "border-base-300 hover:border-primary/40"
                     }`}
-                    onClick={() => setSelectedLineId(line.id)}
+                    onClick={() => { setSelectedLineId(line.id); setStep("brief"); }}
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">
@@ -266,11 +322,78 @@ export default function StockTransferPage() {
             </div>
           </div>
         </div>
+      </div>}
 
+      {step === "brief" && selectedLine && (
+        /* One screen, one decision: this is the move, do you want it? Mirrors the putaway flow so a
+           driver meets the same shape of question in both. */
         <div className="card bg-base-100 border border-base-300">
+          <div className="card-body space-y-4">
+            <button className="btn btn-ghost btn-sm w-fit" onClick={() => { setStep("list"); setSelectedLineId(""); }}>
+              <span className="material-symbols-outlined">arrow_back</span> Back to list
+            </button>
+
+            <div className="rounded-lg bg-primary/10 border border-primary/30 p-4">
+              <div className="text-xs uppercase tracking-wide text-base-content/60">Move this pallet</div>
+              <div className="font-mono font-bold text-2xl leading-tight my-1">
+                {selectedLine.sourceLocationCode}
+              </div>
+              <div className="text-sm text-base-content/70">to</div>
+              <div className="font-mono font-bold text-2xl leading-tight my-1">
+                {selectedLine.destLocationCode}
+              </div>
+              <div className="text-lg font-semibold mt-2">
+                {(selectedLine.requestedQuantity || 0) - (selectedLine.movedQuantity || 0)} units
+                {materials[selectedLine.materialId]?.code ? ` · ${materials[selectedLine.materialId].code}` : ""}
+              </div>
+              {materials[selectedLine.materialId]?.name && (
+                <div className="text-sm text-base-content/70">{materials[selectedLine.materialId].name}</div>
+              )}
+            </div>
+
+            {selectedLine.assignedWorkerId === workerId ? (
+              <button className="btn btn-primary btn-lg w-full" onClick={() => setStep("move")}>
+                <span className="material-symbols-outlined">route</span> Continue — show my route
+              </button>
+            ) : (
+              <>
+                <p className="text-sm text-base-content/70">
+                  Starting assigns this move to you and reserves your route, so another forklift is
+                  not sent down the same aisle at the same time.
+                </p>
+                <button className="btn btn-primary btn-lg w-full" onClick={() => void handleClaim()} disabled={claiming}>
+                  {claiming ? "Assigning…" : "Start this move"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === "move" && <div className="card bg-base-100 border border-base-300">
           <div className="card-body space-y-3">
+            <button className="btn btn-ghost btn-sm w-fit" onClick={() => setStep("brief")}>
+              <span className="material-symbols-outlined">arrow_back</span> Back
+            </button>
             <h2 className="card-title text-lg">Execute Transfer Line</h2>
             {!selectedLine && <p className="text-sm text-base-content/60">Select a line from the left panel.</p>}
+            {selectedLine && selectedLine.assignedWorkerId === workerId && (
+              /* Source first, then destination: pick the pallet up, then drop it. The routing
+                 service reserves each edge for a time window, so a second worker planning now is
+                 routed around this path rather than into it. */
+              <WorkerRouteGuide
+                warehouseId={warehouseId}
+                /* The line's own stock_transfer task, not the line id: routing validates this
+                   against the tasks table, and sending the line id was rejected as "Task not
+                   found". Undefined until the line is released and its task exists. */
+                taskId={selectedLine.taskId}
+                targetLocationCode={selectedLine.sourceLocationCode}
+                targetLocationCodes={routeStops}
+                completedLocationCodes={completedStops}
+                operationType="transfer"
+              />
+            )}
+
             {selectedLine && (
               <>
                 <label className="form-control">
@@ -342,8 +465,7 @@ export default function StockTransferPage() {
               </>
             )}
           </div>
-        </div>
-      </div>
+        </div>}
     </div>
   );
 }

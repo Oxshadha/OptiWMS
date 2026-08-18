@@ -254,7 +254,8 @@ public class StockTransferController {
                 line.getMovedQuantity(),
                 line.getStatus(),
                 line.getAssignedWorkerId() != null ? line.getAssignedWorkerId().toString() : null,
-                line.getNotes()
+                line.getNotes(),
+                line.getTaskId() != null ? line.getTaskId().toString() : null
         );
     }
 
@@ -315,7 +316,9 @@ public class StockTransferController {
             Integer movedQuantity,
             String status,
             String assignedWorkerId,
-            String notes
+            String notes,
+            /** The stock_transfer task this line runs through; used to scope a routing session. */
+            String taskId
     ) {}
 
     public record StockTransferDto(

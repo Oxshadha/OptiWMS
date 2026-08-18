@@ -16,6 +16,12 @@ public class StockTransferLine extends BaseEntity {
     private Integer movedQuantity;
     private String status;
     private UUID assignedWorkerId;
+    /**
+     * The stock_transfer task this line is executed through. Carried on the line so a client can
+     * scope a routing session to the real task; routing validates the id against the tasks table,
+     * and sending the line id instead was rejected as "Task not found".
+     */
+    private UUID taskId;
     private UUID planningCycleId;
     private UUID slottingPlanLineId;
     private String notes;
@@ -40,6 +46,8 @@ public class StockTransferLine extends BaseEntity {
     public void setMovedQuantity(Integer movedQuantity) { this.movedQuantity = movedQuantity; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public UUID getTaskId() { return taskId; }
+    public void setTaskId(UUID taskId) { this.taskId = taskId; }
     public UUID getAssignedWorkerId() { return assignedWorkerId; }
     public void setAssignedWorkerId(UUID assignedWorkerId) { this.assignedWorkerId = assignedWorkerId; }
     public UUID getPlanningCycleId() { return planningCycleId; }
