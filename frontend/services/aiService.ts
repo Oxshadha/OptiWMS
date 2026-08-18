@@ -201,6 +201,32 @@ export function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Wa
  * token, so no user id is sent from the browser; only the conversation thread
  * is passed through.
  */
+/**
+ * Prompts worth offering for the page the user is on.
+ *
+ * Server-side and deterministic, so opening the assistant costs no model call and
+ * cannot advertise a capability it does not have. Falls back to the caller's own
+ * defaults on any failure -- an empty panel is worse than a generic prompt.
+ */
+export async function fetchSuggestions(
+  role: WarehouseAIRole,
+  pageContext?: PageContext
+): Promise<string[]> {
+  try {
+    const base = DEFAULT_AI_ENDPOINT.replace(/\/ask$/, "");
+    const response = await fetch(`${base}/suggestions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ context: role, page_context: pageContext }),
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data?.suggestions) ? data.suggestions.filter((s: unknown) => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function askWarehouseAI(
   query: string,
   role: WarehouseAIRole,

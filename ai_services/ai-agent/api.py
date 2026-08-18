@@ -19,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from agent import (
+    suggestions_for,
     AIQuotaExceeded,
     ChatMessage,
     ChatSession,
@@ -236,6 +237,25 @@ def assert_owns_session(identity: dict[str, Any], session: Any) -> None:
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
+class SuggestionRequest(BaseModel):
+    page_context: Optional[dict[str, Any]] = None
+    context: Optional[str] = None          # role, matching /ask
+
+
+@app.post("/suggestions")
+def suggestions(
+    request: SuggestionRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer),
+):
+    """Three prompts worth offering for the page the user is on.
+
+    Deterministic and instant: no model call, so opening the assistant costs nothing
+    and cannot propose a capability the assistant does not have.
+    """
+    authenticate(credentials)
+    return {"suggestions": suggestions_for(request.page_context, request.context)}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "sqlRoles": sorted(sql_roles)}
