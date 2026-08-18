@@ -4,12 +4,17 @@ import com.optiwms.coreapp.orders.OrderItemService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
 import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
+import com.optiwms.coreapp.operations.PutawayReservationService;
+import com.optiwms.coreapp.operations.PutawayTaskNotes;
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.SupplierMaterialService;
 import com.optiwms.coreapp.master.MaterialDefaultLocationService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.orders.OrderItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.master.Material;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +36,9 @@ public class OrderItemController {
     private final SupplierMaterialService supplierMaterialService;
     private final MaterialDefaultLocationService materialDefaultLocationService;
     private final InventoryItemRepository inventoryItemRepository;
+    private final TaskService taskService;
+    private final PutawayReservationService putawayReservationService;
+    private final HandlingUnitCapacityService handlingUnitCapacityService;
 
     public OrderItemController(
             OrderItemService orderItemService,
@@ -40,7 +48,13 @@ public class OrderItemController {
             MaterialService materialService,
             SupplierMaterialService supplierMaterialService,
             MaterialDefaultLocationService materialDefaultLocationService,
-            InventoryItemRepository inventoryItemRepository) {
+            InventoryItemRepository inventoryItemRepository,
+            TaskService taskService,
+            PutawayReservationService putawayReservationService,
+            HandlingUnitCapacityService handlingUnitCapacityService) {
+        this.taskService = taskService;
+        this.putawayReservationService = putawayReservationService;
+        this.handlingUnitCapacityService = handlingUnitCapacityService;
         this.orderItemService = orderItemService;
         this.orderService = orderService;
         this.materialLocationService = materialLocationService;
@@ -61,69 +75,131 @@ public class OrderItemController {
     }
 
     /**
-     * Get order items for putaway - includes suggested locations
-     * For putaway workers to see items in an order that need putaway
+     * The pallet moves a worker has to make for this order, one row per putaway task.
+     *
+     * <p>This used to return one row per order line carrying the admin's single chosen bin, which
+     * discarded the per-pallet destinations the planner had already worked out and written onto the
+     * tasks. A worker saw "600 units to A-01-01-1-A" for a line that was really six pallets bound
+     * for six different bins, the screen pre-filled the whole 600 against a task that would only
+     * accept 100, and the UI had to guess which of the six tasks it was completing.
+     *
+     * <p>Each row is now exactly one task: its own destination, its own quantity, its own sequence.
+     * Ordering is by line then handling-unit sequence so the walk is deterministic.
      */
     @GetMapping("/{orderId}/putaway-items")
-    public ResponseEntity<List<PutawayItemDto>> getPutawayItems(@PathVariable UUID orderId) {
+    public ResponseEntity<List<PutawayItemDto>> getPutawayItems(
+            @PathVariable UUID orderId,
+            @RequestParam(required = false) UUID workerId) {
         List<OrderItem> items = orderItemService.findByOrderId(orderId);
         Order order = orderService.findById(orderId);
-        // Filter to only items that have been received (picked_quantity > 0)
-        List<PutawayItemDto> putawayItems = items.stream()
-                .filter(item -> item.getPickedQuantity() != null && item.getPickedQuantity() > 0)
-                .map(item -> {
-                    String suggestedLocation = item.getLocationCode();
-                    List<String> existingLocations = java.util.List.of();
-                    PutawaySplitPlanDto splitPlan = null;
-                    String materialCode = null;
-                    String materialName = null;
-                    try {
-                        Material material = materialService.findById(item.getMaterialId());
-                        materialCode = material.getMaterialCode();
-                        materialName = material.getDescription();
-                    } catch (Exception ignored) {
-                        // Material lookup best-effort
-                    }
-                    if (suggestedLocation == null || suggestedLocation.isBlank()) {
-                        try {
-                            existingLocations = materialLocationService
-                                    .findMaterialLocations(item.getMaterialId(), order.getWarehouseId())
-                                    .stream()
-                                    .map(MaterialLocationAssignmentService.LocationInventory::locationCode)
-                                    .distinct()
-                                    .collect(java.util.stream.Collectors.toList());
-                            suggestedLocation = materialLocationService.suggestLocationForPutaway(
-                                    item.getMaterialId(),
-                                    order.getWarehouseId(),
-                                    item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity());
-                            Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity()
-                                    : item.getQuantity();
-                            if (putawayQty != null && putawayQty > 0) {
-                                var plan = putawayCapacityPlanningService.suggestSplitPlan(
-                                        order.getWarehouseId(),
-                                        item.getMaterialId(),
-                                        putawayQty,
-                                        suggestedLocation);
-                                splitPlan = toPutawaySplitPlanDto(plan);
-                            }
-                        } catch (Exception ignored) {
-                            // Suggestions are best-effort; do not break the putaway list.
-                        }
-                    }
-                    return new PutawayItemDto(
-                            item.getId().toString(),
-                            item.getMaterialId().toString(),
-                            materialCode,
-                            materialName,
-                            item.getPickedQuantity(), // Received quantity
-                            item.getQuantity(), // Ordered quantity
-                            suggestedLocation,
-                            existingLocations,
-                            item.getStatus(),
-                            splitPlan);
-                })
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(putawayItems);
+
+        List<PutawayItemDto> rows = new java.util.ArrayList<>();
+        for (OrderItem item : items) {
+            if (item.getPickedQuantity() == null || item.getPickedQuantity() <= 0) {
+                continue;
+            }
+
+            String materialCode = null;
+            String materialName = null;
+            try {
+                Material material = materialService.findById(item.getMaterialId());
+                materialCode = material.getMaterialCode();
+                materialName = material.getDescription();
+            } catch (Exception ignored) {
+                // Material lookup is best-effort; never break the worker's list over it.
+            }
+
+            // Pallets another worker has claimed are left out entirely. Starting an order locks its
+            // tasks to one worker, and the screen said as much -- but it still listed everyone's
+            // pallets, so two drivers could set off for the same one.
+            List<Task> palletTasks = taskService
+                    .findByTaskTypeAndReference("putaway", "order_item", item.getId())
+                    .stream()
+                    .filter(task -> workerId == null
+                            || task.getAssignedTo() == null
+                            || workerId.equals(task.getAssignedTo()))
+                    .sorted(java.util.Comparator.comparing(
+                            task -> task.getHandlingUnitSeq() != null ? task.getHandlingUnitSeq() : 1))
+                    .toList();
+
+            if (palletTasks.isEmpty()) {
+                // No tasks planned yet (or a legacy order-level task). Fall back to a line-shaped
+                // row so the screen still renders while planning catches up.
+                rows.add(lineFallbackRow(order, item, materialCode, materialName));
+                continue;
+            }
+
+            int totalUnits = palletTasks.size();
+            for (Task task : palletTasks) {
+                int palletQuantity = PutawayTaskNotes.handlingUnitQuantity(task.getNotes())
+                        .orElse(item.getPickedQuantity());
+                rows.add(new PutawayItemDto(
+                        task.getId().toString(),
+                        item.getId().toString(),
+                        item.getMaterialId().toString(),
+                        materialCode,
+                        materialName,
+                        task.getHandlingUnitSeq() != null ? task.getHandlingUnitSeq() : 1,
+                        totalUnits,
+                        palletQuantity,
+                        PutawayTaskNotes.completedQuantity(task.getNotes()),
+                        task.getLocationCode(),
+                        item.getPickedQuantity(),
+                        task.getStatus(),
+                        PutawayTaskNotes.skipReason(task.getNotes()).orElse(null),
+                        List.of(),
+                        null));
+            }
+        }
+        return ResponseEntity.ok(rows);
+    }
+
+    /**
+     * A line with no planned pallet tasks yet. Keeps the old suggestion behaviour so the screen
+     * degrades gracefully rather than showing an empty order.
+     */
+    private PutawayItemDto lineFallbackRow(
+            Order order, OrderItem item, String materialCode, String materialName) {
+        String suggestedLocation = item.getLocationCode();
+        List<String> existingLocations = List.of();
+        PutawaySplitPlanDto splitPlan = null;
+        Integer putawayQty = item.getPickedQuantity();
+
+        try {
+            existingLocations = materialLocationService
+                    .findMaterialLocations(item.getMaterialId(), order.getWarehouseId())
+                    .stream()
+                    .map(MaterialLocationAssignmentService.LocationInventory::locationCode)
+                    .distinct()
+                    .collect(Collectors.toList());
+            var plan = putawayCapacityPlanningService.suggestSplitPlan(
+                    order.getWarehouseId(), item.getMaterialId(), putawayQty, suggestedLocation);
+            splitPlan = toPutawaySplitPlanDto(plan);
+            if (suggestedLocation == null || suggestedLocation.isBlank()) {
+                suggestedLocation = plan.allocations().isEmpty()
+                        ? null
+                        : plan.allocations().get(0).locationCode();
+            }
+        } catch (Exception ignored) {
+            // Suggestions are best-effort; do not break the putaway list.
+        }
+
+        return new PutawayItemDto(
+                null,
+                item.getId().toString(),
+                item.getMaterialId().toString(),
+                materialCode,
+                materialName,
+                1,
+                1,
+                putawayQty,
+                0,
+                suggestedLocation,
+                putawayQty,
+                item.getStatus(),
+                null,
+                existingLocations,
+                splitPlan);
     }
 
     @PostMapping("/{orderId}/items")
@@ -133,6 +209,7 @@ public class OrderItemController {
         Order order = orderService.findById(orderId);
         Material material = materialService.findById(materialId);
         validatePackagingRules(order, material, request.quantity());
+        PutawayCapacityPlanningService.SplitPlanResult reservablePlan = null;
         if ("inbound".equalsIgnoreCase(order.getOrderType())) {
             UUID supplierId = order.getSupplierId();
             if (supplierId == null) {
@@ -157,6 +234,7 @@ public class OrderItemController {
                         + " in warehouse. " + notes;
                 throw new IllegalArgumentException(message.trim());
             }
+            reservablePlan = splitPlan;
         }
 
         OrderItem item = new OrderItem();
@@ -175,6 +253,22 @@ public class OrderItemController {
         item.setStatus("pending");
 
         OrderItem created = orderItemService.create(item);
+
+        // Hold the bins this line was just proved to fit in. The feasibility check above was
+        // previously computed and discarded, so the same bins were offered to the next line and to
+        // every concurrent order -- the admin's green light was never binding on anything. Claiming
+        // them here makes the next line plan around this one.
+        if (reservablePlan != null) {
+            putawayReservationService.reserve(
+                    orderId,
+                    created.getId(),
+                    order.getWarehouseId(),
+                    materialId,
+                    handlingUnitCapacityService.resolveUnitsPerPallet(
+                            material.getUnitsPerPallet(), material.getPalletSpaces()),
+                    reservablePlan.allocations());
+        }
+
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDtoWithMaterial(created));
     }
 
@@ -201,6 +295,9 @@ public class OrderItemController {
 
     @DeleteMapping("/items/{itemId}")
     public ResponseEntity<Void> delete(@PathVariable UUID itemId) {
+        // Free the bins this line was holding before it disappears, or the space stays claimed by
+        // a line that no longer exists.
+        putawayReservationService.releaseForItem(itemId);
         orderItemService.deleteById(itemId);
         return ResponseEntity.noContent().build();
     }
@@ -373,16 +470,25 @@ public class OrderItemController {
             String status) {
     }
 
+    /**
+     * One pallet move. {@code taskId} is the task the worker completes; it is null only for the
+     * legacy fallback row where no pallet task has been planned yet.
+     */
     public record PutawayItemDto(
+            String taskId,
             String itemId,
             String materialId,
             String materialCode,
             String materialName,
-            Integer receivedQuantity,
-            Integer orderedQuantity,
-            String suggestedLocation,
-            List<String> existingLocations,
+            Integer handlingUnitSeq,
+            Integer totalHandlingUnits,
+            Integer palletQuantity,
+            Integer completedQuantity,
+            String plannedLocation,
+            Integer lineReceivedQuantity,
             String status,
+            String skipReason,
+            List<String> existingLocations,
             PutawaySplitPlanDto splitPlan) {
     }
 
