@@ -20,23 +20,33 @@ public class PutawayCapacityPlanningService {
 
     private static final Set<String> BLOCKED_RACK_STATUSES = Set.of("reserved", "maintenance", "out_of_service");
 
+    /**
+     * Bounds the replan loop that drops planner-offered bins putaway would refuse. Each pass
+     * excludes strictly more bins, so this only caps how far a badly mismatched warehouse is
+     * chased before falling back to the generic search.
+     */
+    private static final int MAX_PLACEMENT_VERIFICATION_ATTEMPTS = 5;
+
     private final InventoryService inventoryService;
     private final LocationService locationService;
     private final MaterialService materialService;
     private final StockPlacementPlanner stockPlacementPlanner;
     private final HandlingUnitCapacityService handlingUnitCapacityService;
+    private final PutawayReservationService reservationService;
 
     public PutawayCapacityPlanningService(
             InventoryService inventoryService,
             LocationService locationService,
             MaterialService materialService,
             StockPlacementPlanner stockPlacementPlanner,
-            HandlingUnitCapacityService handlingUnitCapacityService) {
+            HandlingUnitCapacityService handlingUnitCapacityService,
+            PutawayReservationService reservationService) {
         this.inventoryService = inventoryService;
         this.locationService = locationService;
         this.materialService = materialService;
         this.stockPlacementPlanner = stockPlacementPlanner;
         this.handlingUnitCapacityService = handlingUnitCapacityService;
+        this.reservationService = reservationService;
     }
 
     public SplitPlanResult suggestSplitPlan(
@@ -44,41 +54,24 @@ public class PutawayCapacityPlanningService {
             UUID materialId,
             Integer totalQuantity,
             String preferredLocationCode) {
+        return suggestSplitPlan(warehouseId, materialId, totalQuantity, preferredLocationCode, Map.of());
+    }
+
+    /**
+     * @param additionalReserved pallet slots claimed earlier in the same planning run but not yet
+     *                           persisted -- how a batch keeps its own lines from colliding.
+     */
+    private SplitPlanResult suggestSplitPlan(
+            UUID warehouseId,
+            UUID materialId,
+            Integer totalQuantity,
+            String preferredLocationCode,
+            Map<String, Integer> additionalReserved) {
         if (totalQuantity == null || totalQuantity <= 0) {
             throw new RuntimeException("Quantity must be greater than 0");
         }
 
         Material inboundMaterial = materialService.findById(materialId);
-        BigDecimal unitsPerPalletEarly = inboundMaterial.getUnitsPerPallet() != null
-                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
-        if (unitsPerPalletEarly != null && unitsPerPalletEarly.compareTo(BigDecimal.ZERO) > 0) {
-            StockPlacementPlanner.PlacementPlan placementPlan = stockPlacementPlanner.planPlacement(
-                    warehouseId,
-                    materialId,
-                    totalQuantity,
-                    preferredLocationCode,
-                    Set.of());
-            if (!placementPlan.lines().isEmpty()) {
-                List<SplitPlanLine> planLines = placementPlan.lines().stream()
-                        .map(line -> new SplitPlanLine(
-                                line.locationCode(),
-                                line.quantityAllocated(),
-                                "Pallet slot " + line.palletCount() + " on rack " + line.rackId(),
-                                null))
-                        .toList();
-                int allocated = planLines.stream().mapToInt(SplitPlanLine::allocatedQuantity).sum();
-                return new SplitPlanResult(
-                        placementPlan.remainingPallets() <= 0,
-                        totalQuantity,
-                        allocated,
-                        totalQuantity - allocated,
-                        placementPlan.requiredPallets(),
-                        placementPlan.assignedPallets(),
-                        unitsPerPalletEarly.stripTrailingZeros().toPlainString(),
-                        planLines,
-                        placementPlan.notes());
-            }
-        }
 
         List<InventoryItem> warehouseInventory = inventoryService.findByWarehouse(warehouseId);
         Map<String, List<InventoryItem>> inventoryByLocation = warehouseInventory.stream()
@@ -86,6 +79,32 @@ public class PutawayCapacityPlanningService {
                 .collect(Collectors.groupingBy(InventoryItem::getLocationCode));
 
         Map<UUID, Material> materialCache = buildMaterialCache(warehouseInventory, materialId, inboundMaterial);
+
+        // Space already promised to other inbound work: persisted claims plus anything claimed
+        // earlier in this same planning run. Read once for the whole plan so a bin another line has
+        // taken is not offered again here.
+        Map<String, Integer> reservedByLocation =
+                new HashMap<>(reservationService.reservedPalletsByLocation(warehouseId));
+        additionalReserved.forEach((code, pallets) ->
+                reservedByLocation.merge(code.trim().toUpperCase(Locale.ROOT), pallets, Integer::sum));
+
+        BigDecimal unitsPerPalletEarly = inboundMaterial.getUnitsPerPallet() != null
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
+        if (unitsPerPalletEarly != null && unitsPerPalletEarly.compareTo(BigDecimal.ZERO) > 0) {
+            SplitPlanResult palletPlan = planViaPlacementPlanner(
+                    warehouseId,
+                    materialId,
+                    totalQuantity,
+                    preferredLocationCode,
+                    inboundMaterial,
+                    unitsPerPalletEarly,
+                    inventoryByLocation,
+                    materialCache,
+                    reservedByLocation);
+            if (palletPlan != null) {
+                return palletPlan;
+            }
+        }
 
         List<Location> candidateLocations = locationService.findAvailableByWarehouse(warehouseId).stream()
                 .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
@@ -108,10 +127,13 @@ public class PutawayCapacityPlanningService {
             availablePalletSlots = candidateLocations.stream()
                     .mapToInt(loc -> {
                         Integer max = loc.getMaxPalletCapacity();
-                        Integer current = loc.getCurrentPalletCount();
                         if (max == null || max <= 0)
                             return 0;
-                        return Math.max(max - (current != null ? current : 0), 0);
+                        int current = occupiedPallets(
+                                inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of()),
+                                materialCache)
+                                + reservedPalletsAt(reservedByLocation, loc.getLocationCode());
+                        return Math.max(max - current, 0);
                     })
                     .sum();
             notesForPalletModel(notes, requiredPalletSlots, availablePalletSlots, unitsPerPallet);
@@ -126,7 +148,8 @@ public class PutawayCapacityPlanningService {
             }
 
             CapacityComputation computation = computeCapacity(location, materialId, remaining, inboundMaterial,
-                    inventoryByLocation.getOrDefault(location.getLocationCode(), List.of()), materialCache);
+                    inventoryByLocation.getOrDefault(location.getLocationCode(), List.of()), materialCache,
+                    reservedPalletsAt(reservedByLocation, location.getLocationCode()));
 
             if (computation.allocatableQuantity() <= 0) {
                 continue;
@@ -170,12 +193,148 @@ public class PutawayCapacityPlanningService {
                 notes);
     }
 
+    /**
+     * Runs the pallet-model planner and returns its plan only once every bin in it passes the same
+     * capacity rules putaway will apply at the bin face. Returns null when this model cannot produce
+     * a verified plan, so the caller falls through to the generic unit-capacity search.
+     *
+     * <p>The planner and this service historically checked overlapping but unequal rule sets: the
+     * planner weighed a single pallet against the bin and the rack beam, while putaway weighed
+     * cumulative units, weight, volume, LPN count and missing material metrics. Neither was a
+     * superset, so the planner could hand a worker a bin that putaway then refused. Rather than keep
+     * two rule sets in step by hand, every candidate the planner proposes is checked here through
+     * {@link #computeCapacity} -- the same code putaway runs -- and any bin that fails is fed back
+     * as an exclusion so the planner picks another. What leaves this method is therefore acceptable
+     * to putaway by construction.
+     *
+     * <p>Each bin receives at most one pallet per plan, so bins can be verified independently.
+     */
+    private SplitPlanResult planViaPlacementPlanner(
+            UUID warehouseId,
+            UUID materialId,
+            int totalQuantity,
+            String preferredLocationCode,
+            Material inboundMaterial,
+            BigDecimal unitsPerPallet,
+            Map<String, List<InventoryItem>> inventoryByLocation,
+            Map<UUID, Material> materialCache,
+            Map<String, Integer> reservedByLocation) {
+
+        Set<String> rejectedBins = new HashSet<>();
+        // Bins already claimed by other inbound work are excluded up front so the planner never
+        // proposes space that is spoken for. The planner's exclusion set is all-or-nothing per bin,
+        // which is exact here because every storage bin holds one pallet (BinOccupancyService pins
+        // max_pallet_capacity to 1); if bins ever hold more, this would need per-bin headroom
+        // rather than an exclusion.
+        reservedByLocation.forEach((code, pallets) -> {
+            if (pallets > 0) {
+                rejectedBins.add(code);
+            }
+        });
+
+        for (int attempt = 0; attempt < MAX_PLACEMENT_VERIFICATION_ATTEMPTS; attempt++) {
+            StockPlacementPlanner.PlacementPlan placementPlan = stockPlacementPlanner.planPlacement(
+                    warehouseId,
+                    materialId,
+                    totalQuantity,
+                    preferredLocationCode,
+                    Set.copyOf(rejectedBins));
+
+            if (placementPlan.lines().isEmpty()) {
+                return null;
+            }
+
+            List<String> failingBins = new ArrayList<>();
+            for (StockPlacementPlanner.PlacementLine line : placementPlan.lines()) {
+                if (!acceptableAtBinFace(line, warehouseId, materialId, inboundMaterial,
+                        inventoryByLocation, materialCache)) {
+                    failingBins.add(line.locationCode());
+                }
+            }
+
+            if (failingBins.isEmpty()) {
+                return toSplitPlanResult(placementPlan, totalQuantity, unitsPerPallet, rejectedBins);
+            }
+
+            // No progress is possible if the planner keeps returning bins already known to fail.
+            if (!rejectedBins.addAll(failingBins)) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** True when putaway's own capacity rules would accept this pallet at this bin. */
+    private boolean acceptableAtBinFace(
+            StockPlacementPlanner.PlacementLine line,
+            UUID warehouseId,
+            UUID materialId,
+            Material inboundMaterial,
+            Map<String, List<InventoryItem>> inventoryByLocation,
+            Map<UUID, Material> materialCache) {
+        Location location = locationService.findByLocationCodeOptional(line.locationCode()).orElse(null);
+        if (location == null
+                || !warehouseId.equals(location.getWarehouseId())
+                || !Boolean.TRUE.equals(location.getIsActive())
+                || !isRackStatusPutawayAllowed(location.getRackStatus())) {
+            return false;
+        }
+
+        CapacityComputation computation = computeCapacity(
+                location,
+                materialId,
+                line.quantityAllocated(),
+                inboundMaterial,
+                inventoryByLocation.getOrDefault(line.locationCode(), List.of()),
+                materialCache);
+
+        return computation.allocatableQuantity() >= line.quantityAllocated()
+                && !computation.missingWeightMetric()
+                && !computation.missingVolumeMetric();
+    }
+
+    private SplitPlanResult toSplitPlanResult(
+            StockPlacementPlanner.PlacementPlan placementPlan,
+            int totalQuantity,
+            BigDecimal unitsPerPallet,
+            Set<String> rejectedBins) {
+        List<SplitPlanLine> planLines = placementPlan.lines().stream()
+                .map(line -> new SplitPlanLine(
+                        line.locationCode(),
+                        line.quantityAllocated(),
+                        "Pallet slot " + line.palletCount() + " on rack " + line.rackId(),
+                        null))
+                .toList();
+        int allocated = planLines.stream().mapToInt(SplitPlanLine::allocatedQuantity).sum();
+
+        List<String> notes = new ArrayList<>(placementPlan.notes());
+        if (!rejectedBins.isEmpty()) {
+            notes.add("Skipped " + rejectedBins.size()
+                    + " bin(s) that the planner offered but putaway would have refused.");
+        }
+
+        return new SplitPlanResult(
+                placementPlan.remainingPallets() <= 0,
+                totalQuantity,
+                allocated,
+                totalQuantity - allocated,
+                placementPlan.requiredPallets(),
+                placementPlan.assignedPallets(),
+                unitsPerPallet.stripTrailingZeros().toPlainString(),
+                planLines,
+                notes);
+    }
+
     public BatchSplitPlanResult suggestBatchSplitPlan(UUID warehouseId, List<SplitPlanRequest> requests) {
         if (requests == null || requests.isEmpty()) {
             return new BatchSplitPlanResult(List.of(), List.of("No inbound items were provided for capacity review."));
         }
         List<BatchSplitPlanLine> results = new ArrayList<>();
         List<String> notes = new ArrayList<>();
+        // Bins consumed by earlier lines of this same batch. Without this every line was planned
+        // against identical warehouse state, so two lines of one order were told the same bin was
+        // free and only the first worker to arrive could use it.
+        Map<String, Integer> claimedInThisBatch = new HashMap<>();
         int index = 0;
         for (SplitPlanRequest request : requests) {
             int itemIndex = request.itemIndex() != null ? request.itemIndex() : index;
@@ -187,7 +346,9 @@ public class PutawayCapacityPlanningService {
                         warehouseId,
                         request.materialId(),
                         request.quantity(),
-                        request.preferredLocationCode());
+                        request.preferredLocationCode(),
+                        Map.copyOf(claimedInThisBatch));
+                recordBatchClaims(claimedInThisBatch, plan);
                 results.add(new BatchSplitPlanLine(itemIndex, true, null, plan));
             } catch (RuntimeException ex) {
                 SplitPlanResult failed = new SplitPlanResult(
@@ -205,6 +366,19 @@ public class PutawayCapacityPlanningService {
             index++;
         }
         return new BatchSplitPlanResult(results, notes);
+    }
+
+    /**
+     * Marks the bins a just-planned line took, so later lines in the same batch see them as full.
+     * Each planner allocation is one pallet into one bin.
+     */
+    private void recordBatchClaims(Map<String, Integer> claimed, SplitPlanResult plan) {
+        for (SplitPlanLine line : plan.allocations()) {
+            if (line.locationCode() == null) {
+                continue;
+            }
+            claimed.merge(line.locationCode().trim().toUpperCase(Locale.ROOT), 1, Integer::sum);
+        }
     }
 
     public ValidationResult validateSingleLocation(
@@ -347,6 +521,13 @@ public class PutawayCapacityPlanningService {
         return left.trim().equalsIgnoreCase(right.trim());
     }
 
+    /**
+     * Execution-time capacity: physical contents only.
+     *
+     * <p>Reservations are deliberately not counted here. A worker confirming a pallet into a bin is
+     * consuming the very claim that reserved it, so counting the claim would block the move it
+     * exists to protect.
+     */
     private CapacityComputation computeCapacity(
             Location location,
             UUID inboundMaterialId,
@@ -354,6 +535,23 @@ public class PutawayCapacityPlanningService {
             Material inboundMaterial,
             List<InventoryItem> locationInventory,
             Map<UUID, Material> materialCache) {
+        return computeCapacity(location, inboundMaterialId, desiredQuantity, inboundMaterial,
+                locationInventory, materialCache, 0);
+    }
+
+    /**
+     * Planning-time capacity: physical contents plus pallet slots already claimed by other inbound
+     * work. {@code reservedPallets} is what stops two lines of one order, or two concurrent orders,
+     * being offered the same bin.
+     */
+    private CapacityComputation computeCapacity(
+            Location location,
+            UUID inboundMaterialId,
+            Integer desiredQuantity,
+            Material inboundMaterial,
+            List<InventoryItem> locationInventory,
+            Map<UUID, Material> materialCache,
+            int reservedPallets) {
         int currentQty = locationInventory.stream().mapToInt(item -> nvl(item.getQuantity())).sum();
         int desired = Math.max(desiredQuantity, 0);
         int allocatable = desired;
@@ -452,7 +650,8 @@ public class PutawayCapacityPlanningService {
         }
 
         if (palletCapacityModel) {
-            int currentPalletCount = location.getCurrentPalletCount() != null ? location.getCurrentPalletCount() : 0;
+            int currentPalletCount = occupiedPallets(locationInventory, materialCache)
+                    + Math.max(reservedPallets, 0);
             int slotHeadroom = Math.max(location.getMaxPalletCapacity() - currentPalletCount, 0);
             int byPalletSlots = toPositiveIntFloor(
                     BigDecimal.valueOf(slotHeadroom).multiply(unitsPerPallet));
@@ -574,6 +773,43 @@ public class PutawayCapacityPlanningService {
             }
         }
         return cache;
+    }
+
+    /**
+     * Pallets physically occupying a bin, derived from the stock actually in it.
+     *
+     * <p>The denormalised {@code location.current_pallet_count} column is deliberately not read
+     * here. Nothing in the putaway write path maintains it -- only two manual admin endpoints do --
+     * so it drifts from reality in both directions: stale-high made this validator reject bins the
+     * planner had just offered as empty, and stale-low let a one-pallet bin accept a second pallet.
+     * {@link StockPlacementPlanner} has always derived occupancy from inventory; deriving it the
+     * same way here is what makes a suggested bin one that putaway will actually accept.
+     */
+    private int occupiedPallets(List<InventoryItem> locationInventory, Map<UUID, Material> materialCache) {
+        int pallets = 0;
+        for (InventoryItem item : locationInventory) {
+            int quantity = nvl(item.getQuantity());
+            if (quantity <= 0) {
+                continue;
+            }
+            Material material = materialCache.get(item.getMaterialId());
+            BigDecimal unitsPerPallet = material != null
+                    ? handlingUnitCapacityService.resolveUnitsPerPallet(
+                            material.getUnitsPerPallet(), material.getPalletSpaces())
+                    : BigDecimal.ONE;
+            pallets += handlingUnitCapacityService.computePalletCount(
+                    BigDecimal.valueOf(quantity), unitsPerPallet);
+        }
+        return pallets;
+    }
+
+    /** Pallet slots at a bin already claimed by inbound work that has not landed there yet. */
+    private int reservedPalletsAt(Map<String, Integer> reservedByLocation, String locationCode) {
+        if (reservedByLocation == null || locationCode == null) {
+            return 0;
+        }
+        Integer reserved = reservedByLocation.get(locationCode.trim().toUpperCase(Locale.ROOT));
+        return reserved != null ? reserved : 0;
     }
 
     private int nvl(Integer value) {

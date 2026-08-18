@@ -169,6 +169,12 @@ public class PutawayService {
             }
         }
 
+        // Stamp the bin the pallet actually went into, for partial and full moves alike. Workers
+        // can and do override the planned destination; leaving the task pointing at the plan made
+        // the route guide release the wrong stop and keep steering them back to a bin they had
+        // already emptied their forks into.
+        taskService.updateLocationCode(taskId, finalLocationCode);
+
         Integer newCompletedQuantity = completedQuantity + actualQuantity;
         if (newCompletedQuantity < requiredQuantity) {
             if (workerId != null) {
@@ -296,7 +302,18 @@ public class PutawayService {
                     return true; // Not received yet, skip
                 }
                 List<Task> tasks = taskService.findByTaskTypeAndReference("putaway", "order_item", item.getId());
-                return !tasks.isEmpty() && tasks.stream().allMatch(t -> "completed".equals(t.getStatus()));
+                if (tasks.isEmpty() || !tasks.stream().allMatch(t -> "completed".equals(t.getStatus()))) {
+                    return false;
+                }
+                // Completing every task is not the same as putting the receipt away. When the
+                // planner could not place every pallet it creates tasks only for the pallets that
+                // fit, and closing the order on task completion alone stranded the remainder as
+                // unlocated stock that picking could never see. Require the work to actually cover
+                // what was received.
+                int putAwayUnits = tasks.stream()
+                        .mapToInt(task -> extractCompletedQuantity(task.getNotes()))
+                        .sum();
+                return putAwayUnits >= receivedQty;
             });
         } else {
             // Backward compatibility: legacy data without item-level tasks.
@@ -391,33 +408,11 @@ public class PutawayService {
      * Returns null for legacy line-scoped tasks created before per-pallet splitting.
      */
     private Integer extractHandlingUnitQuantity(String notes) {
-        if (notes == null || notes.isBlank()) {
-            return null;
-        }
-        Matcher matcher = PUTAWAY_HU_QTY_PATTERN.matcher(notes);
-        if (matcher.find()) {
-            try {
-                return Integer.parseInt(matcher.group(1));
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
+        return PutawayTaskNotes.handlingUnitQuantity(notes).orElse(null);
     }
 
     private Integer extractCompletedQuantity(String notes) {
-        if (notes == null || notes.isBlank()) {
-            return 0;
-        }
-        Matcher matcher = PUTAWAY_PROGRESS_PATTERN.matcher(notes);
-        if (matcher.find()) {
-            try {
-                return Integer.parseInt(matcher.group(1));
-            } catch (NumberFormatException ignored) {
-                return 0;
-            }
-        }
-        return 0;
+        return PutawayTaskNotes.completedQuantity(notes);
     }
 
     private String upsertPutawayProgressNote(String existingNotes, Integer completed, Integer required) {
