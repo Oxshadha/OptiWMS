@@ -181,14 +181,20 @@ class ForecastShapExplanation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
-    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    dataset: Mapped[str] = mapped_column(String(64), index=True)
     model_name: Mapped[str] = mapped_column(String(64), index=True)
     sku: Mapped[str] = mapped_column(String(64), index=True)
     horizon: Mapped[int] = mapped_column(Integer, index=True)
     # JSON array: [{"feature": "lag_1", "label": "demand 1 month ago",
     #               "shap_value": 42.3, "feature_value": 450.0}, ...]
     top_features_json: Mapped[str] = mapped_column(Text)
-    base_value: Mapped[float] = mapped_column(Float)   # SHAP expected value (model baseline)
-    prediction: Mapped[float] = mapped_column(Float)   # model output for this SKU/horizon
+    # The model is trained on log1p(demand), so SHAP is additive in log space and
+    # base_value/prediction are stored there: base_value + sum(shap) == prediction.
+    # The *_units columns hold the same quantities after expm1, for display only.
+    explanation_space: Mapped[str] = mapped_column(String(16), default="log1p")
+    base_value: Mapped[float] = mapped_column(Float)        # SHAP expected value, explanation space
+    prediction: Mapped[float] = mapped_column(Float)        # model output, explanation space
+    baseline_units: Mapped[float] = mapped_column(Float, default=0.0)
+    prediction_units: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 

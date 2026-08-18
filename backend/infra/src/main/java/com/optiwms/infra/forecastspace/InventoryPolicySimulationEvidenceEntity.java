@@ -44,6 +44,24 @@ public class InventoryPolicySimulationEvidenceEntity {
     @Column(name = "simulation_method", nullable = false, length = 128)
     private String simulationMethod;
 
+    // Percentiles of the simulated lead-time demand, so the fill-rate figure can be
+    // interrogated rather than taken on trust.
+    @Column(name = "demand_p5")
+    private BigDecimal demandP5;
+    @Column(name = "demand_p25")
+    private BigDecimal demandP25;
+    @Column(name = "demand_p50")
+    private BigDecimal demandP50;
+    @Column(name = "demand_p75")
+    private BigDecimal demandP75;
+    @Column(name = "demand_p95")
+    private BigDecimal demandP95;
+
+    /** One-factor-at-a-time sensitivity of fill rate to each input, seed held fixed. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sensitivity_json", columnDefinition = "jsonb")
+    private String sensitivityJson;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "source_lineage", nullable = false, columnDefinition = "jsonb")
     private String sourceLineage;
@@ -84,4 +102,17 @@ public class InventoryPolicySimulationEvidenceEntity {
     public String getSourceLineage() { return sourceLineage; }
     public void setSourceLineage(String sourceLineage) { this.sourceLineage = sourceLineage; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
+
+    public BigDecimal getDemandP5() { return demandP5; }
+    public void setDemandP5(BigDecimal demandP5) { this.demandP5 = demandP5; }
+    public BigDecimal getDemandP25() { return demandP25; }
+    public void setDemandP25(BigDecimal demandP25) { this.demandP25 = demandP25; }
+    public BigDecimal getDemandP50() { return demandP50; }
+    public void setDemandP50(BigDecimal demandP50) { this.demandP50 = demandP50; }
+    public BigDecimal getDemandP75() { return demandP75; }
+    public void setDemandP75(BigDecimal demandP75) { this.demandP75 = demandP75; }
+    public BigDecimal getDemandP95() { return demandP95; }
+    public void setDemandP95(BigDecimal demandP95) { this.demandP95 = demandP95; }
+    public String getSensitivityJson() { return sensitivityJson; }
+    public void setSensitivityJson(String sensitivityJson) { this.sensitivityJson = sensitivityJson; }
 }

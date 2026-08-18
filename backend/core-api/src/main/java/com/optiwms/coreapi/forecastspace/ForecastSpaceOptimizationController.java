@@ -454,6 +454,12 @@ public class ForecastSpaceOptimizationController {
                 evidence.getStockoutDaysProposed(),
                 evidence.getCapacityFeasible(),
                 evidence.getSimulationMethod(),
+                dbl(evidence.getDemandP5()),
+                dbl(evidence.getDemandP25()),
+                dbl(evidence.getDemandP50()),
+                dbl(evidence.getDemandP75()),
+                dbl(evidence.getDemandP95()),
+                evidence.getSensitivityJson(),
                 evidence.getSourceLineage(),
                 evidence.getCreatedAt() != null ? evidence.getCreatedAt().toString() : null);
     }
@@ -640,6 +646,15 @@ public class ForecastSpaceOptimizationController {
             Integer stockoutDaysProposed,
             Boolean capacityFeasible,
             String simulationMethod,
+            // Percentiles of simulated lead-time demand, so the fill rate can be
+            // interrogated rather than accepted.
+            Double demandP5,
+            Double demandP25,
+            Double demandP50,
+            Double demandP75,
+            Double demandP95,
+            /** Which input the recommendation actually rests on. Ordered by swing. */
+            String sensitivityJson,
             String sourceLineage,
             String createdAt) {}
 }

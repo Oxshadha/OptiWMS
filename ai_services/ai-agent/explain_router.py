@@ -68,21 +68,23 @@ def _query_db_context(sku: str) -> str:
 
 
 def _query_shap_context(sku: str, horizon: int = 3) -> str:
-    """
-    Fetch pre-computed SHAP feature attributions from the forecast-service REST API.
-    Returns a formatted string showing how each feature pushed the prediction up or down.
+    """Format pre-computed SHAP attributions for the prompt.
+
+    The model is trained on log1p(demand), so `shap_value` is a log-space
+    contribution and `delta_units` is its units-space equivalent. Only the units
+    figures are shown to the LLM -- quoting a log-space value as a unit count
+    turns a 4,351-unit baseline into "8.4 units".
     """
     if not FORECAST_SERVICE_BASE:
-        return "  (FORECAST_SERVICE_BASE not configured — SHAP data unavailable)"
+        return "  (FORECAST_SERVICE_BASE not configured - SHAP data unavailable)"
     try:
         url = f"{FORECAST_SERVICE_BASE}/api/v1/shap/explanation"
-        params = {"sku": sku, "horizon": horizon}
         with httpx.Client(timeout=5.0) as client:
-            resp = client.get(url, params=params)
+            resp = client.get(url, params={"sku": sku, "horizon": horizon})
         if resp.status_code == 404:
             return (
-                "  No SHAP data yet for this SKU. "
-                "Trigger a forecast publish run once model artifacts are available."
+                f"  No SHAP attribution stored for {sku} at horizon {horizon}. "
+                "Re-run the forecast publish to generate them."
             )
         resp.raise_for_status()
         data = resp.json()
@@ -93,19 +95,30 @@ def _query_shap_context(sku: str, horizon: int = 3) -> str:
     if not features:
         return "  No SHAP feature data available."
 
-    base = data.get("base_value", 0.0)
-    pred = data.get("prediction", 0.0)
+    baseline = float(data.get("baseline_units") or 0.0)
+    predicted = float(data.get("prediction_units") or 0.0)
     model = data.get("model_name", "?")
     lines = [
-        f"  Model: {model} | Baseline demand: {base:.1f} units | Predicted: {pred:.1f} units",
-        f"  (Positive values pushed prediction UP from baseline; negative pulled it DOWN)",
+        f"  Model: {model} (SHAP TreeExplainer, exact attribution)",
+        f"  Average demand across all materials: {baseline:,.0f} units",
+        f"  Predicted for this material: {predicted:,.0f} units",
+        f"  Difference to explain: {predicted - baseline:+,.0f} units",
         "",
+        "  Contributions (units, +/- against the average):",
     ]
     for f in features:
-        sign = "+" if f["shap_value"] >= 0 else ""
+        if f.get("feature") == "__other__":
+            lines.append(f"  {f.get('delta_units', 0.0):+10,.0f}  all remaining factors combined")
+            continue
+        value = f.get("feature_value")
+        shown = f"{value:,.1f}" if isinstance(value, (int, float)) else "n/a"
+        note = ""
+        if f.get("lag_provenance") == "predicted":
+            note = "  [from the model's own earlier forecast, not observed history]"
+        elif f.get("lag_provenance") == "partly_predicted":
+            note = "  [partly from the model's own earlier forecasts]"
         lines.append(
-            f"  {sign}{f['shap_value']:+.1f}  {f['feature']} = {f['feature_value']}  "
-            f"\u2192 \"{f['label']}\""
+            f"  {f.get('delta_units', 0.0):+10,.0f}  {f.get('label')} (= {shown}){note}"
         )
     return "\n".join(lines)
 
@@ -153,13 +166,13 @@ The user is viewing the demand forecast dashboard. Answer their question in plai
 actionable English. Be concise — 3 to 6 sentences. Use only the data below. Do not
 make up numbers outside of this context.
 
-When asked WHY demand is high or low, lead with the SHAP model attributions below.
-Interpret each feature contribution in plain English:
-- A large positive SHAP value on lag_1 means last month’s high demand carried forward.
-- A positive SHAP value on roll_mean_6 means the 6-month trend is upward.
-- A positive SHAP value on month_num or quarter means seasonality is driving demand up.
-- A positive SHAP value on stockout_days_lag1 means past supply shortages created pent-up demand.
-- Negative SHAP values indicate features that are pulling the forecast DOWN.
+When asked WHY demand is high or low, lead with the SHAP attributions below. They are
+exact contributions in units, measured against the average across all materials, and they
+sum to the difference between that average and this material's prediction.
+- State the two or three largest contributions and what they mean operationally.
+- A contribution marked [from the model's own earlier forecast] is not observed history.
+  Say so plainly -- at longer horizons the model is partly explaining its own output.
+- Never invent a percentage or a driver that is not listed below.
 
 [SELECTED SKU]
   {req.sku or 'All SKUs Combined'}

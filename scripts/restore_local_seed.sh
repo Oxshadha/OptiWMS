@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# NOTE: scripts/optiwms_local_seed.sql.gz is NOT tracked in git. This script only
+# works if you generated that dump yourself:
+#     pg_dump -h localhost -p 5434 -U optiwms optiwms | gzip > scripts/optiwms_local_seed.sql.gz
+# For setting up from a fresh clone, use ./scripts/seed_all.sh instead (SETUP.md).
+
 # Exit on error
 set -e
 
