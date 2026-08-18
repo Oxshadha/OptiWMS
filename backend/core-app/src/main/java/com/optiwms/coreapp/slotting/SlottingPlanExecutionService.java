@@ -1,6 +1,8 @@
 package com.optiwms.coreapp.slotting;
 
 import com.optiwms.coreapp.master.MaterialDefaultLocationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.optiwms.coreapp.operations.StockTransferService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.operations.StockTransfer;
@@ -27,6 +29,8 @@ import java.util.UUID;
 @Service
 public class SlottingPlanExecutionService {
 
+    private static final Logger log = LoggerFactory.getLogger(SlottingPlanExecutionService.class);
+
     public record ExecutionResult(
             int transfersCreated,
             UUID transferId,
@@ -39,6 +43,7 @@ public class SlottingPlanExecutionService {
     private final MaterialRepository materialRepository;
     private final SlottingPlanLineRepository lineRepository;
     private final SlottingPlanReserveLineRepository reserveLineRepository;
+    private final DefaultLocationAssignmentIsolation defaultLocationIsolation;
 
     public SlottingPlanExecutionService(
             MaterialDefaultLocationService defaultLocationService,
@@ -46,7 +51,9 @@ public class SlottingPlanExecutionService {
             InventoryService inventoryService,
             MaterialRepository materialRepository,
             SlottingPlanLineRepository lineRepository,
-            SlottingPlanReserveLineRepository reserveLineRepository) {
+            SlottingPlanReserveLineRepository reserveLineRepository,
+            DefaultLocationAssignmentIsolation defaultLocationIsolation) {
+        this.defaultLocationIsolation = defaultLocationIsolation;
         this.defaultLocationService = defaultLocationService;
         this.stockTransferService = stockTransferService;
         this.inventoryService = inventoryService;
@@ -147,9 +154,23 @@ public class SlottingPlanExecutionService {
         return new ExecutionResult(created, firstTransferId, "PENDING_MOVES", transferLines.size());
     }
 
+    /**
+     * Writes the plan's destinations onto the material's default locations.
+     *
+     * <p>A bin already claimed as another material's primary is refused by
+     * {@code assignDefaultLocation}. That refusal used to escape here and abort the whole release:
+     * one stale default anywhere in the catalogue rolled back every move in the plan, left the plan
+     * stuck in SCHEDULED, and produced no transfers -- with the reason visible only in the server
+     * log. There are currently 134 such bins from earlier data drift, so this was not a rare edge.
+     *
+     * <p>A contested default is a bookkeeping conflict, not a reason to cancel physical work. The
+     * conflict is recorded on the line and the release continues; the pallet still moves, and the
+     * unresolved default surfaces on the line rather than silently in a stack trace.
+     */
     private void applyDefaultLocations(SlottingPlanLineEntity line, UUID warehouseId, String targetPrimary) {
-        defaultLocationService.assignDefaultLocation(
-                line.getMaterialId(), warehouseId, targetPrimary, 1, line.getMaterialType(), false);
+        List<String> conflicts = new ArrayList<>();
+        assignDefaultTolerantly(line, warehouseId, targetPrimary, 1, conflicts);
+
         List<SlottingPlanReserveLineEntity> reserves =
                 reserveLineRepository.findByPlanLineIdOrderBySequenceNoAsc(line.getId());
         int priority = 2;
@@ -158,10 +179,32 @@ public class SlottingPlanExecutionService {
                     ? reserve.getFinalReserveLocationCode()
                     : reserve.getRecommendedReserveLocationCode();
             if (reserveCode != null) {
-                defaultLocationService.assignDefaultLocation(
-                        line.getMaterialId(), warehouseId, reserveCode, priority++, line.getMaterialType(), false);
+                assignDefaultTolerantly(line, warehouseId, reserveCode, priority++, conflicts);
             }
         }
+
+        if (!conflicts.isEmpty()) {
+            line.setMoveReason(trimToColumn((line.getMoveReason() == null ? "" : line.getMoveReason() + " ")
+                    + "Default location not updated: " + String.join("; ", conflicts)));
+            log.warn("Slotting line {} ({}) released with unresolved default locations: {}",
+                    line.getId(), line.getMaterialCode(), conflicts);
+        }
+    }
+
+    private void assignDefaultTolerantly(
+            SlottingPlanLineEntity line, UUID warehouseId, String locationCode, int priority, List<String> conflicts) {
+        try {
+            // Isolated transaction: a rejected bin must not mark this release rollback-only.
+            defaultLocationIsolation.assign(
+                    line.getMaterialId(), warehouseId, locationCode, priority, line.getMaterialType());
+        } catch (RuntimeException conflict) {
+            conflicts.add(locationCode + " (" + conflict.getMessage() + ")");
+        }
+    }
+
+    /** move_reason is a bounded column; a long conflict list must not fail the insert. */
+    private String trimToColumn(String value) {
+        return value.length() <= 480 ? value : value.substring(0, 477) + "...";
     }
 
     private String resolvePrimary(SlottingPlanLineEntity line) {

@@ -209,7 +209,8 @@ public class TaskController {
                 task.getLocationCode(),
                 task.getReferenceType(),
                 task.getReferenceId() != null ? task.getReferenceId().toString() : null,
-                task.getNotes()
+                task.getNotes(),
+                task.getHandlingUnitSeq()
         );
     }
 
@@ -253,7 +254,9 @@ public class TaskController {
             String locationCode,
             String referenceType,
             String referenceId,
-            String notes
+            String notes,
+            /** Which pallet of its order line this task is; null for non-putaway work. */
+            Integer handlingUnitSeq
     ) {}
 
     public record PagedTaskResponse(

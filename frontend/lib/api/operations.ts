@@ -76,6 +76,12 @@ export interface PutawayResponse {
   success: boolean;
   message: string;
   taskId?: string;
+  /** Where the pallet will fit, returned when the chosen bin refused it. */
+  alternatives?: Array<{
+    locationCode: string;
+    allocatableQuantity: number;
+    reason: string;
+  }>;
 }
 
 export interface SkipPutawayRequest {
@@ -180,6 +186,8 @@ export interface StockTransferLine {
   movedQuantity: number;
   status: string;
   assignedWorkerId?: string;
+  /** The stock_transfer task this line runs through, for scoping a routing session. */
+  taskId?: string;
   notes?: string;
 }
 
@@ -215,6 +223,8 @@ export interface CreateStockTransferLineRequest {
   destLocationCode: string;
   quantity: string;
   assignedWorkerId?: string;
+  /** The stock_transfer task this line runs through, for scoping a routing session. */
+  taskId?: string;
   status?: string;
   notes?: string;
 }

@@ -243,6 +243,24 @@ public class TaskService {
         return toDomain(saved);
     }
 
+    /**
+     * Records where the work actually happened, which is not always where it was planned.
+     *
+     * <p>A putaway task carried its planned bin and never learned the bin the worker really used.
+     * Anything reading the task afterwards -- the route guide releasing stop reservations, the
+     * putaway list, reporting -- was therefore told about a bin the pallet never reached.
+     */
+    @Transactional
+    public Task updateLocationCode(UUID id, String locationCode) {
+        if (locationCode == null || locationCode.isBlank()) {
+            return findById(id);
+        }
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setLocationCode(locationCode.trim().toUpperCase(java.util.Locale.ROOT));
+        return toDomain(repository.save(entity));
+    }
+
     private Task toDomain(TaskEntity entity) {
         Task task = new Task();
         task.setId(entity.getId());

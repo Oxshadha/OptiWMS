@@ -91,8 +91,13 @@ public class NotificationService {
         userNotifications.forEach(n -> n.setRead(true));
         repository.saveAll(userNotifications);
         
-        // Also mark broadcast notifications as read for this user (we'll track this in metadata or separate table if needed)
-        // For now, we'll just mark user-specific ones
+        // Also mark broadcast notifications as read since individual markAsRead does this
+        List<NotificationEntity> broadcastNotifications = repository.findByUserIdIsNullOrderByCreatedAtDesc()
+                .stream()
+                .filter(n -> Boolean.FALSE.equals(n.getRead()))
+                .collect(Collectors.toList());
+        broadcastNotifications.forEach(n -> n.setRead(true));
+        repository.saveAll(broadcastNotifications);
     }
 
     @Transactional

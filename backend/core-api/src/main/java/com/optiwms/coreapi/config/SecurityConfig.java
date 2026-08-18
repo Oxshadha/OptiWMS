@@ -86,6 +86,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/integration/locations/generate/**").hasRole("ADMIN")
                         // Allow workers to read materials by code (for SKU lookup in receiving)
                         .requestMatchers(HttpMethod.GET, "/api/master/materials/code/**").authenticated()
+                        // Read-only material list. Operational screens label a task by its material
+                        // -- stock transfer lines, putaway, picking -- and a worker role could not
+                        // read it, so the label lookup returned 403 and took the task list down with
+                        // it. GET only: creating or editing a material stays with the roles below.
+                        .requestMatchers(HttpMethod.GET, "/api/master/materials").authenticated()
                         // Allow all authenticated users to read warehouses (needed for worker warehouse
                         // assignment)
                         .requestMatchers(HttpMethod.GET, "/api/master/warehouses").authenticated()

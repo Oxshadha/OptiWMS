@@ -4,6 +4,9 @@ import { logger } from "@/lib/utils/logger";
 export interface InventoryItem {
   id: string;
   materialId: string;
+  /** Label carried on the row itself, independent of the operational-tier reference list. */
+  materialCode?: string | null;
+  materialDescription?: string | null;
   warehouseId: string;
   locationCode?: string;
   lpnCode?: string; // License Plate Number

@@ -28,11 +28,20 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final OrderNumberAliasRepository aliasRepository;
+    private final com.optiwms.coreapp.operations.PutawayReservationService putawayReservationService;
     private static final Map<String, Set<String>> OUTBOUND_TRANSITIONS = buildOutboundTransitions();
 
-    public OrderService(OrderRepository repository, OrderNumberAliasRepository aliasRepository) {
+    /** Statuses after which an inbound order can no longer be holding warehouse space. */
+    private static final Set<String> RESERVATION_RELEASING_STATUSES =
+            Set.of("cancelled", "put_away", "completed", "closed");
+
+    public OrderService(
+            OrderRepository repository,
+            OrderNumberAliasRepository aliasRepository,
+            com.optiwms.coreapp.operations.PutawayReservationService putawayReservationService) {
         this.repository = repository;
         this.aliasRepository = aliasRepository;
+        this.putawayReservationService = putawayReservationService;
     }
 
     public List<Order> listAll() {
@@ -278,6 +287,15 @@ public class OrderService {
 
         entity.setStatus(nextStatus);
         OrderEntity saved = repository.save(entity);
+
+        // An inbound order holds racking from the moment its destinations are planned. Once it is
+        // cancelled the goods are never coming, and once it is put away the stock is real inventory
+        // -- either way the claim must stop counting, or a receipt that never arrives ties up bins
+        // indefinitely.
+        if (RESERVATION_RELEASING_STATUSES.contains(nextStatus)) {
+            putawayReservationService.releaseForOrder(saved.getId());
+        }
+
         return toDomain(saved);
     }
 

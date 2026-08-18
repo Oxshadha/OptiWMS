@@ -13,6 +13,9 @@ import {
 
 type SelectedOrder = { id: string; orderNumber: string };
 
+/** Identity of a pallet move; mirrors the helper on the page. */
+const rowKey = (item: PutawayItem): string => item.taskId ?? `line:${item.itemId}`;
+
 export function PutawayOrderWorkflow({
   selectedOrder,
   putawayItems,
@@ -35,7 +38,9 @@ export function PutawayOrderWorkflow({
   allocationQuantity,
   remainingQuantity,
   onAllocationQuantityChange,
-  skippedReasonsByItem,
+  skippedReasonsByRow,
+  suggestedAlternatives,
+  onUseAlternative,
 }: {
   selectedOrder: SelectedOrder;
   putawayItems: PutawayItem[];
@@ -58,32 +63,40 @@ export function PutawayOrderWorkflow({
   allocationQuantity: number;
   remainingQuantity: number;
   onAllocationQuantityChange: (quantity: number) => void;
-  skippedReasonsByItem: Map<string, string>;
+  skippedReasonsByRow: Map<string, string>;
+  suggestedAlternatives: Array<{ locationCode: string; allocatableQuantity: number; reason: string }>;
+  onUseAlternative: (locationCode: string) => void;
 }) {
   const [showSkipInput, setShowSkipInput] = useState(false);
   const [skipReason, setSkipReason] = useState("");
   const currentItem = putawayItems[currentItemIndex];
   const completedCount = Array.from(putawayProgress.values()).filter((done) => done).length;
-  const isItemDone = currentItem ? putawayProgress.get(currentItem.itemId) || false : false;
-  const isItemSkipped = currentItem ? skippedReasonsByItem.has(currentItem.itemId) : false;
+  const isItemDone = currentItem ? putawayProgress.get(rowKey(currentItem)) || false : false;
+  const isItemSkipped = currentItem ? skippedReasonsByRow.has(rowKey(currentItem)) : false;
+  // Only worth drawing attention to when the driver has moved off the directed bin.
+  const isOverridingPlan = Boolean(
+    currentItem?.plannedLocation &&
+      scannedLocation &&
+      scannedLocation.trim().toUpperCase() !== currentItem.plannedLocation.toUpperCase()
+  );
 
   if (!currentItem && completedCount === 0) {
     return null;
   }
 
   const completedLocationCodes = putawayItems
-    .filter((item) => putawayProgress.get(item.itemId))
-    .map((item) => item.suggestedLocation)
+    .filter((item) => putawayProgress.get(rowKey(item)))
+    .map((item) => item.plannedLocation)
     .filter(Boolean) as string[];
 
   const remainingLocationCodes = putawayItems
-    .filter((item) => !putawayProgress.get(item.itemId))
-    .map((item) => item.suggestedLocation)
+    .filter((item) => !putawayProgress.get(rowKey(item)))
+    .map((item) => item.plannedLocation)
     .filter(Boolean) as string[];
 
-  // If a specific location is scanned for the current item, use it as the immediate target
-  const currentTargetCode = scannedLocation || currentItem?.suggestedLocation;
-  if (scannedLocation && currentItem && !putawayProgress.get(currentItem.itemId)) {
+  // If a specific location is scanned for the current pallet, use it as the immediate target
+  const currentTargetCode = scannedLocation || currentItem?.plannedLocation;
+  if (scannedLocation && currentItem && !putawayProgress.get(rowKey(currentItem))) {
     if (!remainingLocationCodes.includes(scannedLocation)) {
       remainingLocationCodes.unshift(scannedLocation);
     }
@@ -104,7 +117,7 @@ export function PutawayOrderWorkflow({
           </div>
         </div>
         <div className="mt-4">
-          <div className="text-sm text-base-content/60 mb-1">Putaway Progress</div>
+          <div className="text-sm text-base-content/60 mb-1">Pallets Put Away</div>
           <div className="flex items-center gap-2">
             <progress className="progress progress-primary flex-1" value={completedCount} max={putawayItems.length} />
             <span className="text-sm font-semibold">
@@ -117,92 +130,113 @@ export function PutawayOrderWorkflow({
       {currentItem && !isItemDone && (
         <div className="bg-base-100 rounded-xl p-4 border border-base-300">
           <div className="text-sm text-base-content/60 mb-2">
-            Item {currentItemIndex + 1} of {putawayItems.length}
+            Move {currentItemIndex + 1} of {putawayItems.length}
           </div>
-          <div className="font-bold text-lg mb-4">Put Away Item</div>
+          {/* One task is one pallet, so name the pallet the driver is carrying. */}
+          <div className="font-bold text-lg mb-1">
+            Pallet {currentItem.handlingUnitSeq} of {currentItem.totalHandlingUnits}
+          </div>
+          <div className="text-xs text-base-content/60 mb-4">
+            {currentItem.lineReceivedQuantity} units received on this line
+          </div>
 
-          <ItemDetailsDisplay
-            materialId={currentItem.materialId}
-            materialCode={currentItem.materialCode}
-            materialName={currentItem.materialName}
-            warehouseId={warehouseId}
-            existingLocations={currentItem.existingLocations}
-          />
-
-          <div className="space-y-3 mb-4">
-            <div className="p-3 bg-base-200 rounded-lg">
-              <div className="text-sm text-base-content/60">Quantity to Put Away</div>
-              <div className="font-semibold">{currentItem.receivedQuantity} units</div>
-              <div className="text-xs text-base-content/60">Remaining: {remainingQuantity} units</div>
+          {/* The one instruction that matters, sized to be read from a forklift seat: what to
+              carry and where it goes. Everything the system already decided stays decided --
+              quantity and destination are shown as facts, not as questions. */}
+          <div className="rounded-lg bg-primary/10 border border-primary/30 p-4 mb-4">
+            <div className="text-xs uppercase tracking-wide text-base-content/60">Take to</div>
+            <div className="font-mono font-bold text-3xl leading-tight my-1">
+              {currentItem.plannedLocation ?? "—"}
             </div>
-            {!!currentItem.splitPlan && (
-              <div className="p-3 bg-base-200 rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">Suggested Putaway Plan</div>
-                  <div className={`text-xs ${currentItem.splitPlan.feasible ? "text-success" : "text-warning"}`}>
-                    {currentItem.splitPlan.feasible ? "Feasible" : "Partial"}
-                  </div>
-                </div>
-                <div className="text-xs text-base-content/60">
-                  Planned {currentItem.splitPlan.plannedQuantity}/{currentItem.splitPlan.requestedQuantity}
-                </div>
-                <div className="space-y-1">
-                  {currentItem.splitPlan.allocations.slice(0, 4).map((line) => (
-                    <button
-                      key={`${line.locationCode}-${line.allocatedQuantity}`}
-                      type="button"
-                      className="w-full text-left px-2 py-1 rounded border border-base-300 hover:border-primary"
-                      onClick={() => {
-                        onLocationChange(line.locationCode);
-                        onAllocationQuantityChange(line.allocatedQuantity);
-                      }}
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-mono">{line.locationCode}</span>
-                        <span>Qty: {line.allocatedQuantity}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                {currentItem.splitPlan.notes?.length > 0 && (
-                  <div className="text-xs text-base-content/60">
-                    {currentItem.splitPlan.notes[0]}
-                  </div>
-                )}
+            <div className="text-lg font-semibold">
+              {remainingQuantity} units
+              {currentItem.materialCode ? ` · ${currentItem.materialCode}` : ""}
+            </div>
+            {currentItem.materialName && (
+              <div className="text-sm text-base-content/70">{currentItem.materialName}</div>
+            )}
+            {currentItem.completedQuantity > 0 && (
+              <div className="text-xs text-base-content/60 mt-1">
+                {currentItem.completedQuantity} of {currentItem.palletQuantity} already away
               </div>
             )}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Putaway Quantity (this location)</span>
-              </label>
-              <input
-                {...QUANTITY_INPUT_PROPS}
-                className="input input-bordered"
-                value={quantityInputValue(allocationQuantity)}
-                onChange={(e) =>
-                  onAllocationQuantityChange(
-                    Math.min(Math.max(remainingQuantity, 1), parseQuantityInput(e.target.value))
-                  )
-                }
-                placeholder="0"
-              />
-            </div>
           </div>
 
+          {/* Everything below is the exception path, folded away so the normal move is
+              two taps: confirm the bin, or scan a different one. */}
+          <details className="mb-4">
+            <summary className="cursor-pointer text-sm text-base-content/60 select-none">
+              Item details &amp; quantity
+            </summary>
+            <div className="mt-3 space-y-3">
+              <ItemDetailsDisplay
+                materialId={currentItem.materialId}
+                materialCode={currentItem.materialCode}
+                materialName={currentItem.materialName}
+                warehouseId={warehouseId}
+                existingLocations={currentItem.existingLocations}
+              />
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-medium">Putaway quantity (this pallet)</span>
+                </label>
+                <input
+                  {...QUANTITY_INPUT_PROPS}
+                  className="input input-bordered"
+                  value={quantityInputValue(allocationQuantity)}
+                  onChange={(e) =>
+                    onAllocationQuantityChange(
+                      // Never let a non-numeric entry reach the confirm button as NaN.
+                      Math.min(
+                        Math.max(remainingQuantity, 1),
+                        Number.isFinite(parseQuantityInput(e.target.value))
+                          ? parseQuantityInput(e.target.value)
+                          : 0
+                      )
+                    )
+                  }
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          </details>
+
+          {/* The bin refused the pallet, so say where it will go instead. Previously the worker
+              was left holding it with only an error message. */}
+          {suggestedAlternatives.length > 0 && (
+            <div className="alert alert-warning flex-col items-stretch gap-2 mb-4">
+              <div className="text-sm font-medium">
+                That bin cannot take this pallet. These can:
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {suggestedAlternatives.map((alternative) => (
+                  <button
+                    key={alternative.locationCode}
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => onUseAlternative(alternative.locationCode)}
+                  >
+                    <span className="font-mono">{alternative.locationCode}</span>
+                    <span className="opacity-70">({alternative.allocatableQuantity})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pre-filled with the planned bin, so scanning is a correction rather than a chore.
+              A driver who parks where they were told never touches this field. */}
           <div className="mb-4">
             <label className="label">
-              <span className="label-text font-medium">Select Target Location</span>
-              {currentItem.suggestedLocation && (
-                <span className="label-text-alt text-primary">Suggested: {currentItem.suggestedLocation}</span>
+              <span className="label-text font-medium">Scan bin to confirm</span>
+              {isOverridingPlan && (
+                <span className="label-text-alt text-warning">Different from plan</span>
               )}
             </label>
             <div className="flex gap-2">
               <input
-                className={`input input-bordered flex-1 ${locationError ? "input-error" : ""}`}
-                placeholder={
-                  currentItem.suggestedLocation ||
-                  "Scan or enter location (e.g., C-02-05-3-B or ST-WH-001-01-001-1-A)"
-                }
+                className={`input input-bordered flex-1 font-mono ${locationError ? "input-error" : ""}`}
+                placeholder={currentItem.plannedLocation || "Scan or enter location"}
                 value={scannedLocation}
                 onChange={(e) => onLocationChange(e.target.value)}
                 disabled={validatingLocation}
@@ -214,19 +248,16 @@ export function PutawayOrderWorkflow({
             {validatingLocation && (
               <div className="mt-1 text-xs text-base-content/60 flex items-center gap-1">
                 <span className="loading loading-spinner loading-xs"></span>
-                Validating location...
+                Checking bin...
               </div>
             )}
             {locationError && <div className="mt-1 text-xs text-error">{locationError}</div>}
-            {!locationError && !validatingLocation && scannedLocation && (
-              <div className="mt-1 text-xs text-success">✓ Location validated and active</div>
-            )}
-            {currentItem.suggestedLocation && (
+            {isOverridingPlan && !locationError && (
               <button
-                className="btn btn-ghost btn-sm mt-2"
-                onClick={() => void onUseSuggestedLocation(currentItem.suggestedLocation!)}
+                className="btn btn-ghost btn-xs mt-2"
+                onClick={() => void onUseSuggestedLocation(currentItem.plannedLocation!)}
               >
-                Use Suggested: {currentItem.suggestedLocation}
+                Back to planned bin {currentItem.plannedLocation}
               </button>
             )}
           </div>
@@ -243,7 +274,7 @@ export function PutawayOrderWorkflow({
           <div className="mt-3">
             {!showSkipInput ? (
               <button
-                className="btn btn-outline w-full"
+                className="btn btn-ghost btn-sm w-full"
                 onClick={() => setShowSkipInput(true)}
               >
                 <span className="material-symbols-outlined">skip_next</span>
@@ -286,7 +317,7 @@ export function PutawayOrderWorkflow({
           {isItemSkipped && (
             <div className="alert alert-warning mt-3">
               <span>
-                Skipped previously: {skippedReasonsByItem.get(currentItem.itemId)}
+                Skipped previously: {skippedReasonsByRow.get(rowKey(currentItem))}
               </span>
             </div>
           )}
@@ -294,16 +325,19 @@ export function PutawayOrderWorkflow({
       )}
 
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="text-sm font-medium mb-2">Items in Order</div>
+        {/* Every pallet and its own destination, so the whole plan is visible up front rather
+            than one line-level bin standing in for several different ones. */}
+        <div className="text-sm font-medium mb-2">Pallet Moves in Order</div>
         <div className="space-y-2">
           {putawayItems.map((item, idx) => {
-            const isDone = putawayProgress.get(item.itemId) || false;
-            const skipReason = skippedReasonsByItem.get(item.itemId);
+            const key = rowKey(item);
+            const isDone = putawayProgress.get(key) || false;
+            const skipReason = skippedReasonsByRow.get(key);
             const isSkipped = !!skipReason && !isDone;
             const isCurrent = idx === currentItemIndex && !isDone;
             return (
               <button
-                key={item.itemId}
+                key={key}
                 type="button"
                 onClick={() => !isDone && onSelectItem(idx)}
                 disabled={isDone}
@@ -318,9 +352,15 @@ export function PutawayOrderWorkflow({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">Item {idx + 1}</div>
-                    <div className="text-xs text-base-content/60">Quantity: {item.receivedQuantity}</div>
+                  <div className="text-left">
+                    <div className="font-semibold">
+                      {item.materialCode ? `${item.materialCode} — ` : ""}
+                      Pallet {item.handlingUnitSeq} of {item.totalHandlingUnits}
+                    </div>
+                    <div className="text-xs text-base-content/60">
+                      {item.palletQuantity} units
+                      {item.plannedLocation ? ` → ${item.plannedLocation}` : " → location to be selected"}
+                    </div>
                   </div>
                   {isDone ? (
                     <div className="flex items-center gap-2">

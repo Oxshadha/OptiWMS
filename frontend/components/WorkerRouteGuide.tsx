@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { LiveWarehouseRouteMap } from "@/components/LiveWarehouseRouteMap";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
@@ -17,12 +17,18 @@ interface WorkerRouteGuideProps {
   targetLocationCode?: string | null;
   targetLocationCodes?: Array<string | null | undefined>;
   completedLocationCodes?: Array<string | null | undefined>;
-  operationType: "putaway" | "picking";
+  operationType: "putaway" | "picking" | "transfer";
 }
 
+/**
+ * The session is per route; the graph is per warehouse.
+ *
+ * They used to be cached together under every route key, so each new move wrote another copy of a
+ * ~1,000-node graph into localStorage. After a handful of moves that filled the 5MB origin quota
+ * and setItem threw, surfacing as a red failure on a route that had actually planned fine.
+ */
 interface CachedRoute {
   key: string;
-  graph: WarehouseRoutingGraph;
   session: WorkerRouteSession;
 }
 
@@ -65,9 +71,13 @@ export function WorkerRouteGuide({
     () => normalizeCodes(completedLocationCodes),
     [completedLocationCodes]
   );
-  const allCodes = useMemo(
-    () => Array.from(new Set([...remainingCodes, ...completedCodes])).sort(),
+  const allCodesKey = useMemo(
+    () => Array.from(new Set([...remainingCodes, ...completedCodes])).sort().join(","),
     [completedCodes, remainingCodes]
+  );
+  const allCodes = useMemo(
+    () => (allCodesKey ? allCodesKey.split(",") : []),
+    [allCodesKey]
   );
   const effectiveWarehouseId = warehouseId || worker?.warehouseId;
   const routeKey = useMemo(
@@ -90,6 +100,27 @@ export function WorkerRouteGuide({
     ]
   );
   const cacheKey = `optiwms-live-route:${routeKey}`;
+  const graphCacheKey = `optiwms-route-graph:${effectiveWarehouseId ?? "none"}`;
+
+  /**
+   * Writes through, and treats a full quota as a cache miss rather than an error: the route is
+   * already planned server-side, so failing to cache it must not look like a failure to plan it.
+   */
+  const writeCache = useCallback((key: string, value: unknown) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      try {
+        // Drop this app's stale route entries and retry once before giving up.
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith("optiwms-live-route:") && k !== key)
+          .forEach((k) => localStorage.removeItem(k));
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // Offline replay is a convenience, not a requirement for the move to proceed.
+      }
+    }
+  }, []);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -117,8 +148,11 @@ export function WorkerRouteGuide({
       try {
         const raw = localStorage.getItem(cacheKey);
         cached = raw ? (JSON.parse(raw) as CachedRoute) : null;
+        const rawGraph = localStorage.getItem(graphCacheKey);
+        if (rawGraph) {
+          try { setGraph(JSON.parse(rawGraph) as WarehouseRoutingGraph); } catch { /* refetched below */ }
+        }
         if (cached?.key === routeKey) {
-          setGraph(cached.graph);
           setSession(cached.session);
           sessionRef.current = cached.session;
         }
@@ -170,7 +204,8 @@ export function WorkerRouteGuide({
                 workerId: worker.id,
                 taskId,
                 orderId,
-                operationType: operationType === "putaway" ? "PUTAWAY" : "PICKING",
+                operationType: operationType === "putaway" ? "PUTAWAY"
+                  : operationType === "transfer" ? "TRANSFER" : "PICKING",
                 vehicleType: "FORKLIFT",
                 locationCodes: allCodes,
               });
@@ -193,10 +228,8 @@ export function WorkerRouteGuide({
         setGraph(nextGraph);
         setSession(nextSession);
         sessionRef.current = nextSession;
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({ key: routeKey, graph: nextGraph, session: nextSession })
-        );
+        writeCache(graphCacheKey, nextGraph);
+        writeCache(cacheKey, { key: routeKey, session: nextSession });
       } catch (loadError) {
         if (!cancelled) {
           setError(
@@ -206,7 +239,9 @@ export function WorkerRouteGuide({
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        // Clear loading even when superseded: only the newest request owns the state, but a
+        // cancelled one must not leave the panel spinning if no newer request follows.
+        if (!cancelled || requestNumber === requestNumberRef.current) setLoading(false);
       }
     };
 
@@ -246,12 +281,8 @@ export function WorkerRouteGuide({
         completedSentRef.current.add(locationCode);
         setSession(updated);
         sessionRef.current = updated;
-        if (graph) {
-          localStorage.setItem(
-            cacheKey,
-            JSON.stringify({ key: routeKey, graph, session: updated })
-          );
-        }
+        // Session only: the graph is cached once per warehouse, not per route.
+        writeCache(cacheKey, { key: routeKey, session: updated });
       }).catch((progressError) => {
         setError(
           progressError instanceof Error

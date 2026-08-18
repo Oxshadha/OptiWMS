@@ -1,0 +1,25 @@
+-- Stamps the data-quality tier on materials that predate the column having a default.
+--
+-- V76 set `materials.data_quality_tier DEFAULT 'OPERATIONAL_ENTRY'` and MaterialEntity's @PrePersist
+-- applies the same value, so everything created through the application since then is tiered. What
+-- neither did was backfill the rows already in the table: 369 materials bulk-loaded before V76 --
+-- 299 from the 2026-02-19 import and 70 from 2026-05-24 -- were left on NULL.
+--
+-- That mattered because the operational reference list selects `data_quality_tier IN (...)`, and IN
+-- never matches NULL. Those materials silently dropped out of the catalogue: they could not be
+-- picked in admin dropdowns, and anything labelling a row by joining that list rendered them as a
+-- raw uuid and "Unknown Material" -- including live stock that had just been put away.
+--
+-- Scope is deliberately narrow. Only NULL is filled, and only with the value the column default and
+-- the entity default would both have given the row anyway. Rows carrying an explicit tier are left
+-- exactly as they are: the 722 ARCHIVED_GENERATED_BASELINE materials stay out of operational scope,
+-- which is the distinction the tier exists to make. Idempotent -- a second run matches nothing.
+UPDATE materials
+SET data_quality_tier = 'OPERATIONAL_ENTRY',
+    updated_at = now()
+WHERE data_quality_tier IS NULL;
+
+-- Guard the gap rather than rely on the default alone: a bulk INSERT that names the column and
+-- passes NULL bypasses a DEFAULT, which is how these rows arrived in the first place.
+ALTER TABLE materials
+    ALTER COLUMN data_quality_tier SET NOT NULL;
