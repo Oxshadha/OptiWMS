@@ -324,6 +324,7 @@ public class SlottingPlanClient {
         public boolean is_active;
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class PlanOptimizeResponse {
         public String warehouse_id;
         public String algorithm;
@@ -338,6 +339,7 @@ public class SlottingPlanClient {
         public Map<String, Double> assignment_confidence_inputs = Map.of();
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class PlanAssignmentPayload {
         public String material_id;
         public String material_code;
@@ -352,10 +354,15 @@ public class SlottingPlanClient {
         public String zone_upgrade;
         public String move_reason;
         public double gain_score;
+        /** The solver's objective contribution for the chosen bin (not gain_score). */
+        public Double objective_cost;
+        /** Named cost components for the chosen bin and the runner-up it beat. */
+        public Map<String, Object> decision_evidence;
         public boolean relocation_applied;
         public String status;
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class PlanReservePayload {
         public String location_code;
         public int reserve_pallet_positions;
