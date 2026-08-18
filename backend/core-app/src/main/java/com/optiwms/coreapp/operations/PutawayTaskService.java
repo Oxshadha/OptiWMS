@@ -10,6 +10,8 @@ import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -35,12 +38,19 @@ import java.util.stream.Collectors;
 @Service
 public class PutawayTaskService {
 
+    private static final Logger logger = LoggerFactory.getLogger(PutawayTaskService.class);
+
+    /** Matches a previously recorded shortfall line so a replan replaces it rather than stacking. */
+    private static final Pattern SHORTFALL_MARKER_PATTERN =
+            Pattern.compile("(?m)^PUTAWAY_SHORTFALL .*(?:\\R|$)");
+
     private final TaskService taskService;
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
     private final MaterialService materialService;
     private final LocationSuggestionService locationSuggestionService;
     private final HandlingUnitCapacityService handlingUnitCapacityService;
+    private final PutawayReservationService putawayReservationService;
 
     public PutawayTaskService(
             TaskService taskService,
@@ -48,7 +58,9 @@ public class PutawayTaskService {
             OrderItemRepository orderItemRepository,
             MaterialService materialService,
             LocationSuggestionService locationSuggestionService,
-            HandlingUnitCapacityService handlingUnitCapacityService) {
+            HandlingUnitCapacityService handlingUnitCapacityService,
+            PutawayReservationService putawayReservationService) {
+        this.putawayReservationService = putawayReservationService;
         this.taskService = taskService;
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
@@ -102,6 +114,20 @@ public class PutawayTaskService {
             // Get material details
             Material material = materialService.findById(item.getMaterialId());
 
+            // Reconcile the reservation against what actually turned up.
+            //
+            // The claim was staked when the order was raised, sized to the ORDERED quantity. A
+            // short receipt would leave bins held for stock that never came; an over receipt would
+            // leave the surplus with nowhere planned. Standing the line's own claim down first and
+            // replanning against the RECEIVED quantity settles both -- and is required even when
+            // the quantities match, because otherwise the line competes with itself: its own
+            // planned bins would read as occupied and push it somewhere else.
+            //
+            // The tasks created below become the reservation from here on, so the claim is marked
+            // as handed over rather than simply dropped -- 'tasked' rows stop counting against
+            // capacity but stay readable as the plan this line was raised with.
+            putawayReservationService.markTasked(item.getId());
+
             // Honor the capacity-checked destination selected on the inbound line, and plan
             // any quantity that does not fit there into further bins.
             PutawayCapacityPlanningService.SplitPlanResult plan =
@@ -115,6 +141,15 @@ public class PutawayTaskService {
             if (plan.allocations().isEmpty()) {
                 throw new IllegalStateException(
                         "No capacity-valid putaway destination for order item " + item.getId());
+            }
+
+            // A plan that places only part of the receipt used to pass silently: tasks were created
+            // for the pallets that fit, the rest got no task at all, and the order still closed as
+            // put_away because every task it knew about was complete. The goods are physically in
+            // the building, so the pallets that fit are still worked -- but the shortfall is
+            // recorded here and the order is held open by the completion check in PutawayService.
+            if (!plan.feasible()) {
+                recordPutawayShortfall(order, item, material, plan);
             }
 
             List<HandlingUnitAssignment> handlingUnits = toHandlingUnits(plan, material);
@@ -176,6 +211,43 @@ public class PutawayTaskService {
                 }
             }
         }
+    }
+
+    /**
+     * Records, on the order, that the warehouse could not accept the whole receipt.
+     *
+     * <p>Written as a single marker line so it is greppable and can be re-read or cleared once
+     * space is freed and the line is replanned. The order cannot reach {@code put_away} while the
+     * shortfall stands, because the completion check compares put-away units against received
+     * units rather than counting completed tasks.
+     */
+    private void recordPutawayShortfall(
+            Order order,
+            OrderItemEntity item,
+            Material material,
+            PutawayCapacityPlanningService.SplitPlanResult plan) {
+        String marker = String.format(
+                "PUTAWAY_SHORTFALL item=%s material=%s planned=%d/%d unplanned=%d at=%s",
+                item.getId(),
+                material.getMaterialCode() != null ? material.getMaterialCode() : item.getMaterialId(),
+                plan.plannedQuantity(),
+                plan.requestedQuantity(),
+                plan.unplannedQuantity(),
+                LocalDateTime.now());
+
+        String existing = order.getNotes();
+        String cleaned = existing == null ? "" : SHORTFALL_MARKER_PATTERN.matcher(existing).replaceAll("").strip();
+        String updated = cleaned.isBlank() ? marker : cleaned + "\n" + marker;
+
+        try {
+            orderService.updateNotes(order.getId(), updated);
+        } catch (RuntimeException recordingFailure) {
+            // Never let bookkeeping stop the pallets that *can* be worked from being released.
+            logger.warn("Could not record putaway shortfall for order {}: {}",
+                    order.getId(), recordingFailure.getMessage());
+        }
+        logger.warn("Putaway shortfall for order {} item {}: planned {} of {} units",
+                order.getOrderNumber(), item.getId(), plan.plannedQuantity(), plan.requestedQuantity());
     }
 
     /**
