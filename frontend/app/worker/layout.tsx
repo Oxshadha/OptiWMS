@@ -323,13 +323,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
   const handleNotificationClick = async (notif: { id: string; read: boolean }) => {
     if (!notif.read && isOnline) {
+      // Optimistic update
+      setNotifications(prev => 
+        prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+
       try {
         const { notificationsApi } = await import("@/lib/api/notifications");
         await notificationsApi.markAsRead(notif.id);
-        setNotifications(prev => 
-          prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
-        );
-        setUnreadCount(prev => Math.max(0, prev - 1));
       } catch (error) {
         logger.error("Failed to mark notification as read:", error);
       }
@@ -915,8 +917,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     <div
                       key={notif.id}
                       onClick={() => handleNotificationClick(notif)}
-                      className={`p-4 hover:bg-base-200 cursor-pointer ${
-                        !notif.read ? "bg-primary/5" : ""
+                      className={`p-4 hover:bg-base-200 cursor-pointer border-l-2 ${
+                        !notif.read ? "border-primary bg-base-100" : "border-transparent bg-base-100"
                       }`}
                     >
                       <div className="flex items-start gap-3">
