@@ -199,16 +199,19 @@ export function Topbar({
 
   const handleNotificationClick = async (notification: Notification) => {
     if (!notification.read) {
+      // Optimistic update
+      setNotifications(
+        notifications.map((n) =>
+          n.id === notification.id ? { ...n, read: true } : n,
+        ),
+      );
+      setUnreadCount(Math.max(0, unreadCount - 1));
+      
       try {
         await notificationsApi.markAsRead(notification.id);
-        setNotifications(
-          notifications.map((n) =>
-            n.id === notification.id ? { ...n, read: true } : n,
-          ),
-        );
-        setUnreadCount(Math.max(0, unreadCount - 1));
       } catch (error) {
         logger.error("Error marking notification as read:", error);
+        // Revert on failure could go here if needed, but we'll let polling handle it
       }
     }
     if (notification.actionUrl) {
@@ -330,9 +333,14 @@ export function Topbar({
         </div>
 
         {/* Notifications */}
-        <div className="relative notifications-dropdown">
+        <div className="indicator notifications-dropdown">
+          {unreadCount > 0 && (
+            <span className="indicator-item badge badge-sm bg-base-200/50 text-[#CF0F47] font-bold transform scale-90 translate-x-[-20%] translate-y-[20%] border-none shadow-sm">
+              {unreadCount}
+            </span>
+          )}
           <button
-            className="btn btn-ghost btn-circle relative"
+            className="btn btn-ghost btn-circle"
             title="Notifications"
             data-tour-target="topbar-notifications"
             onClick={() => {
@@ -342,13 +350,6 @@ export function Topbar({
             }}
           >
             <span className="material-symbols-outlined">notifications</span>
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-error rounded-full flex items-center justify-center">
-                <span className="text-[10px] text-white font-bold">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              </span>
-            )}
           </button>
           {openNotifications && (
             <div className="absolute right-0 mt-2 w-80 rounded-xl bg-base-100 shadow-lg border border-base-200 z-30">
@@ -376,8 +377,8 @@ export function Topbar({
                     {notifications.map((notif) => (
                       <li
                         key={notif.id}
-                        className={`px-4 py-3 hover:bg-base-200 transition-colors cursor-pointer ${
-                          !notif.read ? "bg-primary/5" : ""
+                        className={`px-4 py-3 hover:bg-base-200 transition-colors cursor-pointer border-l-2 ${
+                          !notif.read ? "border-primary bg-base-100" : "border-transparent bg-base-100"
                         }`}
                         onClick={() => handleNotificationClick(notif)}
                       >
