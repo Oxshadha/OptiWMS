@@ -44,7 +44,11 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 load_dotenv()
 
 # ── SOP Vector DB Constants ───────────────────────────────────────────────────
-DB_PATH = "db"
+# Anchored to this file, not the working directory. A relative "db" meant the
+# vector store was created, read, or wiped somewhere different depending on where
+# the process happened to be started from -- so a seed run from the repo root and
+# the service started from this directory disagreed about where the index lived.
+DB_PATH = str((Path(__file__).resolve().parent / "db"))
 
 PROMPT_TEMPLATE = """
 You are a warehouse operations assistant for OptiWMS.

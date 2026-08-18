@@ -106,6 +106,35 @@ cd "Ai miroservices/modeling/v8_controlled_synthetic_validation" && PYTHONPATH=.
 cd frontend && npx tsc --noEmit && npm run build
 ```
 
+## If Flyway reports a checksum mismatch
+
+`V54` was corrected so the migration chain applies to an empty database (see
+below). Any database seeded before that correction needs its recorded checksum
+updated once — the migration's effect is unchanged, so nothing re-runs:
+
+```bash
+docker run --rm --network host \
+  -v "$PWD/backend/infra/src/main/resources/db/migration:/flyway/sql:ro" \
+  flyway/flyway:10.21.0 \
+  -url=jdbc:postgresql://localhost:5434/optiwms -user=optiwms -password=optiwms repair
+```
+
+## What a fresh clone contains
+
+A clone reproduces the **active** dataset exactly, not the archived history that
+accumulates on a long-lived development database:
+
+| | Fresh clone | A long-lived dev database |
+|---|---|---|
+| Planner-visible materials (`PROJECT_OPERATIONAL_SIMULATION`) | 144 | 144 |
+| Active v8 locations | 4,206 | 4,206 |
+| Forecast rows / SHAP explanations | 1,440 / 1,440 | 1,440 / 1,440 |
+| Archived pre-v8 locations | 0 | ~190,000 |
+| Archived baseline materials | 0 | ~722 |
+
+The archived rows are filtered out of every planner query, so their absence does
+not change what the application shows.
+
 ## Known gaps
 
 - `scripts/README_SEED.md` describes restoring `optiwms_local_seed.sql.gz`, a
