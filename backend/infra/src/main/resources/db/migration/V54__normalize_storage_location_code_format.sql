@@ -120,6 +120,17 @@ BEGIN
     END LOOP;
 END $$;
 
+-- Drop the legacy format check before rewriting any codes.
+--
+-- V26 adds this constraint conditionally -- only when every existing row already
+-- matched the old two-digit-bay format. On a database whose data was dirty at
+-- that point the constraint was skipped, so the rewrite below succeeded. On a
+-- clean one it is present and rejects the three-digit codes this migration
+-- exists to introduce, which meant the chain only applied to databases that had
+-- previously been broken. Dropping first makes the outcome identical either way.
+-- The constraint is re-added in its canonical form further down.
+ALTER TABLE locations DROP CONSTRAINT IF EXISTS chk_location_code_format;
+
 -- Remove duplicate rows that map to the same canonical storage slot.
 DELETE FROM locations l
 USING tmp_location_code_ranked r
