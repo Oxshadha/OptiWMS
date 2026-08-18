@@ -1,5 +1,6 @@
 import os
 import re
+import math
 import io
 import json
 import httpx
@@ -998,6 +999,43 @@ def is_comparison_question(question: str) -> bool:
     ))
 
 
+def _to_histogram_spec(spec: dict, labels: list, reason: str) -> dict:
+    """Actually bin a continuous variable, rather than just renaming the chart.
+
+    Calling a spec a histogram without binning it left the data unchanged and the
+    type unrenderable -- the frontend accepts only line and bar, so the chart was
+    dropped and the user saw nothing. Binning here produces a real histogram that
+    renders as a bar of ranges everywhere, with no client change needed.
+    """
+    numeric = [float(v) for v in labels if isinstance(v, (int, float))]
+    if len(numeric) < 2:
+        return spec
+    low, high = min(numeric), max(numeric)
+    if high <= low:
+        return spec
+
+    # Sturges' rule, clamped to what stays readable in a chat-width chart.
+    bin_count = max(4, min(12, int(math.ceil(math.log2(len(numeric)) + 1))))
+    width = (high - low) / bin_count
+    edges = [low + i * width for i in range(bin_count + 1)]
+    counts = [0] * bin_count
+    for value in numeric:
+        index = min(int((value - low) / width), bin_count - 1)
+        counts[index] += 1
+
+    def _fmt(value: float) -> str:
+        return f"{value:,.0f}" if abs(value) >= 10 else f"{value:,.2f}"
+
+    buckets = [f"{_fmt(edges[i])}-{_fmt(edges[i + 1])}" for i in range(bin_count)]
+    spec["type"] = "bar"           # a histogram is a bar chart of bins
+    spec["chart_subtype"] = "histogram"
+    spec["xKey"], spec["yKey"] = "range", "count"
+    spec["data"] = [{"range": b, "count": c} for b, c in zip(buckets, counts)]
+    spec["x"], spec["y"] = buckets, counts
+    spec["rule"] = reason
+    return spec
+
+
 def enforce_chart_rules(spec: dict | None, question: str = "") -> dict | None:
     """Correct a chart spec so the chart matches the kind of data it describes.
 
@@ -1021,9 +1059,9 @@ def enforce_chart_rules(spec: dict | None, question: str = "") -> dict | None:
     # it degrades past a handful of slices, and it is the wrong tool for ranking.
     if chart_type == "pie":
         if label_kind == "continuous":
-            spec["type"] = "histogram"
-            spec["rule"] = ("Continuous data cannot be shown as parts of a whole; "
-                            "a histogram shows its distribution.")
+            return _to_histogram_spec(spec, labels,
+                "Continuous data cannot be shown as parts of a whole; "
+                "binned into a histogram to show its distribution.")
         elif len(labels) > _MAX_PIE_SLICES:
             spec["type"] = "bar"
             spec["rule"] = (f"{len(labels)} categories is past what a pie can be read at; "
@@ -1036,10 +1074,9 @@ def enforce_chart_rules(spec: dict | None, question: str = "") -> dict | None:
     # Bars imply discrete categories along the x axis. A continuous variable
     # needs binning, which is a histogram, not a bar per observed value.
     if chart_type == "bar" and label_kind == "continuous":
-        spec["type"] = "histogram"
-        spec["rule"] = ("A bar per distinct value misreads a continuous variable; "
-                        "binned into a histogram instead.")
-        return spec
+        return _to_histogram_spec(spec, labels,
+            "A bar per distinct value misreads a continuous variable; "
+            "binned into a histogram instead.")
 
     # A line asserts an ordered axis. Unordered categories have no such order.
     if chart_type == "line" and label_kind == "qualitative" and not spec.get("ordinal"):
