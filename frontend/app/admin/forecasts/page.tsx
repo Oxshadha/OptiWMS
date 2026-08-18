@@ -39,6 +39,7 @@ import {
   Brush,
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
+import { usePublishPageContext } from "@/lib/pageContext";
 import { buildInventoryPlan } from "@/lib/forecast-planning";
 import ForecastChatButton from "@/components/ForecastChatButton";
 import { useForecastChat } from "@/hooks/useForecastChat";
@@ -974,6 +975,15 @@ export default function ForecastsPage() {
       );
     }
   }, [filters.sku, selectedSku, skuOptions]);
+
+  // Tell the assistant which material is on screen, so "why is this one low?"
+  // resolves without the user retyping a code they can already see.
+  usePublishPageContext({
+    entityType: "material",
+    entityId: selectedSku || undefined,
+    entityLabel: selectedSku || undefined,
+    filters: filters.horizon ? { horizon: filters.horizon } : undefined,
+  });
 
   useEffect(() => {
     if (!selectedSku) {

@@ -403,7 +403,71 @@ def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-
         return _generate_with_groq(prompt), True
 
 # ── Guarded tool selection ────────────────────────────────────────────────────
-def select_tool(question: str) -> dict:
+PAGE_ROUTE_LABELS = {
+    "/admin/forecasts": "the demand forecast dashboard",
+    "/admin/inventory-intelligence": "the inventory policy (min/max) workspace",
+    "/admin/slotting-plans": "the slotting plan review screen",
+    "/admin/ai-slotting": "the slotting solver lab",
+    "/admin/inventory": "the inventory list",
+    "/admin/dashboard": "the operations dashboard",
+}
+
+
+def describe_page_context(page_context: dict | None) -> str:
+    """One line describing what the user is looking at, for the routing prompt.
+
+    This only ever supplies a subject the user left implicit. It cannot widen
+    access: the role gate in api.py runs before any of this, and the tools
+    themselves take parameters, not SQL.
+    """
+    if not page_context:
+        return ""
+    parts = []
+    route = page_context.get("route")
+    if route:
+        parts.append(f"viewing {PAGE_ROUTE_LABELS.get(route, route)}")
+    label = page_context.get("entityLabel") or page_context.get("entityId")
+    if label:
+        entity = page_context.get("entityType") or "item"
+        parts.append(f"with {entity} {label} selected")
+    filters = page_context.get("filters") or {}
+    readable = ", ".join(f"{k}={v}" for k, v in filters.items() if v not in (None, ""))
+    if readable:
+        parts.append(f"filtered by {readable}")
+    return "; ".join(parts)
+
+
+# Words the LLM sometimes echoes back as a "value" when the question only pointed
+# at something on screen. They are not searchable, so treat them as absent.
+_PLACEHOLDER_SUBJECTS = {
+    "this", "that", "it", "this one", "that one", "this sku", "that sku",
+    "this material", "that material", "this item", "that item", "this product",
+    "current", "selected", "the selected material", "the current material", "n/a", "none",
+}
+
+
+def apply_page_context_defaults(selection: dict, page_context: dict | None) -> dict:
+    """Fill an unstated subject from what is on screen.
+
+    "Why is this one low?" carries no material code, but the page knows which row
+    the user is looking at. Anything the user did name always wins.
+    """
+    if not page_context or not selection.get("tool"):
+        return selection
+    params = selection.setdefault("params", {})
+    entity_id = page_context.get("entityId")
+    stated = str(params.get("search") or "").strip()
+    if entity_id and (not stated or stated.lower() in _PLACEHOLDER_SUBJECTS):
+        signature = tools_module.TOOL_REGISTRY.get(selection["tool"], {})
+        if "search" in (signature.get("params") or {}):
+            params["search"] = entity_id
+    for key, value in (page_context.get("filters") or {}).items():
+        if key == "horizon" and "horizon" not in params and isinstance(value, (int, float)):
+            params["horizon"] = int(value)
+    return selection
+
+
+def select_tool(question: str, page_context: dict | None = None) -> dict:
     """Ask the LLM to pick a tool from the fixed menu (or none). The LLM only
     ever sees tool names/descriptions/params here — never the DB schema —
     so it cannot influence what SQL actually runs, only which pre-written
@@ -415,6 +479,12 @@ and extract its parameter values from the question. If no tool fits, return "too
 
 AVAILABLE TOOLS:
 {tools_module.tool_menu_description()}
+
+WHAT THE USER IS CURRENTLY LOOKING AT:
+{describe_page_context(page_context) or "(not provided)"}
+
+Use that only to resolve references the question leaves implicit, such as "this material",
+"this SKU" or "why is it low". If the question names something explicitly, prefer it.
 
 USER QUESTION:
 {question}
@@ -433,7 +503,7 @@ Only include parameters the tool actually defines. Omit optional parameters you 
         if not isinstance(parsed, dict) or "tool" not in parsed:
             return {"tool": None, "params": {}}
         parsed.setdefault("params", {})
-        return parsed
+        return apply_page_context_defaults(parsed, page_context)
     except Exception:
         return {"tool": None, "params": {}}
 
@@ -448,6 +518,12 @@ Use proper table aliases. Limit results to 500 rows maximum.
 
 DATABASE SCHEMA:
 {schema}
+
+WHAT THE USER IS CURRENTLY LOOKING AT:
+{describe_page_context(page_context) or "(not provided)"}
+
+Use that only to resolve references the question leaves implicit, such as "this material",
+"this SKU" or "why is it low". If the question names something explicitly, prefer it.
 
 USER QUESTION:
 {question}
@@ -1079,7 +1155,7 @@ def _ask_database_adhoc(question: str, engine, report_mode: bool):
 
 
 # ── Database analytics ask_database ──────────────────────────────────────────
-def ask_database(question: str):
+def ask_database(question: str, page_context: dict | None = None):
     """
     Returns (df, sql, chart, error, answer, download_url)
 
@@ -1095,7 +1171,7 @@ def ask_database(question: str):
 
     # ── Guarded tool selection ────────────────────────────────────────────
     try:
-        selection = select_tool(question)
+        selection = select_tool(question, page_context)
     except AIQuotaExceeded:
         raise
     except Exception as e:
@@ -1286,7 +1362,7 @@ def _select_tour_id_keyword_fallback(question: str) -> str:
     return "dashboard_overview_tour"
 
 
-def select_tour_id(question: str) -> str:
+def select_tour_id(question: str, page_context: dict | None = None) -> str:
     """Pick the tour config ID (frontend/lib/tours/tourConfig.ts) that best
     matches the user's question. LLM-picked from the described catalog above
     rather than hardcoded keyword lists, so it generalizes to phrasing the
@@ -1297,6 +1373,12 @@ def select_tour_id(question: str) -> str:
 
 AVAILABLE TOURS:
 {menu}
+
+WHAT THE USER IS CURRENTLY LOOKING AT:
+{describe_page_context(page_context) or "(not provided)"}
+
+Use that only to resolve references the question leaves implicit, such as "this material",
+"this SKU" or "why is it low". If the question names something explicitly, prefer it.
 
 USER QUESTION:
 {question}
@@ -1315,7 +1397,8 @@ Respond with ONLY the tour id (exactly as listed above), nothing else."""
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
-def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None) -> dict:
+def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None,
+        page_context: dict | None = None) -> dict:
     # The API layer classifies first so it can apply role checks before any SQL
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
@@ -1334,7 +1417,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             ),
         }
     elif mode == "TOUR":
-        tour_id = select_tour_id(question)
+        tour_id = select_tour_id(question, page_context)
         tour_intros = {
             "inventory_management_tour": "Let me show you how to manage inventory and check stock levels.",
             "create_inbound_order_tour": "Let me show you how to create a new inbound order.",
@@ -1379,7 +1462,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "sources": sources
         }
     else:
-        df, sql, chart, error, answer, download_url = ask_database(question)
+        df, sql, chart, error, answer, download_url = ask_database(question, page_context)
         data = df_records_json_safe(df) if df is not None else None
         res = {
             "mode": "DATA",

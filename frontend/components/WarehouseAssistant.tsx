@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { getPageContext, subscribePageContext, type PageContext } from "@/lib/pageContext";
 import Link from "next/link";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -166,6 +167,12 @@ export function WarehouseAssistant({
   userId,
 }: WarehouseAssistantProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  // What the user is looking at, sent with every message so the assistant can
+  // resolve "this material" without being told which one.
+  const [pageContext, setPageContextState] = useState<PageContext>(getPageContext);
+  useEffect(() => subscribePageContext(setPageContextState), []);
+
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -344,7 +351,10 @@ export function WarehouseAssistant({
     setLoading(true);
 
     try {
-      let response = await askWarehouseAI(trimmedQuery, userRole, currentSessionId);
+      let response = await askWarehouseAI(trimmedQuery, userRole, currentSessionId, {
+        ...pageContext,
+        route: pathname ?? undefined,
+      });
 
       // Generated-SQL analytics is limited to elevated roles. Everyone else can
       // still get live figures through the typed, read-only Spring tools.
