@@ -169,6 +169,7 @@ def solve_ga(
     elite: int = 4,
     mutation_rate: float = 0.15,
     tournament: int = 3,
+    trace: bool = False,
 ) -> dict[str, Any]:
     """Generational GA with tournament selection, uniform crossover and elitism.
 
@@ -211,6 +212,7 @@ def solve_ga(
     ]
     scores = [fitness(g) for g in population]
     generations = 0
+    history: list[float] = []
     started = time.perf_counter()
 
     while time.perf_counter() - started < time_budget_s:
@@ -232,6 +234,8 @@ def solve_ga(
 
         population = next_pop
         scores = [fitness(g) for g in population]
+        if trace:
+            history.append(min(scores))
 
     best = min(range(len(population)), key=lambda i: scores[i])
     cost, feasible = evaluate(instance, repair(population[best]))
@@ -241,6 +245,8 @@ def solve_ga(
         "feasible": feasible,
         "generations": generations,
         "seconds": time.perf_counter() - started,
+        # Best-so-far per generation, for showing where the search plateaus.
+        "history": history,
         # No metaheuristic can certify this; that asymmetry is the finding.
         "proven_optimal": False,
     }
