@@ -174,15 +174,49 @@ def get_schema_description(engine) -> str:
 
 
 # ── Safety check ──────────────────────────────────────────────────────────────
+# Statements the ad-hoc path may never issue. Checked as whole words, so a column
+# named created_at or a value containing "update" is unaffected.
+_FORBIDDEN_STATEMENTS = (
+    "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE",
+    "GRANT", "REVOKE", "COPY", "VACUUM", "REINDEX", "CALL", "DO",
+)
+# Catalogue and system views. Note the trailing \w* -- a bare \b after "PG_" never
+# matches pg_catalog, because the next character is a word character. Written the
+# obvious way, this guard silently blocks nothing.
+_SYSTEM_OBJECTS = re.compile(r"\b(PG_\w+|INFORMATION_SCHEMA|CURRENT_SETTING|PG_SLEEP)\b")
+MAX_ADHOC_ROWS = 100
+
+
 def is_safe_query(sql: str) -> bool:
-    sql_upper = sql.strip().upper()
-    forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
-    if not sql_upper.startswith("SELECT"):
+    """Whether a generated SELECT may run.
+
+    This is the last line of the ad-hoc path, which is itself the fallback when no
+    reviewed tool matches. The connection is the application owner, so the guard is
+    what stands between a generated string and a write.
+    """
+    text = sql.strip().rstrip(";")
+    upper = text.upper()
+
+    if not upper.startswith("SELECT") and not upper.startswith("WITH"):
         return False
-    for word in forbidden:
-        if re.search(r'\b' + word + r'\b', sql_upper):
+    # Statement chaining: a trailing semicolon is fine, an interior one is not.
+    if ";" in text:
+        return False
+    if _SYSTEM_OBJECTS.search(upper):
+        return False
+    for word in _FORBIDDEN_STATEMENTS:
+        if re.search(r"\b" + word + r"\b", upper):
             return False
     return True
+
+
+def enforce_row_limit(sql: str) -> str:
+    """Cap an unbounded query. The prompt asks for a limit; this makes it true."""
+    if not sql:
+        return sql
+    if re.search(r"\bLIMIT\s+\d+", sql, re.IGNORECASE):
+        return sql
+    return sql.rstrip().rstrip(";") + f" LIMIT {MAX_ADHOC_ROWS}"
 
 
 # ── SQL extraction ────────────────────────────────────────────────────────────
@@ -408,6 +442,42 @@ def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-
         return _generate_with_groq(prompt), True
 
 # ── Guarded tool selection ────────────────────────────────────────────────────
+
+def recent_turns(session_id: str | None, limit: int = 6) -> list[tuple[str, str]]:
+    """The last few exchanges in this session, oldest first.
+
+    Without this the assistant is stateless per turn: "and what about RM-0002?"
+    carries no subject, and "why?" refers to nothing. Only the text is kept -- SQL,
+    tables and charts from earlier turns are deliberately left out, since they would
+    crowd the prompt without helping resolve a reference.
+    """
+    if not session_id:
+        return []
+    try:
+        with get_db_session() as db:
+            rows = (
+                db.query(ChatMessage)
+                .filter(ChatMessage.session_id == session_id)
+                .order_by(ChatMessage.timestamp.desc())
+                .limit(limit)
+                .all()
+            )
+        return [
+            ("user" if r.sender == "user" else "assistant", (r.text_content or "").strip()[:600])
+            for r in reversed(rows)
+            if (r.text_content or "").strip()
+        ]
+    except Exception as exc:  # history is an aid, never a hard dependency
+        logger.warning("could not load chat history for %s: %s", session_id, exc)
+        return []
+
+
+def format_turns(turns: list[tuple[str, str]]) -> str:
+    if not turns:
+        return "(no earlier messages in this conversation)"
+    return "\n".join(f"{role}: {text}" for role, text in turns)
+
+
 PAGE_ROUTE_LABELS = {
     "/admin/forecasts": "the demand forecast dashboard",
     "/admin/inventory-intelligence": "the inventory policy (min/max) workspace",
@@ -472,7 +542,8 @@ def apply_page_context_defaults(selection: dict, page_context: dict | None) -> d
     return selection
 
 
-def select_tool(question: str, page_context: dict | None = None) -> dict:
+def select_tool(question: str, page_context: dict | None = None,
+                history: list[tuple[str, str]] | None = None) -> dict:
     """Ask the LLM to pick a tool from the fixed menu (or none). The LLM only
     ever sees tool names/descriptions/params here — never the DB schema —
     so it cannot influence what SQL actually runs, only which pre-written
@@ -485,11 +556,15 @@ and extract its parameter values from the question. If no tool fits, return "too
 AVAILABLE TOOLS:
 {tools_module.tool_menu_description()}
 
+EARLIER IN THIS CONVERSATION:
+{format_turns(history or [])}
+
 WHAT THE USER IS CURRENTLY LOOKING AT:
 {describe_page_context(page_context) or "(not provided)"}
 
-Use that only to resolve references the question leaves implicit, such as "this material",
-"this SKU" or "why is it low". If the question names something explicitly, prefer it.
+Use those only to resolve references the question leaves implicit -- "this material",
+"that SKU", "why is it low", "and for the next one". A subject named earlier in the
+conversation carries forward. If the question names something explicitly, prefer it.
 
 USER QUESTION:
 {question}
@@ -1186,6 +1261,9 @@ def _ask_database_adhoc(question: str, engine, report_mode: bool):
     if not is_safe_query(sql):
         return None, sql, None, "I only run SELECT queries for safety. Please ask a read-only question.", None, None
 
+    # The prompt asks the model for a bounded query; this is what makes it so.
+    sql = enforce_row_limit(sql)
+
     try:
         with engine.connect() as conn:
             df = pd.read_sql(text(sql), conn)
@@ -1196,7 +1274,8 @@ def _ask_database_adhoc(question: str, engine, report_mode: bool):
 
 
 # ── Database analytics ask_database ──────────────────────────────────────────
-def ask_database(question: str, page_context: dict | None = None):
+def ask_database(question: str, page_context: dict | None = None,
+                 history: list[tuple[str, str]] | None = None):
     """
     Returns (df, sql, chart, error, answer, download_url)
 
@@ -1212,7 +1291,7 @@ def ask_database(question: str, page_context: dict | None = None):
 
     # ── Guarded tool selection ────────────────────────────────────────────
     try:
-        selection = select_tool(question, page_context)
+        selection = select_tool(question, page_context, history)
     except AIQuotaExceeded:
         raise
     except Exception as e:
@@ -1443,6 +1522,8 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
     # The API layer classifies first so it can apply role checks before any SQL
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
+    # Earlier turns let a follow-up like "and for RM-0002?" resolve its own subject.
+    history = recent_turns(session_id)
 
     if mode == "CHAT":
         res = {
@@ -1503,7 +1584,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "sources": sources
         }
     else:
-        df, sql, chart, error, answer, download_url = ask_database(question, page_context)
+        df, sql, chart, error, answer, download_url = ask_database(question, page_context, history)
         data = df_records_json_safe(df) if df is not None else None
         res = {
             "mode": "DATA",
