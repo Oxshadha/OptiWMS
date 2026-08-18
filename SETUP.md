@@ -135,10 +135,31 @@ accumulates on a long-lived development database:
 The archived rows are filtered out of every planner query, so their absence does
 not change what the application shows.
 
+## Configuration
+
+No `.env` file is tracked. Each service ships a `.env.example` listing every key
+it reads; copy and fill in:
+
+| Copy | To | Needed for |
+|---|---|---|
+| `ai_services/ai-agent/.env.example` | `ai_services/ai-agent/.env` | the assistant (needs `GOOGLE_API_KEY`) |
+| `ai_services/.env.example` | `ai_services/.env` | forecast, slotting and orchestrator services |
+| `frontend/.env.example` | `frontend/.env.local` | frontend API endpoints |
+| `infra/.env.example` | `infra/.env` | docker-compose overrides (optional) |
+
+Only `GOOGLE_API_KEY` has no working default. Everything else falls back to the
+local ports used above.
+
+Two keys are easy to miss because nothing fails loudly without them:
+
+- **`FORECAST_SERVICE_BASE`** (ai-agent) — without it the assistant still answers
+  "why is demand low", just with no model explanation behind it.
+- **`V8_FORECAST_ROOT`** (ai_services) — the absolute path to the v8 modelling
+  project, used by `/v8/recalculate` and the seed scripts.
+
 ## Known gaps
 
-- `scripts/README_SEED.md` describes restoring `optiwms_local_seed.sql.gz`, a
-  96 MB dump that is **not tracked**. The path in this document replaces it and
-  works from a clean clone.
 - The 42 MB model bundle *is* tracked, since it cannot be regenerated without
   rerunning the whole pipeline.
+- `scripts/optiwms_local_seed.sql.gz` is referenced by `restore_local_seed.sh`
+  but is not tracked; generate it yourself with `pg_dump` if you want it.
