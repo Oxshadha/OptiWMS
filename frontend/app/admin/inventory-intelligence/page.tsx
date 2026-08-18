@@ -9,7 +9,7 @@ import { slottingPlansApi, type SlottingPlanLine, type SlottingPlanSummary, type
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { explainPolicyLine } from "@/services/aiService";
 
-type Tab = "review" | "locations" | "approved" | "history";
+type Tab = "review" | "locations" | "decisions";
 type DecisionOperation = "approve" | "defer" | "reject" | "schedule" | "create";
 type ChangeFilter = "all" | "replenishment" | "increase" | "reduce" | "space";
 
@@ -41,6 +41,12 @@ export default function InventoryIntelligencePage() {
   const [fmsFilter, setFmsFilter] = useState("all");
   const [pageSize, setPageSize] = useState(15);
   const [page, setPage] = useState(1);
+  const [decisionFilter, setDecisionFilter] = useState<"all" | "outstanding" | "deferred" | "rejected">("all");
+  // The optimizer refuses a plan whose relocation cap is below the number of forced moves --
+  // materials whose current bin is no longer a legal candidate. That cap is a percentage of the
+  // catalogue, and it was fixed at 15, so an infeasible plan could never be rescued by re-running:
+  // reoptimize cannot change the budget, only a new plan can.
+  const [relocationBudget, setRelocationBudget] = useState(15);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +107,37 @@ export default function InventoryIntelligencePage() {
   }, [abcFilter, changeFilter, fmsFilter, rankedLines, search]);
   const totalPages = Math.max(1, Math.ceil(filteredLines.length / pageSize));
   const displayedLines = filteredLines.slice((page - 1) * pageSize, page * pageSize);
+
+  // How concentrated the capacity saving is. Computed over the whole plan, not the current page,
+  // because the point is to tell the manager how few materials they actually need to look at.
+  const capacityFocus = useMemo(() => {
+    const released = policyLines.map((line) => Math.max(0, -(line.palletPositionsDelta ?? 0)));
+    const total = released.reduce((sum, value) => sum + value, 0);
+    const top10 = [...released].sort((a, b) => b - a).slice(0, 10).reduce((sum, value) => sum + value, 0);
+    return {
+      total,
+      lines: policyLines.length,
+      topShare: total > 0 ? Math.round((top10 / total) * 100) : 0,
+      needPurchase: policyLines.filter((line) => (line.proposedOrderQty ?? 0) > 0).length,
+      needsReview: policyLines.filter((line) => line.recommendationStatus === "HIGH_RISK_REVIEW").length,
+    };
+  }, [policyLines]);
+  // Rearrangement quality, in the terms a slotting plan is actually judged on: travel removed,
+  // how many fast movers reached a better zone, and how much of the plan has been executed.
+  const slottingFocus = useMemo(() => {
+    const metres = locationPlan?.totalDistanceSavedMeters
+      ?? slottingLines.reduce((total, line) => total + (line.distanceSavedMeters ?? 0), 0);
+    return {
+      distanceSavedLabel: metres >= 1000 ? `${(metres / 1000).toFixed(1)} km` : `${Math.round(metres)} m`,
+      // Upgrades among the lines that actually move, which is what the plan reports. Counting
+      // every line with a zone value instead inflated this to include lines staying put.
+      zoneUpgrades: slottingLines.filter((line) => !!line.zoneUpgrade
+        && (line.relocationFlag || line.relocationApplied
+            || line.currentPrimaryLocation !== line.recommendedPrimaryLocation)).length,
+      lockedLines: slottingLines.filter((line) => line.locked).length,
+    };
+  }, [locationPlan, slottingLines]);
+
   const positionsReleased = rankedLines.reduce((total, line) => total + Math.max(0, -(line.palletPositionsDelta ?? 0)), 0);
   const positionsRequired = rankedLines.reduce((total, line) => total + Math.max(0, line.palletPositionsDelta ?? 0), 0);
 
@@ -110,14 +147,20 @@ export default function InventoryIntelligencePage() {
   const actor = admin?.email || admin?.name || "manager";
   const selectedWarehouse = warehouses.find((row) => row.id === warehouseId);
   const activeDecisions = decisions.filter((row) => ["APPROVED", "SCHEDULED"].includes(row.action));
+  const visibleDecisions = decisionFilter === "outstanding" ? activeDecisions
+    : decisionFilter === "deferred" ? decisions.filter((row) => row.action === "DEFERRED")
+    : decisionFilter === "rejected" ? decisions.filter((row) => row.action === "REJECTED")
+    : decisions;
   const locationAction = summary?.actionItems.find((item) => item.type.includes("SLOTTING"));
   // Deferred actions are still returned so their section can explain the pause,
   // but they must not sit in the work queue as though they were due.
   const queueItems = (summary?.actionItems ?? []).filter(
     (item) => !item.deferredUntil || new Date(item.deferredUntil).getTime() <= Date.now(),
   );
+  const slottingQueueItems = queueItems.filter((item) => item.type.includes("SLOTTING"));
+  const policyQueueItems = queueItems.filter((item) => !item.type.includes("SLOTTING"));
 
-  async function execute(item: ActionItem, operation: DecisionOperation, decisionReason?: string, scheduledFor?: string) {
+  async function execute(item: ActionItem, operation: DecisionOperation, decisionReason?: string, scheduledFor?: string, budgetOverride?: number) {
     const key = `${item.type}-${operation}`;
     setBusy(key);
     setError(null);
@@ -129,7 +172,7 @@ export default function InventoryIntelligencePage() {
         } else if (item.type === "CREATE_SPACE_RUN" && item.sourceId) {
           await forecastSpaceApi.createSpaceRun({ policyRunId: item.sourceId, createdBy: actor });
         } else if (item.type === "CREATE_SLOTTING_PLAN") {
-          await slottingPlansApi.createPlan({ warehouseId, validMonths: 6, relocationBudgetPct: 15, useMilpAClass: true, createdBy: actor });
+          await slottingPlansApi.createPlan({ warehouseId, validMonths: 6, relocationBudgetPct: budgetOverride ?? relocationBudget, useMilpAClass: true, createdBy: actor });
         }
       } else {
         if (!item.sourceId) throw new Error("This recommendation has no persisted ID.");
@@ -279,12 +322,36 @@ export default function InventoryIntelligencePage() {
       {error && <div className="alert alert-error text-sm"><span className="material-symbols-outlined">error</span><span>{error}</span></div>}
       {notice && <div className="alert alert-success text-sm"><span className="material-symbols-outlined">check_circle</span><span>{notice}</span></div>}
 
+      {/* KPIs follow the active queue. Inventory policy is judged on stock exposure and the space
+          it frees; a slotting plan is judged on travel saved and placement quality — the same split
+          SAP EWM draws between inventory KPIs and rearrangement KPIs. Showing one fixed row made
+          three of the five cards irrelevant on whichever tab you were looking at. */}
       <section className="grid grid-cols-2 xl:grid-cols-5 gap-3">
-        <Metric icon="assignment_late" label="Changes to review" value={loading ? "…" : quantity(summary?.inventoryChanges)} detail={summary?.inventoryChanges ? "unchanged products excluded" : "no policy changes waiting"} alert={!!summary?.inventoryChanges} />
-        <Metric icon="shopping_cart" label="Draft replenishments" value={quantity(summary?.suggestedPurchases)} detail={summary?.suggestedPurchases ? "procurement release remains separate" : "none currently required"} />
-        <Metric icon="inventory" label="Future positions released" value={quantity(positionsReleased)} detail="after excess stock is consumed" />
-        <Metric icon="add_box" label="Future positions required" value={quantity(positionsRequired)} detail="policy capacity, not occupied space" alert={positionsRequired > 0} />
-        <Metric icon="forklift" label="Location moves" value={quantity(summary?.totalMovesProposed)} detail={summary?.totalMovesProposed ? "constrained ABC/FMS plan" : "no executable plan waiting"} />
+        {activeTab === "decisions" ? (
+          <>
+            <Metric icon="task_alt" label="Approved & scheduled" value={quantity(activeDecisions.length)} detail="still have work outstanding" />
+            <Metric icon="history" label="Decisions recorded" value={quantity(decisions.length)} detail="full audit trail" />
+            <Metric icon="schedule" label="Deferred" value={quantity(decisions.filter((row) => row.action === "DEFERRED").length)} detail="paused for a later cycle" />
+            <Metric icon="block" label="Rejected" value={quantity(decisions.filter((row) => row.action === "REJECTED").length)} detail="declined with a reason" />
+            <Metric icon="pending_actions" label="Awaiting decision" value={quantity(queueItems.length)} detail="in the manager work queue" alert={queueItems.length > 0} />
+          </>
+        ) : activeTab === "locations" ? (
+          <>
+            <Metric icon="forklift" label="Location moves" value={quantity(summary?.totalMovesProposed)} detail={summary?.totalMovesProposed ? "constrained ABC/FMS plan" : "no executable plan waiting"} alert={!!summary?.totalMovesProposed} />
+            <Metric icon="route" label="Travel saved" value={slottingFocus.distanceSavedLabel} detail="picker travel removed per cycle" />
+            <Metric icon="trending_up" label="Velocity upgrades" value={quantity(slottingFocus.zoneUpgrades)} detail="fast movers into better zones" />
+            <Metric icon="lock" label="Locked lines" value={quantity(slottingFocus.lockedLines)} detail="excluded from optimization" />
+            <Metric icon="task_alt" label="Moves applied" value={quantity(locationPlan?.relocationMovesApplied)} detail={`of ${quantity(summary?.totalMovesProposed)} proposed`} />
+          </>
+        ) : (
+          <>
+            <Metric icon="assignment_late" label="Changes to review" value={loading ? "…" : quantity(summary?.inventoryChanges)} detail={summary?.inventoryChanges ? "unchanged products excluded" : "no policy changes waiting"} alert={!!summary?.inventoryChanges} />
+            <Metric icon="donut_small" label="Top 10 materials cover" value={capacityFocus.total ? `${capacityFocus.topShare}%` : "—"} detail={capacityFocus.total ? "of the capacity released" : "no capacity change planned"} />
+            <Metric icon="inventory" label="Future positions released" value={quantity(positionsReleased)} detail="after excess stock is consumed" />
+            <Metric icon="add_box" label="Future positions required" value={quantity(positionsRequired)} detail="policy capacity, not occupied space" alert={positionsRequired > 0} />
+            <Metric icon="rule" label="Flagged for review" value={quantity(capacityFocus.needsReview)} detail={capacityFocus.needsReview ? "failed the simulation gate" : "all passed the simulation gate"} alert={capacityFocus.needsReview > 0} />
+          </>
+        )}
       </section>
 
       <nav className="tabs tabs-boxed bg-base-100 w-fit shadow-sm" aria-label="Inventory decision queues">
@@ -293,8 +360,7 @@ export default function InventoryIntelligencePage() {
           Location plan
           {!!summary?.totalMovesProposed && <span className="badge badge-sm badge-primary ml-2">{summary.totalMovesProposed}</span>}
         </button>
-        <button className={clsx("tab", activeTab === "approved" && "tab-active")} onClick={() => setActiveTab("approved")}>Approved & scheduled</button>
-        <button className={clsx("tab", activeTab === "history" && "tab-active")} onClick={() => setActiveTab("history")}>Decision history</button>
+        <button className={clsx("tab", activeTab === "decisions" && "tab-active")} onClick={() => setActiveTab("decisions")}>Decisions {decisions.length > 0 && <span className="badge badge-sm ml-2">{decisions.length}</span>}</button>
       </nav>
 
       {activeTab === "locations" && <LocationPlanTab
@@ -305,6 +371,11 @@ export default function InventoryIntelligencePage() {
         progress={progress}
         onReoptimize={() => locationAction && void reoptimizePlan(locationAction)}
         onCreate={() => void execute({ type: "CREATE_SLOTTING_PLAN", title: "Generate location plan", description: "", priority: "MEDIUM", href: "", canApprove: true, affectedCount: 0 }, "create")}
+        onCreateWithBudget={(pct) => {
+          // Reflect the derived budget in the selector so the queue and the plan agree.
+          setRelocationBudget(pct);
+          void execute({ type: "CREATE_SLOTTING_PLAN", title: "Generate location plan", description: "", priority: "MEDIUM", href: "", canApprove: true, affectedCount: 0 }, "create", undefined, undefined, pct);
+        }}
         onApprove={() => locationAction && requestDecision(locationAction, locationAction.type === "SCHEDULE_SLOTTING_PLAN" ? "schedule" : "approve")}
         canDecide={!!locationAction}
         decideLabel={locationAction?.type === "SCHEDULE_SLOTTING_PLAN" ? "Schedule off-peak" : "Approve plan"}
@@ -313,25 +384,55 @@ export default function InventoryIntelligencePage() {
       />}
 
       {activeTab === "review" && <>
-        <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-bold text-lg">Manager work queue</h2>
-              <p className="text-xs text-base-content/60">{selectedWarehouse?.name || "Authorized warehouse"} · highest operational risk first</p>
-            </div>
-            {/* Recalculation belongs with the policy queue it regenerates, not in
-                the page header where it looked like it drove the whole page. */}
-            <button className="btn btn-sm btn-outline rounded-full" onClick={() => void recalculatePolicies()} disabled={!warehouseId || !!busy}>
-              <span className="material-symbols-outlined text-base">calculate</span>
-              {busy === "CREATE_POLICY-create" ? "Recalculating…" : "Recalculate policies"}
-            </button>
-          </div>
-          {busy === "CREATE_POLICY-create" && <progress className="progress progress-primary w-full rounded-none" />}
-          <div className="divide-y divide-base-200">
-            {!loading && !queueItems.length && <EmptyState icon="task_alt" title="No decision is waiting" text="The next forecast or slotting refresh will add only material changes to this queue." />}
-            {queueItems.map((item) => <ActionRow key={`${item.type}-${item.sourceId ?? "new"}`} item={item} busy={busy} onReview={reviewAction} />)}
-          </div>
-        </section>
+        {/* Two queues, not one. Inventory policy and slotting are separate decisions with separate
+            owners, separate cadences and separate recalculation actions -- mixing them meant the
+            header's "Recalculate policies" sat above a slotting row it had nothing to do with. */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <QueuePanel
+            title="Inventory policy queue"
+            subtitle={`${selectedWarehouse?.name || "Authorized warehouse"} · min/max and reorder points`}
+            actionLabel={busy === "CREATE_POLICY-create" ? "Recalculating…" : "Recalculate policies"}
+            actionIcon="calculate"
+            onAction={() => void recalculatePolicies()}
+            actionDisabled={!warehouseId || !!busy}
+            busyKey="CREATE_POLICY-create"
+            busy={busy}
+            busyTitle="Recalculating inventory policies"
+            busyDetail="Forecast windowing, supplier constraints, then a 1,000-trial simulation per material."
+            items={policyQueueItems}
+            emptyTitle="No policy decision waiting"
+            emptyText="The next forecast refresh will add only material changes here."
+            loading={loading}
+            onReview={reviewAction}
+          />
+          <QueuePanel
+            title="Slotting queue"
+            subtitle={`${selectedWarehouse?.name || "Authorized warehouse"} · location plan and relocations`}
+            actionLabel={busy === "CREATE_SLOTTING_PLAN-create" ? "Generating…" : "Generate new plan"}
+            actionIcon="bolt"
+            extraControl={
+              <label className="flex items-center gap-2 text-xs text-base-content/70">
+                <span className="whitespace-nowrap">Relocation budget</span>
+                <select className="select select-bordered select-xs" value={relocationBudget}
+                  onChange={(event) => setRelocationBudget(Number(event.target.value))}
+                  disabled={!!busy} aria-label="Relocation budget percentage">
+                  {[15, 30, 50, 75, 100].map((pct) => <option key={pct} value={pct}>{pct}%</option>)}
+                </select>
+              </label>
+            }
+            onAction={() => void execute({ type: "CREATE_SLOTTING_PLAN", title: "Generate location plan", description: "", priority: "MEDIUM", href: "", canApprove: true, affectedCount: 0 }, "create")}
+            actionDisabled={!warehouseId || !!busy}
+            busyKey="CREATE_SLOTTING_PLAN-create"
+            busy={busy}
+            busyTitle="Generating a new location plan"
+            busyDetail="Solving placement across ABC/FMS, capacity and hazard constraints."
+            items={slottingQueueItems}
+            emptyTitle="No slotting decision waiting"
+            emptyText="Generate a plan to propose relocations for the next six months."
+            loading={loading}
+            onReview={reviewAction}
+          />
+        </div>
 
         <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden">
           <div className="p-5 border-b border-base-200 flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
@@ -365,16 +466,41 @@ export default function InventoryIntelligencePage() {
 
       </>}
 
-      {activeTab === "approved" && <DecisionList rows={activeDecisions} emptyTitle="No approved work yet" />}
-      {activeTab === "history" && <DecisionList rows={decisions} emptyTitle="No decision history yet" />}
+      {activeTab === "decisions" && <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden">
+        {/* One list, filtered. Splitting "approved & scheduled" from "history" showed the same
+            rows twice, because approved work is a subset of the history. */}
+        <div className="p-5 border-b border-base-200 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-lg">Decision history</h2>
+            <p className="text-xs text-base-content/60">Every approval, deferral and rejection, most recent first.</p>
+          </div>
+          <div className="tabs tabs-boxed tabs-sm">
+            {(["all", "outstanding", "deferred", "rejected"] as const).map((filter) => (
+              <button key={filter}
+                className={clsx("tab capitalize", decisionFilter === filter && "tab-active")}
+                onClick={() => setDecisionFilter(filter)}>
+                {filter === "outstanding" ? "Approved & scheduled" : filter}
+              </button>
+            ))}
+          </div>
+        </div>
+        <DecisionList rows={visibleDecisions} emptyTitle="No decisions match this filter" />
+      </section>}
 
       {selectedLine && <PolicyDetail line={selectedLine} onClose={() => setSelectedLine(null)} />}
-      {selectedAction && <ActionDetail item={selectedAction} policyLines={rankedLines} slottingLines={slottingLines} busy={busy}
-        onClose={() => setSelectedAction(null)} onDecision={requestDecision} onReoptimize={reoptimizePlan} />}
+      {selectedAction && <ActionDetail item={selectedAction} policyLines={rankedLines} slottingLines={slottingLines}
+        slottingPlan={locationPlan} busy={busy}
+        onClose={() => setSelectedAction(null)} onDecision={requestDecision} onReoptimize={reoptimizePlan}
+        onCreateWithBudget={(pct) => {
+          setRelocationBudget(pct);
+          void execute({ type: "CREATE_SLOTTING_PLAN", title: "Generate location plan", description: "", priority: "MEDIUM", href: "", canApprove: true, affectedCount: 0 }, "create", undefined, undefined, pct);
+        }} />}
       {decision && <DecisionDialog decision={decision} reason={reason} setReason={setReason} deferUntil={deferUntil}
         setDeferUntil={setDeferUntil} busy={busy} onClose={() => setDecision(null)}
         onConfirm={() => void execute(decision.item, decision.operation, reason || undefined,
-          decision.operation === "defer" ? new Date(deferUntil).toISOString() : undefined)} />}
+          ["defer", "schedule"].includes(decision.operation) && deferUntil
+            ? new Date(deferUntil).toISOString()
+            : undefined)} />}
     </main>
   );
 }
@@ -387,7 +513,7 @@ export default function InventoryIntelligencePage() {
  * and approve cycle. Travel distance saved is the headline metric because that
  * is what the relocation work actually buys.
  */
-function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, onCreate, onApprove, canDecide, decideLabel, canApprove, deferredUntil }: {
+function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, onCreate, onCreateWithBudget, onApprove, canDecide, decideLabel, canApprove, deferredUntil }: {
   plan: SlottingPlanSummary | null;
   lines: SlottingPlanLine[];
   loading: boolean;
@@ -395,6 +521,7 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
   progress: SlottingProgress | null;
   onReoptimize: () => void;
   onCreate: () => void;
+  onCreateWithBudget: (pct: number) => void;
   onApprove: () => void;
   canDecide: boolean;
   decideLabel: string;
@@ -404,6 +531,12 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
   const [search, setSearch] = useState("");
   const [zone, setZone] = useState("all");
   const [page, setPage] = useState(1);
+  const [decisionFilter, setDecisionFilter] = useState<"all" | "outstanding" | "deferred" | "rejected">("all");
+  // The optimizer refuses a plan whose relocation cap is below the number of forced moves --
+  // materials whose current bin is no longer a legal candidate. That cap is a percentage of the
+  // catalogue, and it was fixed at 15, so an infeasible plan could never be rescued by re-running:
+  // reoptimize cannot change the budget, only a new plan can.
+  const [relocationBudget, setRelocationBudget] = useState(15);
   const [pageSize, setPageSize] = useState(50);
 
   const moves = useMemo(
@@ -453,6 +586,17 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
     </section>;
   }
 
+  // Infeasible because the relocation cap is below the number of moves the solver is obliged to
+  // make. Re-running cannot help; only a bigger budget can.
+  const capBlocked = solver === "INFEASIBLE"
+    && (plan.infeasibleReason ?? "").toLowerCase().includes("relocation cap");
+
+  // The solver states both numbers in its reason, e.g.
+  //   "(forced_relocations=103, relocation_cap=21)"
+  // cap = floor(materials * pct/100), so materials = cap / (pct/100) and the budget that clears the
+  // forced moves is ceil(forced / materials * 100). A few points of headroom absorb the flooring.
+  const requiredBudgetPct = requiredRelocationBudget(plan.infeasibleReason, plan.relocationBudgetPct);
+
   return <div className="space-y-4">
     {/* Run + status bar */}
     <section className="rounded-2xl bg-base-100 shadow-sm p-5">
@@ -477,16 +621,46 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
             {plan.validFrom ? ` · valid from ${new Date(plan.validFrom).toLocaleDateString()}` : ""}
           </p>
         </div>
+        {/* A plan that has already been approved and scheduled has nothing left to re-optimize:
+            the backend rejects reoptimize in that state and the handler short-circuits when there
+            is no pending action, so the button used to look live and silently do nothing. Say why
+            it cannot run, and offer the move that is actually available — a fresh plan. */}
         <div className="flex flex-wrap gap-2">
-          <button className="btn btn-sm btn-outline rounded-full" disabled={!!busy} onClick={onReoptimize}>
-            <span className="material-symbols-outlined text-base">autorenew</span>
-            {optimizing ? "Running optimizer…" : "Run optimizer"}
-          </button>
-          <button className="btn btn-sm btn-primary rounded-full" disabled={!!busy || !canDecide || !canApprove} onClick={onApprove}>
+          {canDecide ? (
+            <button className="btn btn-sm btn-outline rounded-full" disabled={!!busy} onClick={onReoptimize}>
+              <span className="material-symbols-outlined text-base">autorenew</span>
+              {optimizing ? "Running optimizer…" : "Run optimizer"}
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-outline rounded-full" disabled={!!busy} onClick={onCreate}
+              title={`This plan is ${plan.status} and can no longer be re-optimized. Generate a new plan instead.`}>
+              <span className="material-symbols-outlined text-base">bolt</span>
+              Generate new plan
+            </button>
+          )}
+          <button className="btn btn-sm btn-primary rounded-full" disabled={!!busy || !canDecide || !canApprove} onClick={onApprove}
+            title={canDecide ? undefined : `Nothing to approve — this plan is already ${plan.status}.`}>
             {decideLabel}
           </button>
         </div>
       </div>
+      {!canDecide && !optimizing && <p className="text-xs text-base-content/60 mt-3">
+        {plan.status === "SCHEDULED"
+          ? "Approved and waiting for its scheduled release window. Generate a new plan to run the optimizer again."
+          : `This plan is ${plan.status}; the optimizer runs on draft plans only.`}
+      </p>}
+
+      {busy === "CREATE_SLOTTING_PLAN-create" && <div className="mt-4">
+        <div className="flex items-center justify-between text-xs font-semibold mb-1">
+          <span>Generating a new plan</span>
+          <span className="loading loading-spinner loading-xs" />
+        </div>
+        <progress className="progress progress-primary w-full" />
+        <p className="text-xs text-base-content/60 mt-1">
+          Solving placement across ABC/FMS, capacity and hazard constraints. This runs to completion
+          before the new plan appears.
+        </p>
+      </div>}
 
       {optimizing && <div className="mt-4">
         <div className="flex items-center justify-between text-xs font-semibold mb-1">
@@ -506,20 +680,24 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
             ? "This plan has not been optimized yet, so it cannot be approved."
             : `The optimizer finished as ${solver}${plan.infeasibleReason ? `: ${plan.infeasibleReason}` : "."}`}
         </span>
-        {/* Neutral surface, not btn-warning: on the warning banner the button
-            was the same colour as its background and read as plain text. */}
-        <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap" disabled={!!busy} onClick={onReoptimize}>
-          Run optimizer
+        {/* A relocation-cap infeasibility cannot be cleared by re-running: reoptimize keeps the
+            plan's existing budget, so the same cap produces the same result. The only move that
+            changes the outcome is a new plan with a larger budget. */}
+        <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap" disabled={!!busy}
+          onClick={capBlocked ? () => onCreateWithBudget(requiredBudgetPct ?? 100) : onReoptimize}>
+          {capBlocked
+            ? requiredBudgetPct != null
+              ? `Generate plan at ${requiredBudgetPct}% budget`
+              : "Generate plan with a larger budget"
+            : "Run optimizer"}
         </button>
       </div>}
-    </section>
-
-    {/* Outcome metrics */}
-    <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-      <Metric icon="forklift" label="Moves proposed" value={quantity(plan.totalMovesProposed)} detail="within the relocation budget" />
-      <Metric icon="route" label="Travel distance saved" value={plan.totalDistanceSavedMeters != null ? `${Math.round(plan.totalDistanceSavedMeters).toLocaleString()} m` : "—"} detail="per full pick cycle" />
-      <Metric icon="swap_horiz" label="Zone upgrades" value={quantity(moves.filter((line) => line.zoneUpgrade).length)} detail="moved to a better zone" />
-      <Metric icon="lock" label="Locked lines" value={quantity(lines.filter((line) => line.locked).length)} detail="excluded from optimization" />
+      {capBlocked && <p className="text-xs text-base-content/60 mt-2">
+        Re-running keeps this plan&apos;s {plan.relocationBudgetPct ?? 15}% budget and will fail the
+        same way.{requiredBudgetPct != null
+          ? ` The forced moves need at least ${requiredBudgetPct}%, which the button above uses.`
+          : " Raise the relocation budget in the slotting queue, then generate a new plan."}
+      </p>}
     </section>
 
     {/* Moves table */}
@@ -564,9 +742,9 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
                 <th>Product</th>
                 <th>From</th>
                 <th>To</th>
-                <th>Zone change</th>
-                <th className="text-right">Distance saved</th>
-                <th>Why</th>
+                <th className="w-32">Zone change</th>
+                <th className="w-32 text-right">Distance saved</th>
+                <th className="w-[38%]">Why</th>
               </tr>
             </thead>
             <tbody>
@@ -577,11 +755,18 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
                 </td>
                 <td className="font-mono text-xs">{line.currentPrimaryLocation || "Unassigned"}</td>
                 <td className="font-mono text-xs text-primary">{line.recommendedPrimaryLocation || "—"}</td>
-                <td>{line.zoneUpgrade ? <span className="badge badge-ghost badge-sm">{line.zoneUpgrade}</span> : "—"}</td>
-                <td className="text-right tabular-nums">
+                <td className="w-32">{line.zoneUpgrade ? <span className="badge badge-ghost badge-sm h-auto whitespace-nowrap py-1">{line.zoneUpgrade}</span> : "—"}</td>
+                <td className="w-32 text-right tabular-nums whitespace-nowrap">
                   {line.distanceSavedMeters != null ? `${Math.round(line.distanceSavedMeters).toLocaleString()} m` : "—"}
                 </td>
-                <td className="text-xs text-base-content/60 max-w-xs">{line.moveReason || "Demand and accessibility improvement."}</td>
+                {/* Every row currently carries the same solver rationale, so it is clamped to one
+                    line: enough to identify the method, without 34 repetitions dominating the table.
+                    The full text stays available on hover. */}
+                <td className="text-xs text-base-content/60 w-[38%]">
+                  <span className="line-clamp-1" title={line.moveReason || "Demand and accessibility improvement."}>
+                    {line.moveReason || "Demand and accessibility improvement."}
+                  </span>
+                </td>
               </tr>)}
             </tbody>
           </table>
@@ -615,13 +800,61 @@ function ActionRow({ item, busy, onReview }: { item: ActionItem; busy: string | 
   </div>;
 }
 
+/**
+ * One decision queue. Both queues render through this so the slotting side and the policy side
+ * stay visually identical -- same header, same action affordance, same busy treatment -- and only
+ * their content differs.
+ */
+function QueuePanel({
+  title, subtitle, actionLabel, actionIcon, onAction, actionDisabled, extraControl,
+  busyKey, busy, busyTitle, busyDetail, items, emptyTitle, emptyText, loading, onReview,
+}: {
+  title: string; subtitle: string; actionLabel: string; actionIcon: string; extraControl?: React.ReactNode;
+  onAction: () => void; actionDisabled: boolean;
+  busyKey: string; busy: string | null; busyTitle: string; busyDetail: string;
+  items: ActionItem[]; emptyTitle: string; emptyText: string; loading: boolean;
+  onReview: (item: ActionItem) => Promise<void>;
+}) {
+  return <section className="rounded-2xl bg-base-100 shadow-sm overflow-hidden flex flex-col">
+    <div className="p-5 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="font-bold text-lg">{title}</h2>
+        <p className="text-xs text-base-content/60">{subtitle}</p>
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        {extraControl}
+        <button className="btn btn-sm btn-outline rounded-full" onClick={onAction} disabled={actionDisabled}>
+          <span className="material-symbols-outlined text-base">{actionIcon}</span>
+          {actionLabel}
+        </button>
+      </div>
+    </div>
+    {/* Neither run reports server-side progress, so the bar is indeterminate and the label
+        carries the state rather than an invented percentage. */}
+    {busy === busyKey && <div className="px-5 py-3 border-b border-base-200 bg-base-200/40">
+      <div className="flex items-center justify-between text-xs font-semibold mb-1">
+        <span>{busyTitle}</span>
+        <span className="loading loading-spinner loading-xs" />
+      </div>
+      <progress className="progress progress-primary w-full" />
+      <p className="text-xs text-base-content/60 mt-1">{busyDetail}</p>
+    </div>}
+    <div className="divide-y divide-base-200 flex-1">
+      {!loading && !items.length && <EmptyState icon="task_alt" title={emptyTitle} text={emptyText} />}
+      {items.map((item) => <ActionRow key={`${item.type}-${item.sourceId ?? "new"}`} item={item} busy={busy} onReview={onReview} />)}
+    </div>
+  </section>;
+}
+
 function PolicyRow({ line, onOpen }: { line: PolicyRecommendationLine; onOpen: (line: PolicyRecommendationLine) => void }) {
   const primaryReason = primaryBusinessReason(line);
   const policyText = policyDelta(line);
   return <tr className="hover cursor-pointer" onClick={() => onOpen(line)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onOpen(line)}>
     <td><div className="font-semibold max-w-56">{line.materialName}</div><div className="font-mono text-xs text-base-content/50">{line.materialCode} · {storageClassLabel(line)}</div></td>
     <td><div className="font-semibold text-primary">{line.actionSummary}</div><div className="text-xs text-base-content/55">{line.proposedOrderQty ? `Expected receipt ${dateLabel(line.expectedReceiptDate)}` : "No purchase required"}</div></td>
-    <td><span className="badge badge-ghost badge-sm">{primaryReason}</span></td>
+    {/* A fixed-height badge clips multi-word reasons: the text wraps but the pill does not
+        grow, so "Releases pallet space" spilled outside its own border. Let it size to content. */}
+    <td className="min-w-40"><span className="badge badge-ghost badge-sm h-auto whitespace-normal py-1 text-left leading-snug">{primaryReason}</span></td>
     <td className="text-sm">{policyText}</td>
     <td><span className={clsx("font-semibold", line.palletPositionsDelta > 0 ? "text-warning" : line.palletPositionsDelta < 0 ? "text-success" : "")}>{capacityImpactLabel(line.palletPositionsDelta)}</span></td>
     <td className="text-sm">{dateLabel(line.orderByDate)}</td>
@@ -692,24 +925,55 @@ function PolicyDetail({ line, onClose }: { line: PolicyRecommendationLine; onClo
   </Drawer>;
 }
 
-function ActionDetail({ item, policyLines, slottingLines, busy, onClose, onDecision, onReoptimize }: {
-  item: ActionItem; policyLines: PolicyRecommendationLine[]; slottingLines: SlottingPlanLine[]; busy: string | null;
+/**
+ * The relocation budget that would clear a cap-infeasible plan.
+ *
+ * The solver reports "(forced_relocations=103, relocation_cap=21)" and computes the cap as
+ * floor(materials * pct/100), so the catalogue size is recoverable from the cap and the plan's own
+ * budget. Re-running with the existing budget can only reproduce the same failure, which is why
+ * both the banner and the review drawer offer this number rather than a plain retry.
+ * Returns null when the reason is not a cap failure.
+ */
+function requiredRelocationBudget(infeasibleReason?: string | null, currentPct?: number | null): number | null {
+  const reason = infeasibleReason ?? "";
+  if (!reason.toLowerCase().includes("relocation cap")) return null;
+  const forced = Number(reason.match(/forced_relocations=(\d+)/)?.[1]);
+  const cap = Number(reason.match(/relocation_cap=(\d+)/)?.[1]);
+  const pct = currentPct ?? 15;
+  if (!Number.isFinite(forced) || !Number.isFinite(cap) || cap <= 0 || pct <= 0) return null;
+  const materials = cap / (pct / 100);
+  return Math.min(100, Math.ceil((forced / materials) * 100) + 5);
+}
+
+function ActionDetail({ item, policyLines, slottingLines, slottingPlan, busy, onClose, onDecision, onReoptimize, onCreateWithBudget }: {
+  item: ActionItem; policyLines: PolicyRecommendationLine[]; slottingLines: SlottingPlanLine[];
+  slottingPlan: SlottingPlanSummary | null; busy: string | null;
   onClose: () => void; onDecision: (item: ActionItem, operation: DecisionOperation) => void;
   onReoptimize: (item: ActionItem) => Promise<void>;
+  onCreateWithBudget: (pct: number) => void;
 }) {
   const moved = slottingLines.filter((line) => line.relocationFlag || line.relocationApplied || (line.currentPrimaryLocation !== line.recommendedPrimaryLocation));
   const scheduling = item.type === "SCHEDULE_SLOTTING_PLAN";
   // A slotting plan that the solver has not settled cannot be approved. Offer
   // the run rather than only naming the problem.
   const needsOptimizer = item.type === "APPROVE_SLOTTING_PLAN" && !item.canApprove && !!item.sourceId;
+  const drawerBudgetPct = requiredRelocationBudget(
+    slottingPlan?.infeasibleReason, slottingPlan?.relocationBudgetPct);
   return <Drawer title={item.title} subtitle={item.description} onClose={onClose}>
     {item.blockedReason && <div className="alert alert-warning text-sm">
       <span className="material-symbols-outlined">warning</span>
       <span className="flex-1">{item.blockedReason}</span>
-      {needsOptimizer && <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap"
-        disabled={!!busy} onClick={() => void onReoptimize(item)}>
-        {busy === `${item.type}-reoptimize` ? "Running optimizer…" : "Recalculate plan"}
-      </button>}
+      {/* Recalculating keeps the plan's own budget, so a cap failure would repeat exactly. When
+          that is the cause, offer the budget that actually clears it instead of a futile retry. */}
+      {needsOptimizer && (drawerBudgetPct != null
+        ? <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap" disabled={!!busy}
+            onClick={() => { onClose(); onCreateWithBudget(drawerBudgetPct); }}>
+            Generate plan at {drawerBudgetPct}% budget
+          </button>
+        : <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap"
+            disabled={!!busy} onClick={() => void onReoptimize(item)}>
+            {busy === `${item.type}-reoptimize` ? "Running optimizer…" : "Recalculate plan"}
+          </button>)}
     </div>}
     {item.type === "APPROVE_POLICY" && <>
       <SectionTitle>Approval scope</SectionTitle>
@@ -743,7 +1007,16 @@ function DecisionDialog({ decision, reason, setReason, deferUntil, setDeferUntil
       <h2 className="text-xl font-bold capitalize">{decision.operation} recommendation</h2>
       <p className="text-sm text-base-content/65 mt-2">{decision.item.title}</p>
       {decision.operation === "approve" && <p className="mt-4 text-sm">This approves the reviewed recommendation. Purchase suggestions remain drafts and relocation work remains unscheduled until its next controlled step.</p>}
-      {decision.operation === "schedule" && <p className="mt-4 text-sm">The approved relocation plan will be scheduled for the warehouse off-peak window and released as scan-confirmed worker tasks.</p>}
+      {decision.operation === "schedule" && <>
+        <label className="form-control mt-4">
+          <span className="label-text font-semibold mb-1">Release at</span>
+          <input className="input input-bordered" type="datetime-local" value={deferUntil}
+            onChange={(event) => setDeferUntil(event.target.value)} />
+          <span className="label-text-alt mt-1 text-base-content/60">
+            Workers receive the moves at this time. A past time releases them now.
+          </span>
+        </label>
+      </>}
       {decision.operation === "defer" && <label className="form-control mt-4"><span className="label-text font-semibold mb-1">Return to review queue</span><input className="input input-bordered" type="datetime-local" value={deferUntil} onChange={(event) => setDeferUntil(event.target.value)} /></label>}
       {needsReason && <label className="form-control mt-4"><span className="label-text font-semibold mb-1">Reason</span><textarea className="textarea textarea-bordered min-h-28" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={decision.operation === "reject" ? "Why should this recommendation not be used?" : "Why is this decision being deferred?"} /></label>}
       <div className="mt-6 flex justify-end gap-2"><button className="btn btn-ghost" onClick={onClose}>Cancel</button><button className={clsx("btn", decision.operation === "reject" ? "btn-error" : "btn-primary")} disabled={!valid || !!busy} onClick={onConfirm}>{busy ? <span className="loading loading-spinner loading-xs" /> : "Confirm"}</button></div>

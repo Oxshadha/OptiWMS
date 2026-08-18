@@ -8,62 +8,33 @@ export function ToasterProvider() {
       position="top-right"
       toastOptions={{
         duration: 3000,
-        // Default style for info/loading toasts
+        // Default modern style
         style: {
-          background: "#FFFFFF",
-          color: "#1F2937",
-          border: "1px solid #E5E7EB",
+          background: "var(--fallback-b1,oklch(var(--b1)))",
+          color: "var(--fallback-bc,oklch(var(--bc)))",
+          border: "1px solid var(--fallback-b3,oklch(var(--b3)))",
           padding: "16px",
           fontSize: "14px",
           fontWeight: "500",
-          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+          borderRadius: "0.75rem",
         },
-        // Success toasts - green background, white text
         success: {
-          style: {
-            background: "#39BE7D",
-            color: "#FFFFFF",
-            border: "none",
-            padding: "16px",
-            fontSize: "14px",
-            fontWeight: "500",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
-          },
           iconTheme: {
-            primary: "#FFFFFF",
-            secondary: "#39BE7D",
+            primary: "#39BE7D",
+            secondary: "var(--fallback-b1,oklch(var(--b1)))",
           },
         },
-        // Error toasts - red background, white text
         error: {
-          style: {
-            background: "#E34E4E",
-            color: "#FFFFFF",
-            border: "none",
-            padding: "16px",
-            fontSize: "14px",
-            fontWeight: "500",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
-          },
           iconTheme: {
-            primary: "#FFFFFF",
-            secondary: "#E34E4E",
+            primary: "#E34E4E",
+            secondary: "var(--fallback-b1,oklch(var(--b1)))",
           },
         },
-        // Loading toasts - blue background, white text
         loading: {
-          style: {
-            background: "#4AA8FF",
-            color: "#FFFFFF",
-            border: "none",
-            padding: "16px",
-            fontSize: "14px",
-            fontWeight: "500",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
-          },
           iconTheme: {
-            primary: "#FFFFFF",
-            secondary: "#4AA8FF",
+            primary: "#4AA8FF",
+            secondary: "var(--fallback-b1,oklch(var(--b1)))",
           },
         },
       }}

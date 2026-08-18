@@ -216,6 +216,7 @@ recovery_backups/
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/physical_classifications.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/storage_capacity_requirements.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/storage_slotting_validation.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/solver_evidence/ga_stochasticity.csv
 # Operational forecast release bundle required by clean-clone training,
 # container startup, WMS loading, and planner verification.
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_forecasts.csv
@@ -270,3 +271,15 @@ archive_scripts_and_docs/
 # Local dev database dump: too large for git and contains password hashes.
 # Distribute out of band or via Git LFS.
 scripts/optiwms_local_seed.sql.gz
+
+# Local reference document, not project code
+User manual/
+
+# Dissertation LaTeX chapters and build artifacts — writing drafts, not code.
+# Kept locally, deliberately excluded from commits.
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch6_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch7_housestyle/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch8_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch9_10_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/main_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/report_chapter7/

@@ -68,6 +68,16 @@ function toUserFacingError(status: number, rawMessage: string): string {
   return message;
 }
 
+/**
+ * An API failure that keeps the server's parsed response body alongside the message, so callers
+ * that need more than text (a rejected putaway returns the bins that would have worked) can read
+ * it. Existing callers only touch `.message`, which is unchanged.
+ */
+export interface ApiError extends Error {
+  status?: number;
+  body?: unknown;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     logger.error(`[API Client] Response not OK: ${response.status} ${response.statusText}`);
@@ -159,11 +169,13 @@ async function handleResponse<T>(response: Response): Promise<T> {
     
     // Parse error body from text first (single read), then try JSON.
     let errorMessage = response.statusText;
+    let errorBody: unknown = undefined;
     try {
       const rawText = await response.text();
       if (rawText && rawText.trim() !== '') {
         try {
           const errorData = JSON.parse(rawText);
+          errorBody = errorData;
           errorMessage = extractErrorMessage(errorData, rawText);
         } catch {
           errorMessage = rawText;
@@ -172,9 +184,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       errorMessage = response.statusText;
     }
-    
+
     logger.error(`[API Client] Error response: ${errorMessage}`);
-    throw new Error(toUserFacingError(response.status, errorMessage));
+    // Keep the parsed body on the error so callers that need structure can use it -- a rejected
+    // putaway carries the bins that would have worked. `.message` is unchanged, so every existing
+    // caller behaves exactly as before.
+    const apiError = new Error(toUserFacingError(response.status, errorMessage)) as ApiError;
+    apiError.status = response.status;
+    apiError.body = errorBody;
+    throw apiError;
   }
   
   // Handle 204 No Content (empty response)

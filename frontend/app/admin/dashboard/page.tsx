@@ -230,60 +230,7 @@ export default function DashboardPage() {
     (kpis?.ordersThisPeriod ?? 0) === 0 &&
     allOrdersChart.length > 0;
 
-  const operationalInsights = useMemo(() => {
-    const insights = [];
-    if (hasOlderDataButNoCurrentActivity) {
-      insights.push({
-        icon: "calendar_month",
-        title: "No current-month order activity",
-        message: `Stored order history exists for ${availableOrderRange}. Switch the period to review it.`,
-        href: "/admin/dashboard",
-        action: "Change period",
-      });
-    }
-    if ((inventoryOverview?.lowStockItems ?? 0) > 0 || (inventoryOverview?.outOfStockItems ?? 0) > 0) {
-      insights.push({
-        icon: "warning",
-        title: "Stock exceptions need review",
-        message: `${inventoryOverview?.lowStockItems ?? 0} low-stock and ${inventoryOverview?.outOfStockItems ?? 0} out-of-stock materials.`,
-        href: "/admin/inventory",
-        action: "Open inventory",
-      });
-    }
-    if (topProducts.length === 0) {
-      insights.push({
-        icon: "inventory_2",
-        title: "No product movement in period",
-        message: "Top movers are based on completed outbound orders in the selected period.",
-        href: "/admin/orders/outbound",
-        action: "Review outbound",
-      });
-    }
-    if (isAdmin) {
-      insights.push({
-        icon: "rule_settings",
-        title: "Data quality checks",
-        message: "Review zero-item shells, missing references, supplier purchasing rules, and stale data.",
-        href: "/admin/data-quality",
-        action: "Open data quality",
-      });
-    }
-    insights.push({
-      icon: "psychology",
-      title: "AI service health moved",
-      message: "Forecasting and solver health belong in Intelligent Engine, away from the daily dashboard.",
-      href: "/admin/inventory-intelligence",
-      action: "Open engine",
-    });
-    return insights.slice(0, 4);
-  }, [
-    availableOrderRange,
-    hasOlderDataButNoCurrentActivity,
-    inventoryOverview?.lowStockItems,
-    inventoryOverview?.outOfStockItems,
-    isAdmin,
-    topProducts.length,
-  ]);
+
 
   if (loading) {
     return (
@@ -646,11 +593,27 @@ export default function DashboardPage() {
                 <Link
                   key={notification.id}
                   href={notification.actionUrl || "/admin/notifications"}
-                  className={`rounded-lg border p-3 ${
+                  onClick={() => {
+                    if (!notification.read) {
+                      // Optimistic UI update
+                      setNotifications((prev) =>
+                        prev.map((n) =>
+                          n.id === notification.id ? { ...n, read: true } : n
+                        )
+                      );
+                      // API call (fire and forget since we navigate away)
+                      notificationsApi
+                        .markAsRead(notification.id)
+                        .catch((err) =>
+                          logger.error("Failed to mark read from dashboard", err)
+                        );
+                    }
+                  }}
+                  className={`rounded-lg border p-3 border-l-4 ${
                     notification.read
-                      ? "border-base-300 bg-base-100"
-                      : "border-primary/20 bg-primary/5"
-                  } block hover:border-primary/30 transition-colors`}
+                      ? "border-base-300 border-l-transparent bg-base-100"
+                      : "border-base-300 border-l-primary bg-base-100"
+                  } block hover:bg-base-200 transition-colors`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -668,29 +631,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="space-y-4">
-        <div className="divider">
-          <span className="text-lg font-semibold">Operational Insights</span>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {operationalInsights.map((insight) => (
-            <Link
-              key={insight.title}
-              href={insight.href}
-              className="card bg-base-100 shadow-sm border-none rounded-2xl p-5 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary text-2xl">{insight.icon}</span>
-                <div className="min-w-0">
-                  <h3 className="font-bold text-base-content">{insight.title}</h3>
-                  <p className="text-sm text-base-content/65 mt-1">{insight.message}</p>
-                  <div className="text-sm font-semibold text-primary mt-3">{insight.action}</div>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
+
 
     </div>
   );

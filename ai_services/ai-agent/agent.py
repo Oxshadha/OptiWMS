@@ -309,6 +309,11 @@ def generate_chart_spec(df: pd.DataFrame) -> dict | None:
     return None
 
 
+def generate_chart_spec_checked(df: pd.DataFrame, question: str = "") -> dict | None:
+    """Chart spec for a result set, corrected to match the kind of data it describes."""
+    return enforce_chart_rules(generate_chart_spec(df), question)
+
+
 def _fig_to_bytes(fig) -> bytes:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
@@ -521,7 +526,7 @@ Generate a VALID JSON report object with EXACTLY this structure (no extra keys, 
   ],
   "charts": [
     {{
-      "type": "line | bar | pie",
+      "type": "line | bar | pie | histogram | box",
       "title": "string",
       "x": ["string"],
       "y": [number]
@@ -533,6 +538,11 @@ Generate a VALID JSON report object with EXACTLY this structure (no extra keys, 
 
 RULES:
 - Use ONLY data from the provided sample. Do NOT invent numbers.
+- Match the chart to the data type. Bar or pie for qualitative (nominal/ordinal)
+  categories and for discrete values with few levels; histogram or box for a
+  continuous measure; line only when the x axis is genuinely ordered, such as time.
+- Never use a pie for a comparison or ranking, or for more than 6 categories:
+  slice areas cannot be compared accurately.
 - Include at most 15 rows in each table.
 - Include 2-4 key_insights and 2-3 recommendations.
 - Return ONLY the raw JSON. No markdown fences. No explanation."""
@@ -860,6 +870,111 @@ def _build_chart_bytes_from_df(df: pd.DataFrame) -> bytes | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Chart-type rules
+#
+# Chapter 2 of the module's data-visualisation material sets the mapping this
+# system is marked against:
+#
+#   Qualitative (nominal or ordinal), and discrete with few distinct values
+#       -> bar chart, pie chart.  "A pie chart is awful for comparisons."
+#   Quantitative (discrete or continuous)
+#       -> histogram, dot plot, box plot, scatter plot.
+#
+# Nothing previously checked a chart against the data it described, so a
+# quantitative answer could be returned as a pie chart -- the specific error the
+# material warns against -- and no histogram or box plot existed to return
+# instead. These helpers classify the series first and correct the chart.
+# ---------------------------------------------------------------------------
+
+# Above this many slices a pie stops being readable; the material's point about
+# comparison holds well before it.
+_MAX_PIE_SLICES = 6
+
+# A numeric column with few distinct values is discrete and reads well as bars;
+# above this it is treated as continuous and wants a distribution chart.
+_MAX_DISCRETE_LEVELS = 12
+
+
+def classify_series(values) -> str:
+    """Return 'qualitative', 'discrete' or 'continuous' for a column of values.
+
+    Discrete sits between the two: numeric, so quantitative, but with few enough
+    levels that a bar per level is legitimate.
+    """
+    series = pd.Series(list(values)).dropna()
+    if series.empty:
+        return "qualitative"
+    if not pd.api.types.is_numeric_dtype(series):
+        return "qualitative"
+    distinct = series.nunique()
+    if distinct <= _MAX_DISCRETE_LEVELS and (series % 1 == 0).all():
+        return "discrete"
+    return "continuous"
+
+
+def is_comparison_question(question: str) -> bool:
+    """Whether the user is comparing categories, where a pie is the wrong shape."""
+    q = (question or "").lower()
+    return any(word in q for word in (
+        "compare", "comparison", "versus", " vs ", "rank", "ranking",
+        "highest", "lowest", "top ", "bottom ", "more than", "less than",
+    ))
+
+
+def enforce_chart_rules(spec: dict | None, question: str = "") -> dict | None:
+    """Correct a chart spec so the chart matches the kind of data it describes.
+
+    Returns the spec unchanged when it already fits, a corrected one when it does
+    not, and None when no chart is defensible. A 'rule' note is attached so the
+    substitution can be explained rather than being silently different from what
+    was asked for.
+    """
+    if not spec:
+        return spec
+
+    chart_type = (spec.get("type") or "bar").lower()
+    labels = spec.get("x") or [row.get(spec.get("xKey")) for row in spec.get("data") or []]
+    values = spec.get("y") or [row.get(spec.get("yKey")) for row in spec.get("data") or []]
+    if not labels or not values:
+        return spec
+
+    label_kind = classify_series(labels)
+
+    # A pie divides a whole into parts. It cannot carry a continuous label axis,
+    # it degrades past a handful of slices, and it is the wrong tool for ranking.
+    if chart_type == "pie":
+        if label_kind == "continuous":
+            spec["type"] = "histogram"
+            spec["rule"] = ("Continuous data cannot be shown as parts of a whole; "
+                            "a histogram shows its distribution.")
+        elif len(labels) > _MAX_PIE_SLICES:
+            spec["type"] = "bar"
+            spec["rule"] = (f"{len(labels)} categories is past what a pie can be read at; "
+                            "a bar chart keeps them comparable.")
+        elif is_comparison_question(question):
+            spec["type"] = "bar"
+            spec["rule"] = "Bar chart: lengths compare accurately, pie slices do not."
+        return spec
+
+    # Bars imply discrete categories along the x axis. A continuous variable
+    # needs binning, which is a histogram, not a bar per observed value.
+    if chart_type == "bar" and label_kind == "continuous":
+        spec["type"] = "histogram"
+        spec["rule"] = ("A bar per distinct value misreads a continuous variable; "
+                        "binned into a histogram instead.")
+        return spec
+
+    # A line asserts an ordered axis. Unordered categories have no such order.
+    if chart_type == "line" and label_kind == "qualitative" and not spec.get("ordinal"):
+        spec["type"] = "bar"
+        spec["rule"] = ("Categories have no inherent order, so a connecting line would "
+                        "imply a trend that does not exist.")
+        return spec
+
+    return spec
+
+
 def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
     chart_type = spec.get("type", "bar")
     x_labels = spec.get("x", [])
@@ -873,7 +988,15 @@ def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
     fig, ax = plt.subplots(figsize=(10, 5))
 
     try:
-        if chart_type == "pie":
+        if chart_type == "histogram":
+            ax.hist(y_values, bins=min(12, max(5, len(set(y_values)))),
+                    color="#D10654", edgecolor="white")
+            ax.set_ylabel("Frequency")
+        elif chart_type == "box":
+            ax.boxplot(y_values, vert=True, patch_artist=True,
+                       boxprops={"facecolor": "#D10654", "alpha": 0.6})
+            ax.set_ylabel("Value")
+        elif chart_type == "pie":
             ax.pie(y_values, labels=x_labels, autopct="%1.1f%%",
                    colors=sns.color_palette("Blues_d", len(x_labels)))
         elif chart_type == "line":
@@ -911,7 +1034,7 @@ def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode
         except Exception as e:
             return None, sql, None, f"Report generation failed: {str(e)}", None, None
 
-    chart = generate_chart_spec(df)
+    chart = generate_chart_spec_checked(df, question)
     try:
         answer, conv_fb = generate_conversational_answer(question, sql, df)
         fallback_used = fallback_used or conv_fb
