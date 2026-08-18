@@ -14,6 +14,7 @@ stays SELECT-only and allowlist-checked as before.
 from __future__ import annotations
 
 import os
+import json
 
 import httpx
 import pandas as pd
@@ -314,6 +315,79 @@ def get_slotting_recommendation(engine: Engine, search: str, limit: int = 10) ->
 
 # ── Tool registry ──────────────────────────────────────────────────────────
 # Only name, description, and params are ever shown to the LLM.
+
+# Plain-English names for the simulation inputs. The stored keys are the engine's.
+_SENSITIVITY_LABELS = {
+    "daily_mean":   "average daily demand",
+    "daily_std":    "demand variability",
+    "lead_mean":    "supplier lead time",
+    "lead_std":     "lead time reliability",
+    "target_stock": "proposed target stock",
+}
+
+
+def get_policy_sensitivity(engine: Engine, search: str) -> tuple[pd.DataFrame, str]:
+    """What a min/max recommendation is most sensitive to — which input would have to
+    change, and by how much, before the service level breaks. Reads the stored
+    one-factor-at-a-time simulation evidence rather than reasoning about it."""
+    sql = """
+        SELECT m.material_code, m.description,
+               e.simulated_fill_rate, e.service_level_target, e.sensitivity_json,
+               e.demand_p5, e.demand_p50, e.demand_p95,
+               e.stockout_days_current, e.stockout_days_proposed, e.simulation_method
+        FROM inventory_policy_simulation_evidence e
+        JOIN materials m ON m.id = e.material_id
+        WHERE (m.material_code ILIKE :pattern OR m.description ILIKE :pattern)
+        ORDER BY e.created_at DESC
+        LIMIT 1
+    """
+    row = pd.read_sql(text(sql), engine, params={"pattern": f"%{search}%"})
+    call_desc = f"-- inventory policy simulation sensitivity for '{search}' --"
+
+    if row.empty:
+        return (
+            pd.DataFrame([{"note": f"No policy simulation evidence found for '{search}'."}]),
+            call_desc,
+        )
+
+    r = row.iloc[0]
+    if not r["sensitivity_json"]:
+        return (
+            pd.DataFrame([{"note": (
+                f"{r['material_code']} has simulation evidence but no sensitivity analysis yet. "
+                "Sensitivity is recorded from the next policy recalculation onward; "
+                "re-run the inventory policy calculation to populate it."
+            )}]),
+            call_desc,
+        )
+
+    payload = r["sensitivity_json"]
+    factors = json.loads(payload) if isinstance(payload, str) else payload
+    base = float(r["simulated_fill_rate"] or 0.0)
+
+    # Swings are fractions of fill rate; a manager reads service in percentage points.
+    df = pd.DataFrame([
+        {
+            "input": _SENSITIVITY_LABELS.get(f["factor"], f["factor"].replace("_", " ")),
+            "service_swing_points": round(float(f["swing"]) * 100, 2),
+            "if_20pct_lower_pct": round(float(f["low_fill_rate"]) * 100, 2),
+            "if_20pct_higher_pct": round(float(f["high_fill_rate"]) * 100, 2),
+        }
+        for f in factors
+    ])
+
+    target = float(r["service_level_target"] or 0.0)
+    call_desc = (
+        f"-- one-factor-at-a-time sensitivity for {r['material_code']} ({r['description']}). "
+        f"Simulated fill rate {base * 100:.1f}% against a {target * 100:.0f}% target. "
+        f"Lead-time demand p5={float(r['demand_p5'] or 0):,.0f}, p50={float(r['demand_p50'] or 0):,.0f}, "
+        f"p95={float(r['demand_p95'] or 0):,.0f} units. Each input moved +/-20% with the random "
+        f"seed held fixed, so the swing is the input's effect and not resampling noise. "
+        f"Method: {r['simulation_method']} --"
+    )
+    return df, call_desc
+
+
 TOOL_REGISTRY = {
     "stock_level": {
         "description": "Look up current stock/inventory levels for a specific SKU, material code, or product name.",
@@ -354,6 +428,17 @@ TOOL_REGISTRY = {
         "description": "Show the latest MILP-generated inventory policy recommendation (proposed min/max stock, reorder point) for a material, with the engine's rationale for the change.",
         "params": {"search": "string, required — SKU code, material code, or product name keyword", "limit": "integer, optional, default 10"},
         "fn": get_policy_recommendation,
+    },
+    "policy_sensitivity": {
+        "description": (
+            "What a min/max stock recommendation depends on most: which simulation input "
+            "(demand, demand variability, supplier lead time, lead time reliability, target "
+            "stock) would break the service level if it moved, and by how many percentage "
+            "points. Use for 'what is this sensitive to', 'what if lead time slips', "
+            "'how risky is this recommendation', 'what drives this min max'."
+        ),
+        "params": {"search": "string, required - material code or description keyword"},
+        "fn": get_policy_sensitivity,
     },
     "slotting_recommendation": {
         "description": "Show the latest MILP slotting/relocation recommendation for a material — current vs. recommended bin location and why.",
