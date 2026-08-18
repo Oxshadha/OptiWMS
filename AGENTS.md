@@ -57,3 +57,37 @@ It is advisory only: the role gate in `api.py` runs first, and tools take
 parameters rather than SQL. Page context can supply a subject; it can never
 widen what a user is allowed to see. Anything the user names explicitly wins
 over it.
+
+## LangGraph ReAct loop — evaluated, not adopted
+
+A colleague's branch replaces the single-shot tool dispatch with
+`langgraph.prebuilt.create_react_agent`. It was prototyped over this branch's
+nine-tool registry (not her two) and measured rather than argued about.
+
+**What it gains.** Genuine multi-step questions. Asked to *compare the forecast
+drivers for RM-0001 and RM-0002 and say which is falling faster*, the loop made
+four tool calls, reasoned across them, and produced a comparison the single-shot
+dispatch cannot — it picks exactly one tool and stops.
+
+**What it costs.**
+
+| | single-shot | ReAct loop |
+|---|---|---|
+| Latency, one question | ~2–4 s | **25 s** |
+| Model calls | 2 | one per loop iteration |
+| Final message | plain string | list of content blocks, needs unwrapping |
+
+**Why it is not adopted yet.** Twenty-five seconds is not a usable interactive
+latency, and the tool results reach the model as text — so `sql`, `data` and
+`chart` survive only via a side channel that captures each tool's DataFrame as it
+runs. That works (the prototype recovered a valid chart spec), but it is real
+plumbing added for a question type nobody has asked for yet.
+
+**If it is revisited**, the two things to solve first are latency (a faster
+routing model, or the loop only when a single tool demonstrably cannot answer)
+and unwrapping the content-block response into the existing `DataResponse`
+contract. The side-channel capture pattern from the prototype is the right shape
+for preserving structure; it does not need redesigning.
+
+`langgraph` is installed in the local environment but deliberately absent from
+`requirements.txt`, since nothing in the service imports it.
