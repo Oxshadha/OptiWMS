@@ -29,8 +29,9 @@ class SlottingPlanExecutionServiceTest {
         MaterialRepository materials = mock(MaterialRepository.class);
         SlottingPlanLineRepository lines = mock(SlottingPlanLineRepository.class);
         SlottingPlanReserveLineRepository reserves = mock(SlottingPlanReserveLineRepository.class);
+        DefaultLocationAssignmentIsolation isolation = mock(DefaultLocationAssignmentIsolation.class);
         SlottingPlanExecutionService service = new SlottingPlanExecutionService(
-                defaults, transfers, inventory, materials, lines, reserves);
+                defaults, transfers, inventory, materials, lines, reserves, isolation);
 
         UUID warehouse = UUID.randomUUID();
         UUID material = UUID.randomUUID();
