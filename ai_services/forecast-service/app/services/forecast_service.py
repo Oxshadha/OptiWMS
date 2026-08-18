@@ -8,7 +8,6 @@ from app.core.config import settings
 from app.db.models import ForecastRun, ForecastPrediction, ForecastMetric, InventoryRecommendation
 from app.services.runtime_data_source import resolve_online_history_series, resolve_inventory_snapshot, InventorySnapshotRow
 from app.services.raw_material_service import persist_raw_material_requirements
-from app.services.shap_service import compute_and_persist_shap
 
 REPORT_PATH = f"{settings.reports_dir}/{settings.forecast_report_file}"
 INV_PATH = f"{settings.reports_dir}/{settings.inventory_report_file}"
@@ -478,40 +477,9 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
             series=series,
             stage="production",
             clip_negative=True,
-            return_feature_matrix=True,   # needed for SHAP
         )
         items = res.get("items") or []
         total_pred += _persist_online_predictions(db, run, items, h)
-        # ── SHAP explanations (pre-compute at publish time) ───────────────────
-        if settings.shap_explainer_enabled and not res.get("fallback_used"):
-            feature_frame = res.get("feature_frame")
-            if feature_frame is not None and not feature_frame.empty:
-                sku_list = [
-                    str(it.get("fg_code") or it.get("series_id") or "")
-                    for it in items
-                    if not it.get("fallback_used")
-                ]
-                pred_list = [
-                    float(it.get("prediction") or 0.0)
-                    for it in items
-                    if not it.get("fallback_used")
-                ]
-                try:
-                    compute_and_persist_shap(
-                        db=db,
-                        run_id=run.id,
-                        dataset=run.dataset,
-                        model_name=run.model_name,
-                        horizon=h,
-                        feature_frame=feature_frame,
-                        sku_list=sku_list,
-                        predictions=pred_list,
-                    )
-                except Exception as shap_exc:  # noqa: BLE001
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "SHAP computation failed for horizon=%d: %s", h, shap_exc
-                    )
         if h == 1:
             for it in items:
                 sku = str(it.get("fg_code") or it.get("series_id") or "").strip()

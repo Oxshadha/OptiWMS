@@ -118,6 +118,16 @@ public class AiProxyController {
                 model, service.resolveWarehouseScope(authentication, warehouseId));
     }
 
+    @GetMapping("/shap-explanation")
+    public ResponseEntity<Object> shapExplanation(
+            @RequestParam String sku,
+            @RequestParam(defaultValue = "3") Integer horizon,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model
+    ) {
+        return service.getShapExplanation(sku, horizon, dataset, model);
+    }
+
     @GetMapping("/generation-provenance")
     public ResponseEntity<Object> generationProvenance() {
         return forecastResultReadService.getGenerationProvenance();
