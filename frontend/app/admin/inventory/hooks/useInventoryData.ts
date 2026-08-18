@@ -151,8 +151,11 @@ export function useInventoryData({
       const location = item.locationCode || "N/A";
       return {
         id: item.id,
-        sku: material?.materialCode || item.materialId,
-        name: material?.description || "Unknown Material",
+        // The row's own label wins. Falling back to the reference list first made every material
+        // outside the operational tiers render as a raw uuid and "Unknown Material", because that
+        // list is filtered for a reason unrelated to how a row should be named.
+        sku: item.materialCode || material?.materialCode || item.materialId,
+        name: item.materialDescription || material?.description || "Unknown Material",
         qty,
         availableQty,
         reservedQty: Math.ceil(parseFloat(item.reservedQuantity) || 0),

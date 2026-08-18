@@ -22,10 +22,38 @@ public class InventoryController {
 
     private final InventoryService inventoryService;
     private final NotificationService notificationService;
+    private final com.optiwms.infra.master.MaterialRepository materialRepository;
 
-    public InventoryController(InventoryService inventoryService, NotificationService notificationService) {
+    public InventoryController(
+            InventoryService inventoryService,
+            NotificationService notificationService,
+            com.optiwms.infra.master.MaterialRepository materialRepository) {
         this.inventoryService = inventoryService;
         this.notificationService = notificationService;
+        this.materialRepository = materialRepository;
+    }
+
+    /**
+     * Material code and description for the given stock rows, read in one query.
+     *
+     * <p>The client used to label rows by joining them against the materials reference list, which
+     * is deliberately filtered to operational tiers. Anything outside those tiers -- currently about
+     * a third of the catalogue, on a null tier -- fell out of the join and rendered as a raw uuid
+     * and "Unknown Material". A row's own label must not depend on an unrelated data-quality filter,
+     * so it is resolved here against the material by id.
+     */
+    private java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> materialsFor(
+            List<com.optiwms.domain.inventory.InventoryItem> items) {
+        java.util.Set<UUID> ids = items.stream()
+                .map(com.optiwms.domain.inventory.InventoryItem::getMaterialId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> byId = new java.util.HashMap<>();
+        materialRepository.findAllById(ids).forEach(material -> byId.put(material.getId(), material));
+        return byId;
     }
 
     @GetMapping
@@ -51,8 +79,9 @@ public class InventoryController {
             items = inventoryService.listAll();
         }
 
+        var materials = materialsFor(items);
         var data = items.stream()
-                .map(item -> toDto(item))
+                .map(item -> toDto(item, materials))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -90,8 +119,9 @@ public class InventoryController {
                 PageRequest.of(safePage, safeSize, sort)
         );
 
+        var pageMaterials = materialsFor(itemPage.getContent());
         List<InventoryItemDto> data = itemPage.getContent().stream()
-                .map(this::toDto)
+                .map(item -> toDto(item, pageMaterials))
                 .toList();
 
         return ResponseEntity.ok(new PagedInventoryResponse(
@@ -129,19 +159,22 @@ public class InventoryController {
     @GetMapping("/material/{materialId}")
     public ResponseEntity<List<InventoryItemDto>> getByMaterial(@PathVariable UUID materialId) {
         var items = inventoryService.findByMaterial(materialId);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @GetMapping("/warehouse/{warehouseId}")
     public ResponseEntity<List<InventoryItemDto>> getByWarehouse(@PathVariable UUID warehouseId) {
         var items = inventoryService.findByWarehouse(warehouseId);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @GetMapping("/location/{locationCode}")
     public ResponseEntity<List<InventoryItemDto>> getByLocation(@PathVariable String locationCode) {
         var items = inventoryService.findByLocationCode(locationCode);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @PatchMapping("/{id}/quantity")
@@ -316,8 +349,20 @@ public class InventoryController {
     }
 
     // Helper method to convert domain to DTO with String quantities
+    /** Single-row mapping; resolves the material label on its own. */
     private InventoryItemDto toDto(com.optiwms.domain.inventory.InventoryItem item) {
+        return toDto(item, materialsFor(List.of(item)));
+    }
+
+    private InventoryItemDto toDto(
+            com.optiwms.domain.inventory.InventoryItem item,
+            java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> materials) {
+        com.optiwms.infra.master.MaterialEntity material = item.getMaterialId() != null
+                ? materials.get(item.getMaterialId())
+                : null;
         return new InventoryItemDto(
+                material != null ? material.getMaterialCode() : null,
+                material != null ? material.getDescription() : null,
                 item.getId(),
                 item.getMaterialId(),
                 item.getWarehouseId(),
@@ -389,6 +434,9 @@ public class InventoryController {
     }
 
     public record InventoryItemDto(
+            /** Label carried on the row so the client never has to join to get it. */
+            String materialCode,
+            String materialDescription,
             UUID id,
             UUID materialId,
             UUID warehouseId,
