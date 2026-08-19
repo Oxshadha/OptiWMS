@@ -1,6 +1,9 @@
 package com.optiwms.coreapi.orders;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.optiwms.coreapp.orders.OrderItemService;
+import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
 import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
@@ -28,6 +31,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/orders")
 public class OrderItemController {
 
+    private static final Logger logger = LoggerFactory.getLogger(OrderItemController.class);
+
     private final OrderItemService orderItemService;
     private final OrderService orderService;
     private final MaterialLocationAssignmentService materialLocationService;
@@ -39,6 +44,7 @@ public class OrderItemController {
     private final TaskService taskService;
     private final PutawayReservationService putawayReservationService;
     private final HandlingUnitCapacityService handlingUnitCapacityService;
+    private final OutboundOrderWorkflowService outboundWorkflowService;
 
     public OrderItemController(
             OrderItemService orderItemService,
@@ -51,10 +57,12 @@ public class OrderItemController {
             InventoryItemRepository inventoryItemRepository,
             TaskService taskService,
             PutawayReservationService putawayReservationService,
-            HandlingUnitCapacityService handlingUnitCapacityService) {
+            HandlingUnitCapacityService handlingUnitCapacityService,
+            OutboundOrderWorkflowService outboundWorkflowService) {
         this.taskService = taskService;
         this.putawayReservationService = putawayReservationService;
         this.handlingUnitCapacityService = handlingUnitCapacityService;
+        this.outboundWorkflowService = outboundWorkflowService;
         this.orderItemService = orderItemService;
         this.orderService = orderService;
         this.materialLocationService = materialLocationService;
@@ -269,6 +277,18 @@ public class OrderItemController {
                     reservablePlan.allocations());
         }
 
+        // An outbound order is created empty and its lines posted afterwards, so the picking plan
+        // built at creation time covered nothing. Rebuild it here, now that a line exists -- until
+        // an order has tasks it does not appear in any picker's queue.
+        if ("outbound".equalsIgnoreCase(order.getOrderType())) {
+            try {
+                outboundWorkflowService.createPickingTasksForOrder(orderId);
+            } catch (RuntimeException taskFailure) {
+                logger.error("Order item added to {} but picking task generation failed",
+                        order.getOrderNumber(), taskFailure);
+            }
+        }
+
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDtoWithMaterial(created));
     }
 
@@ -319,6 +339,7 @@ public class OrderItemController {
                 item.getQuantity(),
                 item.getUnitPrice() != null ? item.getUnitPrice().toString() : null,
                 item.getPickedQuantity(),
+                item.getReceivedQuantity(),
                 item.getPackedQuantity(),
                 item.getLocationCode(),
                 item.getWeightKg(),
@@ -428,6 +449,7 @@ public class OrderItemController {
             Integer quantity,
             String unitPrice,
             Integer pickedQuantity,
+            Integer receivedQuantity,
             Integer packedQuantity,
             String locationCode,
             java.math.BigDecimal weightKg,

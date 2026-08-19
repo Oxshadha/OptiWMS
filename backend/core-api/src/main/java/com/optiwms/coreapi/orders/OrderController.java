@@ -7,6 +7,7 @@ import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
+import com.optiwms.infra.orders.OrderItemRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -20,7 +21,10 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeParseException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,17 +39,20 @@ public class OrderController {
     private final OutboundOrderWorkflowService outboundWorkflowService;
     private final InboundOrderWorkflowService inboundWorkflowService;
     private final NotificationService notificationService;
+    private final OrderItemRepository orderItemRepository;
 
     public OrderController(OrderService orderService,
                           OrderStatusService orderStatusService,
                           OutboundOrderWorkflowService outboundWorkflowService,
                           InboundOrderWorkflowService inboundWorkflowService,
-                          NotificationService notificationService) {
+                          NotificationService notificationService,
+                          OrderItemRepository orderItemRepository) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.outboundWorkflowService = outboundWorkflowService;
         this.inboundWorkflowService = inboundWorkflowService;
         this.notificationService = notificationService;
+        this.orderItemRepository = orderItemRepository;
     }
 
     @GetMapping
@@ -100,8 +107,9 @@ public class OrderController {
                 PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
         );
 
+        Map<UUID, LineProgress> progress = lineProgressFor(orderPage.getContent());
         List<OrderDto> data = orderPage.getContent().stream()
-                .map(this::toDto)
+                .map(order -> toDto(order, progress.get(order.getId())))
                 .toList();
 
         return ResponseEntity.ok(new PagedOrderResponse(
@@ -377,6 +385,10 @@ public class OrderController {
     }
 
     private OrderDto toDto(Order order) {
+        return toDto(order, null);
+    }
+
+    private OrderDto toDto(Order order, LineProgress progress) {
         return new OrderDto(
                 order.getId().toString(),
                 order.getOrderNumber(),
@@ -389,8 +401,26 @@ public class OrderController {
                 order.getOrderDate() != null ? order.getOrderDate().toString() : null,
                 order.getExpectedDate() != null ? order.getExpectedDate().toString() : null,
                 order.getTotalAmount() != null ? order.getTotalAmount().toString() : null,
-                order.getNotes()
+                order.getNotes(),
+                progress
         );
+    }
+
+    /** One rollup query for the whole page, keyed by order id. */
+    private Map<UUID, LineProgress> lineProgressFor(List<Order> orders) {
+        List<UUID> ids = orders.stream().map(Order::getId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, LineProgress> byOrder = new HashMap<>();
+        for (Object[] row : orderItemRepository.summariseByOrderIds(ids)) {
+            byOrder.put((UUID) row[0], new LineProgress(
+                    ((Number) row[1]).intValue(),
+                    ((Number) row[4]).intValue(),
+                    ((Number) row[2]).longValue(),
+                    ((Number) row[3]).longValue()));
+        }
+        return byOrder;
     }
 
     public record CreateOrderRequest(
@@ -432,7 +462,19 @@ public class OrderController {
             String orderDate,
             String expectedDate,
             String totalAmount,
-            String notes
+            String notes,
+            LineProgress progress
+    ) {}
+
+    /**
+     * Line and quantity rollup for one order. Null on single-order reads, which have the items
+     * to hand; populated on list responses so the client does not fetch them per row.
+     */
+    public record LineProgress(
+            int totalLines,
+            int receivedLines,
+            long totalQuantity,
+            long receivedQuantity
     ) {}
 
     public record PagedOrderResponse(

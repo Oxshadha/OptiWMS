@@ -6,6 +6,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi, type Material } from "@/lib/api/materials";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { inventoryApi } from "@/lib/api/inventory";
 import { showToast } from "@/lib/utils/toast";
 import { SORTED_COUNTRIES, getCountryByName } from "@/lib/utils/countries";
@@ -77,7 +78,7 @@ export function CreateOutboundOrderModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [inventoryTotalsByMaterialId, setInventoryTotalsByMaterialId] = useState<Map<string, number>>(new Map());
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
@@ -134,7 +135,7 @@ export function CreateOutboundOrderModal({
       try {
         const [customersData, warehousesData, materialsData] = await Promise.all([
           customersApi.getAll(),
-          warehousesApi.getAll(),
+          warehousesApi.getReceivable(),
           materialsApi.getAll(),
         ]);
         setCustomers(customersData);
@@ -938,9 +939,11 @@ export function CreateOutboundOrderModal({
                 required
               >
                 <option value="">Select warehouse</option>
+                {/* Two warehouses can share a display name (a live site and its archived
+                    predecessor). Without the code they are indistinguishable here. */}
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.name}
+                    {w.code ? `${w.code} - ${w.name}` : w.name}
                   </option>
                 ))}
               </select>
@@ -1055,10 +1058,27 @@ export function CreateOutboundOrderModal({
                     <label className="label">
                       <span className="label-text text-xs">Product *</span>
                     </label>
-                    <select
-                      className="select select-bordered select-sm"
+                    <SearchableSelect
+                      required
                       value={item.productId}
-                      onChange={async (e) => {
+                      loading={!!formData.warehouseId && isInventoryLoading}
+                      placeholder="Search by code or description..."
+                      emptyLabel={
+                        formData.warehouseId
+                          ? "No stock in this warehouse matches"
+                          : "Select a warehouse first"
+                      }
+                      options={(formData.warehouseId ? selectableMaterials : materials).map((m) => ({
+                        value: m.id,
+                        label: m.materialCode || m.id,
+                        description: m.description,
+                        meta: formData.warehouseId
+                          ? `${(inventoryTotalsByMaterialId.get(m.id) ?? 0).toLocaleString()} avail`
+                          : undefined,
+                        keywords: m.materialType || undefined,
+                      }))}
+                      onChange={async (selectedValue) => {
+                        const e = { target: { value: selectedValue } };
                         const newItems = [...formData.items];
                         newItems[idx].productId = e.target.value;
                         newItems[idx].orderQuantity = 0; // Reset quantity when product changes
@@ -1090,25 +1110,7 @@ export function CreateOutboundOrderModal({
                         
                         setFormData({ ...formData, items: newItems });
                       }}
-                      required
-                    >
-                      <option value="">Select material</option>
-                      {formData.warehouseId && isInventoryLoading && (
-                        <option value="" disabled>
-                          Loading warehouse inventory...
-                        </option>
-                      )}
-                      {formData.warehouseId && !isInventoryLoading && selectableMaterials.length === 0 && (
-                        <option value="" disabled>
-                          No inventory items in selected warehouse
-                        </option>
-                      )}
-                      {(formData.warehouseId ? selectableMaterials : materials).map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.materialCode} - {m.description}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                   <div className="form-control">
                     <label className="label">

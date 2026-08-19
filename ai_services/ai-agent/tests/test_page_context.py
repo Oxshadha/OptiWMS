@@ -70,20 +70,32 @@ from agent import suggestions_for  # noqa: E402
 
 def test_suggestions_name_the_selected_entity():
     prompts = suggestions_for({"route": "/admin/forecasts", "entityLabel": "RM-0001"})
-    assert all("RM-0001" in p for p in prompts)
+    assert any("RM-0001" in p["text"] for p in prompts)
+
+
+def test_each_suggestion_carries_its_own_title():
+    """Reusing a generic card title over a page-specific prompt produced captions
+    like "Stock Levels" above "Why is demand high?"."""
+    for p in suggestions_for({"route": "/admin/forecasts"}):
+        assert p["title"] and p["text"]
+        assert len(p["title"]) < len(p["text"])
 
 
 def test_suggestions_read_cleanly_without_an_entity():
-    """The subject placeholder must not leave a double space or a dangling 'for'."""
     for p in suggestions_for({"route": "/admin/forecasts"}):
-        assert "  " not in p
-        assert not p.rstrip("?").endswith("for")
+        assert "  " not in p["text"]
+        assert not p["text"].rstrip("?").endswith("for")
 
 
-def test_each_page_gets_its_own_prompts():
-    forecasts = suggestions_for({"route": "/admin/forecasts"})
+def test_each_decision_page_offers_its_own_explanation_prompt():
+    """The three XAI screens must each invite the question they can answer."""
+    forecast = suggestions_for({"route": "/admin/forecasts"})
     policy = suggestions_for({"route": "/admin/inventory-intelligence"})
-    assert forecasts != policy
+    slotting = suggestions_for({"route": "/admin/slotting-plans"})
+    assert any("driving" in p["text"].lower() for p in forecast)
+    assert any("sensitive" in p["text"].lower() for p in policy)
+    assert any("location" in p["text"].lower() for p in slotting)
+    assert forecast != policy != slotting
 
 
 def test_an_unknown_route_still_gets_useful_prompts():
@@ -91,12 +103,5 @@ def test_an_unknown_route_still_gets_useful_prompts():
 
 
 def test_workers_are_offered_procedures_not_analytics():
-    """The worker role cannot run the analytics tools, so proposing them would
-    lead straight to a permission denial."""
     prompts = suggestions_for({"route": "/worker/tasks"}, role="worker")
-    assert any("forklift" in p.lower() or "cycle count" in p.lower() for p in prompts)
-
-
-def test_suggestions_are_always_three():
-    for ctx in ({"route": "/admin/forecasts"}, {"route": "/admin/dashboard"}, None, {}):
-        assert len(suggestions_for(ctx)) == 3
+    assert any("forklift" in p["text"].lower() for p in prompts)

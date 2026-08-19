@@ -70,7 +70,7 @@ public class LocationService {
                 .collect(Collectors.toList());
     }
 
-    static boolean isOperationalStorageLocation(String locationType, String zoneType) {
+    public static boolean isOperationalStorageLocation(String locationType, String zoneType) {
         String type = locationType == null ? "" : locationType.trim().toUpperCase(java.util.Locale.ROOT);
         String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(java.util.Locale.ROOT);
         return java.util.Set.of("STORAGE", "PICKING", "BULK").contains(type)

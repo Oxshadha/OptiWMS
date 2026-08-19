@@ -22,8 +22,11 @@ public class WarehouseController {
     @GetMapping
     public ResponseEntity<List<WarehouseDto>> list(
             @RequestParam(defaultValue = "false") boolean includeLegacy,
+            @RequestParam(defaultValue = "false") boolean receivableOnly,
             @NonNull WebRequest webRequest) {
-        var warehouses = includeLegacy ? service.listAll() : service.listOperational();
+        var warehouses = includeLegacy
+                ? service.listAll()
+                : receivableOnly ? service.listReceivable() : service.listOperational();
         var data = warehouses.stream()
                 .map(w -> new WarehouseDto(
                         w.getId(),
@@ -37,7 +40,8 @@ public class WarehouseController {
                         w.getEmail(),
                         w.getStatus()))
                 .toList();
-        return ReferenceDataCacheSupport.ok(webRequest, data, "warehouses:" + includeLegacy, data);
+        return ReferenceDataCacheSupport.ok(
+                webRequest, data, "warehouses:" + includeLegacy + ":" + receivableOnly, data);
     }
 
     @GetMapping("/{id}")

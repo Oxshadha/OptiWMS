@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 
@@ -220,12 +221,44 @@ def load_materials(cur, physical: pd.DataFrame, digest: str) -> dict[str, str]:
     return dict(cur.fetchall())
 
 
+# The v8 artifacts predate V54, which normalised storage codes to a three-digit bay
+# (E-03-07-1-A became E-03-007-1-A). The location id is derived from the layout and
+# is stable across that change, so re-running the loader against an already-migrated
+# database inserted a row whose code looked new while its id already existed --
+# ON CONFLICT(location_code) never fired and the primary key raised instead. That is
+# why this script could only ever succeed once.
+_STORAGE_CODE = re.compile(r"^([A-Z])-(\d{2})-(\d{2,3})-(\d{1,2})-([A-Z])$")
+
+
+def canonical_location_code(code: object) -> object:
+    """Rewrite a storage code to the canonical three-digit-bay form V54 enforces.
+
+    Anything that is not a storage code (a door, a staging lane) is returned as is.
+    """
+    if not isinstance(code, str):
+        return code
+    match = _STORAGE_CODE.match(code.strip().upper())
+    if not match:
+        return code
+    zone, aisle, bay, level, position = match.groups()
+    return f"{zone}-{aisle}-{bay.zfill(3)}-{level}-{position}"
+
+
+def canonicalise_location_codes(frames: dict) -> dict:
+    """Apply the canonical code to every frame that references a location."""
+    for name in ("layout", "assignments", "physical_inventory", "slotting_validation"):
+        frame = frames.get(name)
+        if frame is not None and "location_code" in frame.columns:
+            frame["location_code"] = frame["location_code"].map(canonical_location_code)
+    return frames
+
+
 def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str) -> int:
     locations = align_operational_apron(locations)
     locations = align_velocity_zones_to_doors(locations)
     rows = [(
         row.location_id, warehouse_id, row.location_code, row.area,
-        str(row.row_number).zfill(2), str(row.bay_number).zfill(2),
+        str(row.row_number).zfill(2), str(row.bay_number).zfill(3),
         int(row.level_number), row.bin_position, row.location_type, row.zone_type,
         float(row.capacity), True, int(row.accessibility_rating),
         float(row.coordinate_x), float(row.coordinate_y), float(row.coordinate_z),
@@ -794,6 +827,7 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
     # Keep display names stable even when loading older statistical artifacts
     # whose immutable codes still carry the original synthetic descriptions.
     frames["physical"] = apply_catalog_names(frames["physical"])
+    frames = canonicalise_location_codes(frames)
     conn = psycopg2.connect(db_url)
     try:
         conn.autocommit = False
