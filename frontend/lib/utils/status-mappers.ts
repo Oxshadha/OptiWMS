@@ -15,9 +15,15 @@ export function mapInboundOrderStatus(status: string | null | undefined): string
   return status;
 }
 
-export type PackingDisplayStatus = "pending" | "in_progress" | "packed" | "shipped";
+export type PackingDisplayStatus =
+  | "pending_approval"
+  | "pending"
+  | "in_progress"
+  | "packed"
+  | "shipped";
 
 export function mapPackingStatus(status: string | null | undefined): PackingDisplayStatus {
+  if (status === "pending_approval") return "pending_approval";
   if (status === "in_progress") return "in_progress";
   if (status === "packed") return "packed";
   if (status === "shipped") return "shipped";

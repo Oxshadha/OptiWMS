@@ -18,6 +18,17 @@ export const warehousesApi = {
     return apiClient.get<Warehouse[]>('/master/warehouses');
   },
 
+  /**
+   * Only warehouses that own at least one active storage bin.
+   *
+   * Order creation must use this rather than getAll(): a legacy warehouse whose racks are
+   * archived still appears in master data (and still names itself on historical orders), but
+   * every capacity check against it fails, so offering it guarantees a rejected order.
+   */
+  getReceivable: async (): Promise<Warehouse[]> => {
+    return apiClient.get<Warehouse[]>('/master/warehouses?receivableOnly=true');
+  },
+
   getById: async (id: string): Promise<Warehouse> => {
     return apiClient.get<Warehouse>(`/master/warehouses/${id}`);
   },

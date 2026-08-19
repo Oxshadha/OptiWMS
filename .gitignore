@@ -164,6 +164,7 @@ application-local.yml
 *.key
 *.p12
 *.jks
+ai_services/ai-agent/.env.bak-groqmodel
 secrets/
 .secrets/
 

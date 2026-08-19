@@ -3,9 +3,8 @@
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Pagination } from "@/components/Pagination";
-import { StatusChip, type StatusTone } from "@/components/StatusChip";
+import { StatusChip } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
-import { orderItemsApi } from "@/lib/api/orderItems";
 import {
   useInvalidateAdminList,
   usePagedAdminQuery,
@@ -17,20 +16,19 @@ import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
-import { statusConfig, type InboundOrderDisplay } from "./types";
+import { getInboundStatusTone, statusConfig, type InboundOrderDisplay } from "./types";
 import {
   CreateInboundOrderModal,
   EditInboundOrderModal,
   InboundOrderDetailModal,
 } from "./components/InboundOrderModals";
 
-function getInboundStatusTone(status: string): StatusTone {
-  if (status === "completed") return "success";
-  if (status === "cancelled") return "danger";
-  if (status === "arrived" || status === "receiving" || status === "putaway") return "info";
-  return "warning";
-}
-
+/**
+ * Display status back to the value the API stores.
+ *
+ * Must stay the exact inverse of mapInboundOrderStatus: a chip reading "Received" that filters
+ * on something the API never stores returns an empty page, which looks like data loss.
+ */
 function toApiInboundStatus(status: string): string | undefined {
   if (status === "all") return undefined;
   if (status === "in_transit") return "shipped";
@@ -39,6 +37,55 @@ function toApiInboundStatus(status: string): string | undefined {
   if (status === "completed") return "fulfilled";
   if (status === "ordered") return "pending";
   return status;
+}
+
+/**
+ * Receiving progress for one order.
+ *
+ * Shows units, not lines. A line count answered "how many of the products have been touched",
+ * so a line receiving 1 of 600 units read as fully received, and a single-line order could only
+ * ever show 0 or 1. Line counts stay as the secondary figure, since a buyer still cares how many
+ * products are outstanding.
+ */
+function ReceivedProgress({
+  received,
+  total,
+  receivedLines,
+  totalLines,
+}: {
+  received: number;
+  total: number;
+  receivedLines: number;
+  totalLines: number;
+}) {
+  const pct = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+  const complete = total > 0 && received >= total;
+  return (
+    <div className="flex flex-col gap-1 min-w-[9rem]">
+      <div className="flex items-baseline gap-1 text-sm">
+        <span className="font-semibold tabular-nums">{received.toLocaleString()}</span>
+        <span className="text-base-content/50">/</span>
+        <span className="tabular-nums">{total.toLocaleString()}</span>
+        <span className="text-base-content/60">units</span>
+      </div>
+      <div
+        className="w-full bg-base-300 rounded-full h-2 overflow-hidden"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={received}
+        aria-label={`${received} of ${total} units received`}
+      >
+        <div
+          className={`h-2 rounded-full ${complete ? "bg-success" : "bg-primary"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-xs text-base-content/60 tabular-nums">
+        {pct}% · {receivedLines}/{totalLines} lines
+      </span>
+    </div>
+  );
 }
 
 export default function InboundOrdersPage() {
@@ -78,33 +125,16 @@ export default function InboundOrdersPage() {
         q: searchQuery.trim() || undefined,
       });
 
-      const ordersWithItems = await Promise.all(
-        ordersPage.data.map(async (order) => {
-          try {
-            const orderItems = await orderItemsApi.getByOrderId(order.id);
-            const totalItemsForOrder = orderItems.length;
-            const receivedItems = orderItems.filter(
-              (item) =>
-                item.pickedQuantity > 0 ||
-                item.status === "received" ||
-                item.status === "picked"
-            ).length;
-
-            return {
-              order,
-              totalItems: totalItemsForOrder,
-              receivedItems,
-            };
-          } catch (err) {
-            logger.warn(`Failed to load items for order ${order.orderNumber}:`, err);
-            return {
-              order,
-              totalItems: 0,
-              receivedItems: 0,
-            };
-          }
-        })
-      );
+      // The rollup arrives with the page. It used to be one items request per row, which cost
+      // 10 extra round trips and, on failure, reported zero items -- and a zero-item order is
+      // then dropped entirely by the operationalOrders filter below.
+      const ordersWithItems = ordersPage.data.map((order) => ({
+        order,
+        totalItems: order.progress?.totalLines ?? 0,
+        receivedItems: order.progress?.receivedLines ?? 0,
+        totalQuantity: order.progress?.totalQuantity ?? 0,
+        receivedQuantity: order.progress?.receivedQuantity ?? 0,
+      }));
 
       return {
         page: ordersPage,
@@ -131,14 +161,23 @@ export default function InboundOrdersPage() {
       (supplier) => supplier.id,
       (supplier) => supplier.name
     );
+    // Two warehouses can share a display name (a live site and its archived predecessor), and
+    // most historical orders belong to the archived one. Without the code the column cannot
+    // tell them apart.
     const warehousesMap = buildLookupMap(
       warehousesQuery.data || [],
       (warehouse) => warehouse.id,
-      (warehouse) => warehouse.name
+      (warehouse) => (warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name)
     );
 
     return (ordersQuery.data?.ordersWithItems || []).map(
-      ({ order, totalItems: totalItemsForOrder, receivedItems }) => {
+      ({
+        order,
+        totalItems: totalItemsForOrder,
+        receivedItems,
+        totalQuantity,
+        receivedQuantity,
+      }) => {
         const supplierName = order.supplierId
           ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
           : "Missing supplier - repair required";
@@ -159,6 +198,8 @@ export default function InboundOrdersPage() {
           status: mapInboundOrderStatus(order.status),
           totalItems: totalItemsForOrder,
           receivedItems,
+          totalQuantity,
+          receivedQuantity,
         };
       }
     );
@@ -313,6 +354,18 @@ export default function InboundOrdersPage() {
               </li>
               <li>
                 <button onClick={() => {
+                  setStatusFilter("received");
+                  setCurrentPage(1);
+                }}>Received</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setStatusFilter("put_away");
+                  setCurrentPage(1);
+                }}>Put Away</button>
+              </li>
+              <li>
+                <button onClick={() => {
                   setStatusFilter("completed");
                   setCurrentPage(1);
                 }}>Completed</button>
@@ -419,17 +472,12 @@ export default function InboundOrdersPage() {
                     </td>
                     <td>{order.totalItems}</td>
                     <td>
-                      <div className="flex items-center gap-2">
-                        <span>{order.receivedItems}</span>
-                        <div className="w-16 bg-base-300 rounded-full h-2">
-                          <div
-                            className="bg-primary h-2 rounded-full"
-                            style={{
-                              width: `${order.totalItems > 0 ? (order.receivedItems / order.totalItems) * 100 : 0}%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
+                      <ReceivedProgress
+                        received={order.receivedQuantity}
+                        total={order.totalQuantity}
+                        receivedLines={order.receivedItems}
+                        totalLines={order.totalItems}
+                      />
                     </td>
                     <td>
                       <div className="dropdown dropdown-end">

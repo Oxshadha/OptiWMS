@@ -99,10 +99,14 @@ public class ReceivingService {
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("Order item not found for material: " + receivedItem.materialId()));
 
-            // Update received quantity (stored in picked_quantity for inbound)
             // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
-            Integer currentReceived = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0;
+            Integer currentReceived = orderItem.getReceivedQuantity() != null
+                    ? orderItem.getReceivedQuantity()
+                    : 0;
             Integer receivedQty = (int) Math.ceil(receivedItem.quantity().doubleValue());
+            orderItem.setReceivedQuantity(currentReceived + receivedQty);
+            // picked_quantity is kept in step for now: downstream putaway planning and the older
+            // reports still read it. New readers should use received_quantity.
             orderItem.setPickedQuantity(currentReceived + receivedQty);
             orderItem.setStatus("received");
             orderItemRepository.save(orderItem);

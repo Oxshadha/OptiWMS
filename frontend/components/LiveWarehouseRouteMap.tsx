@@ -61,6 +61,21 @@ const routeColors = [
   "#0891b2",
 ];
 
+/**
+ * A worker's colour, fixed to the worker rather than to their position in the list.
+ *
+ * The list is sorted by last update, so indexing into the palette meant a worker's route
+ * changed colour whenever somebody else's route moved — the one thing an operator watching
+ * the floor uses to keep track of who is where.
+ */
+function routeColorFor(workerId: string) {
+  let hash = 0;
+  for (let i = 0; i < workerId.length; i += 1) {
+    hash = (hash * 31 + workerId.charCodeAt(i)) | 0;
+  }
+  return routeColors[Math.abs(hash) % routeColors.length];
+}
+
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 24;
 
@@ -99,9 +114,9 @@ export function LiveWarehouseRouteMap({
   );
   const routeVisuals = useMemo<RouteVisual[]>(
     () =>
-      visibleRoutes.map((route, index) => ({
+      visibleRoutes.map((route) => ({
         route,
-        color: routeColors[index % routeColors.length],
+        color: routeColorFor(route.workerId),
         ...splitRouteLegs(route),
       })),
     [visibleRoutes]
@@ -219,6 +234,9 @@ export function LiveWarehouseRouteMap({
     Math.min(MAX_ZOOM, fitWarehouseBounds.width / view.width)
   );
   const showRackLabels = zoom >= 3;
+  // At low zoom the worker dots sit on top of the station callouts; the legend covers
+  // identity there instead.
+  const showWorkerIdLabels = detail === "worker" || zoom >= 2;
   const operationalNodes = useMemo(() => {
     const facilityNodes = graph.nodes.filter((node) =>
       ["STATION", "PARKING", "DOOR"].includes(node.type)
@@ -564,18 +582,24 @@ export function LiveWarehouseRouteMap({
                     </text>
                   </>
                 ) : null}
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={nodeRadius + 4 * screenUnit}
+                {/* Squares, not circles: a filled circle on this map means "a stop on a route",
+                    and station discs of a similar size and blue read as dulled stop markers. */}
+                <rect
+                  x={node.x - (nodeRadius + 3 * screenUnit)}
+                  y={node.y - (nodeRadius + 3 * screenUnit)}
+                  width={(nodeRadius + 3 * screenUnit) * 2}
+                  height={(nodeRadius + 3 * screenUnit) * 2}
+                  rx={2 * screenUnit}
                   fill={color}
                   opacity="0.14"
                   pointerEvents="none"
                 />
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={nodeRadius}
+                <rect
+                  x={node.x - nodeRadius}
+                  y={node.y - nodeRadius}
+                  width={nodeRadius * 2}
+                  height={nodeRadius * 2}
+                  rx={1.5 * screenUnit}
                   fill={color}
                   stroke="#fff"
                   strokeWidth="2"
@@ -587,14 +611,13 @@ export function LiveWarehouseRouteMap({
 
           {routeVisuals.map(({ route, color, activeLegs, futureLegs, releasedLegs }, index) => {
             const isPrimary = route.id === primaryRoute?.id;
-            const activePath = pathFromLegs(activeLegs);
-            const futurePath = pathFromLegs(futureLegs);
-            const releasedPath = pathFromLegs(releasedLegs);
-            
-            // To prevent overlapping paths from completely hiding each other, 
-            // we use interleaved dash patterns instead of coordinate offsets.
-            const dashOffsetActive = detail === "admin" ? index * 10 : 0;
-            const dashOffsetFuture = detail === "admin" ? index * 5 : 0;
+            // Fan the routes out around the true centre line: 0, +0.9, -0.9, +1.8, -1.8 metres.
+            // Alternating sides keeps the busiest (first) route on the real geometry.
+            const lane = detail === "admin" ? Math.ceil(index / 2) * (index % 2 === 1 ? 1 : -1) : 0;
+            const offsetM = lane * 0.9;
+            const activePath = pathFromLegs(activeLegs, offsetM);
+            const futurePath = pathFromLegs(futureLegs, offsetM);
+            const releasedPath = pathFromLegs(releasedLegs, offsetM);
 
             return (
               <g key={`route-${route.id}`}>
@@ -618,9 +641,8 @@ export function LiveWarehouseRouteMap({
                     strokeWidth={isPrimary ? "3" : "2.5"}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeDasharray="3 7"
-                    strokeDashoffset={dashOffsetFuture}
-                    opacity={detail === "worker" ? "0.34" : "0.2"}
+                    strokeDasharray="2 8"
+                    opacity={detail === "worker" ? "0.34" : "0.25"}
                     vectorEffect="non-scaling-stroke"
                   />
                 ) : null}
@@ -632,8 +654,6 @@ export function LiveWarehouseRouteMap({
                     strokeWidth={isPrimary ? "5" : "4"}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeDasharray="10 7"
-                    strokeDashoffset={dashOffsetActive}
                     opacity={route.status === "WAITING" ? "0.7" : "1"}
                     vectorEffect="non-scaling-stroke"
                   />
@@ -642,7 +662,7 @@ export function LiveWarehouseRouteMap({
             );
           })}
 
-          {routeVisuals.map(({ route, color }, index) => {
+          {routeVisuals.map(({ route, color }) => {
             const node = nodeById.get(route.currentNodeId);
             if (!node) return null;
             return (
@@ -656,24 +676,31 @@ export function LiveWarehouseRouteMap({
                   strokeWidth="3"
                   vectorEffect="non-scaling-stroke"
                 />
-                <text
-                  x={node.x + 11 * screenUnit}
-                  y={node.y + 4 * screenUnit}
-                  fontSize={12 * screenUnit}
-                  fontWeight="800"
-                  fill={color}
-                  paintOrder="stroke"
-                  stroke="#fff"
-                  strokeWidth="0.7"
-                >
-                  {route.workerId.slice(0, 6)}
-                </text>
+                {/* Below the dot, not beside it. A worker starts on a station node, and the
+                    station's callout box is anchored at that same height to the side — so text
+                    placed to the right landed straight on "Receiving Door" or "Inbound Staging".
+                    Hidden when zoomed out, where the legend already maps colour to worker. */}
+                {showWorkerIdLabels ? (
+                  <text
+                    x={node.x}
+                    y={node.y + 20 * screenUnit}
+                    textAnchor="middle"
+                    fontSize={11 * screenUnit}
+                    fontWeight="800"
+                    fill={color}
+                    paintOrder="stroke"
+                    stroke="#fff"
+                    strokeWidth="2.5"
+                  >
+                    {route.workerId.slice(0, 6)}
+                  </text>
+                ) : null}
               </g>
             );
           })}
 
           {(detail === "admin" ? routeVisuals : primaryVisual ? [primaryVisual] : []).flatMap(
-            ({ route, color }, index) =>
+            ({ route, color }) =>
               route.stops.map((stop) => {
                 const node = nodeById.get(stop.accessNodeId);
                 if (!node || (detail === "worker" && stop.status === "COMPLETED")) return null;
@@ -683,13 +710,16 @@ export function LiveWarehouseRouteMap({
                     key={`${route.id}-${stop.id}`}
                     opacity={stop.status === "COMPLETED" ? 0.22 : isCurrent ? 1 : 0.5}
                   >
+                    {/* The stop the worker is on is filled in their colour; the rest are hollow
+                        rings in the same colour rather than anonymous slate, so a queue of "2"s
+                        from two workers can still be told apart. */}
                     <circle
                       cx={node.x}
                       cy={node.y}
-                      r={(isCurrent ? 10 : 7) * screenUnit}
-                      fill={isCurrent ? color : "#64748b"}
-                      stroke="#fff"
-                      strokeWidth="3"
+                      r={(isCurrent ? 10 : 7.5) * screenUnit}
+                      fill={isCurrent ? color : "#fff"}
+                      stroke={isCurrent ? "#fff" : color}
+                      strokeWidth={isCurrent ? "3" : "2.5"}
                       vectorEffect="non-scaling-stroke"
                     />
                     <text
@@ -698,7 +728,7 @@ export function LiveWarehouseRouteMap({
                       textAnchor="middle"
                       fontSize={(isCurrent ? 10 : 9) * screenUnit}
                       fontWeight="900"
-                      fill="#fff"
+                      fill={isCurrent ? "#fff" : color}
                     >
                       {stop.sequence}
                     </text>
@@ -713,7 +743,11 @@ export function LiveWarehouseRouteMap({
                         stroke="#fff"
                         strokeWidth="0.9"
                       >
-                        {isCurrent ? `NEXT · ${stop.locationCode}` : stop.locationCode}
+                        {isCurrent
+                          ? `NEXT · ${stop.locationCode}${
+                              detail === "admin" ? ` · ${route.workerId.slice(0, 6)}` : ""
+                            }`
+                          : stop.locationCode}
                       </text>
                     ) : null}
                   </g>
@@ -765,12 +799,30 @@ export function LiveWarehouseRouteMap({
         ) : (
           <div className="pointer-events-none absolute bottom-3 left-3 max-w-[calc(100%-5rem)] rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
             <div className="flex items-center gap-2">
-              <span className="w-8 border-t-[3px] border-dashed border-primary" />
+              {/* Swatches mirror the SVG: the current leg is solid, the rest finely dotted. */}
+              <span className="w-8 border-t-[3px] border-solid border-primary" />
               <span className="font-semibold">Go now</span>
               <span className="text-base-content/40">·</span>
               <span className="w-7 border-t-2 border-dotted border-slate-500 opacity-60" />
               <span className="font-semibold">Later</span>
             </div>
+            {detail === "admin" && routeVisuals.length > 1 ? (
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-base-300 pt-2">
+                {/* Colour identifies the worker, so the map has to say which worker. */}
+                {routeVisuals.map(({ route, color }) => (
+                  <span key={`legend-${route.id}`} className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="font-mono">{route.workerId.slice(0, 6)}</span>
+                    <span className="text-base-content/50">
+                      {route.stops.filter((stop) => stop.status !== "COMPLETED").length} left
+                    </span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -856,33 +908,63 @@ function buildOperationalCallouts(
   const unitY = view.height / heightPx;
   const placed: Array<{ x: number; y: number; width: number; height: number }> = [];
 
+  const overlaps = (
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    other: { x: number; y: number; width: number; height: number }
+  ) =>
+    x < other.x + other.width + 6 &&
+    x + width + 6 > other.x &&
+    y < other.y + other.height + 5 &&
+    y + height + 5 > other.y;
+
   return [...nodes]
     .sort((a, b) => a.y - b.y || a.x - b.x || a.label.localeCompare(b.label))
     .map((node) => {
       const label = operationalNodeLabel(node);
       const pointX = ((node.x - view.minX) / view.width) * widthPx;
       const pointY = ((node.y - view.minY) / view.height) * heightPx;
-      const labelWidthPx = Math.max(82, Math.min(210, label.length * 7.2 + 18));
+      const labelWidthPx = Math.max(82, Math.min(240, label.length * 7.2 + 18));
       const labelHeightPx = 22;
-      let labelX = pointX + 20;
-      if (labelX + labelWidthPx > widthPx - 12) {
-        labelX = pointX - labelWidthPx - 20;
-      }
-      labelX = Math.max(12, Math.min(labelX, widthPx - labelWidthPx - 12));
-      let labelY = Math.max(12, pointY - labelHeightPx / 2);
 
-      for (let attempts = 0; attempts < nodes.length * 2; attempts += 1) {
-        const collision = placed.find(
-          (other) =>
-            labelX < other.x + other.width + 6 &&
-            labelX + labelWidthPx + 6 > other.x &&
-            labelY < other.y + other.height + 5 &&
-            labelY + labelHeightPx + 5 > other.y
-        );
-        if (!collision) break;
-        labelY = collision.y + collision.height + 5;
+      const clampX = (value: number) =>
+        Math.max(12, Math.min(value, widthPx - labelWidthPx - 12));
+      const clampY = (value: number) =>
+        Math.max(12, Math.min(value, heightPx - labelHeightPx - 12));
+
+      // Candidate placements around the node, nearest first: right, left, then progressively
+      // further above and below on both sides.
+      //
+      // The old solver could only push a label downwards and clamped it to the bottom edge
+      // *after* it had stopped checking, so once the cascade reached the floor every remaining
+      // label was stacked in the same band — which is how zone names ended up printed on top of
+      // one another near the doors.
+      const candidates: Array<{ x: number; y: number }> = [];
+      for (let ring = 0; ring < 6; ring += 1) {
+        const dy = ring * (labelHeightPx + 5);
+        for (const side of [20, -labelWidthPx - 20]) {
+          candidates.push({ x: pointX + side, y: pointY - labelHeightPx / 2 - dy });
+          if (ring > 0) {
+            candidates.push({ x: pointX + side, y: pointY - labelHeightPx / 2 + dy });
+          }
+        }
       }
-      labelY = Math.min(labelY, heightPx - labelHeightPx - 12);
+
+      let labelX = clampX(pointX + 20);
+      let labelY = clampY(pointY - labelHeightPx / 2);
+      for (const candidate of candidates) {
+        const x = clampX(candidate.x);
+        const y = clampY(candidate.y);
+        // Clamp first, then test — so a placement pushed back inside the viewport is still
+        // checked against what is already there.
+        if (!placed.some((other) => overlaps(x, y, labelWidthPx, labelHeightPx, other))) {
+          labelX = x;
+          labelY = y;
+          break;
+        }
+      }
       placed.push({ x: labelX, y: labelY, width: labelWidthPx, height: labelHeightPx });
 
       const labelIsRight = labelX >= pointX;
@@ -948,15 +1030,30 @@ function splitRouteLegs(route: WorkerRouteSession) {
   };
 }
 
-function pathFromLegs(legs: WorkerRouteSession["route"]): string {
+/**
+ * Route geometry, shifted sideways by `offsetM` metres.
+ *
+ * Two workers routed down one aisle share identical coordinates, and interleaved dash phases
+ * did not separate them — wherever the dashes coincided one route simply painted over the
+ * other, so the map showed one line where two workers were converging. Nudging each route
+ * perpendicular to its own direction of travel keeps both visible, at the cost of drawing them
+ * a metre or so off the true centre line.
+ */
+function pathFromLegs(legs: WorkerRouteSession["route"], offsetM = 0): string {
   if (legs.length === 0) return "";
   let path = "";
   legs.forEach((leg, index) => {
     const previous = index > 0 ? legs[index - 1] : null;
+    const dx = leg.to.x - leg.from.x;
+    const dy = leg.to.y - leg.from.y;
+    const length = Math.hypot(dx, dy);
+    // Perpendicular unit vector; a zero-length leg has no direction to offset along.
+    const nx = length > 0 ? (-dy / length) * offsetM : 0;
+    const ny = length > 0 ? (dx / length) * offsetM : 0;
     if (!previous || previous.toNodeId !== leg.fromNodeId) {
-      path += `M ${leg.from.x} ${leg.from.y} `;
+      path += `M ${leg.from.x + nx} ${leg.from.y + ny} `;
     }
-    path += `L ${leg.to.x} ${leg.to.y} `;
+    path += `L ${leg.to.x + nx} ${leg.to.y + ny} `;
   });
   return path.trim();
 }

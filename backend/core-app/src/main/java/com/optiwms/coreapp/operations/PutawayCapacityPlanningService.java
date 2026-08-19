@@ -141,6 +141,9 @@ public class PutawayCapacityPlanningService {
 
         int remaining = totalQuantity;
         List<SplitPlanLine> planLines = new ArrayList<>();
+        // Why bins were passed over, so an infeasible plan can name the binding constraint
+        // instead of reporting "insufficient capacity" beside a healthy free-slot count.
+        Map<String, Integer> rejections = new LinkedHashMap<>();
 
         for (Location location : candidateLocations) {
             if (remaining <= 0) {
@@ -152,10 +155,16 @@ public class PutawayCapacityPlanningService {
                     reservedPalletsAt(reservedByLocation, location.getLocationCode()));
 
             if (computation.allocatableQuantity() <= 0) {
+                recordRejection(rejections, computation);
                 continue;
             }
 
-            int allocated = Math.min(remaining, computation.allocatableQuantity());
+            int allocated = palletAlign(
+                    Math.min(remaining, computation.allocatableQuantity()), remaining, unitsPerPallet);
+            if (allocated <= 0) {
+                recordRejection(rejections, computation);
+                continue;
+            }
             CapacitySnapshot projected = buildProjectedSnapshot(location, inboundMaterial, computation, allocated);
 
             planLines.add(new SplitPlanLine(
@@ -172,7 +181,13 @@ public class PutawayCapacityPlanningService {
             feasible = false;
         }
         if (!feasible) {
-            notes.add("Insufficient eligible capacity. Remaining quantity: " + remaining);
+            notes.add("Could not place " + remaining + " of " + totalQuantity + " units across "
+                    + candidateLocations.size() + " eligible bin(s).");
+            if (!rejections.isEmpty()) {
+                notes.add("Bins were refused by: " + rejections.entrySet().stream()
+                        .map(entry -> entry.getKey() + " (" + entry.getValue() + ")")
+                        .collect(Collectors.joining(", ")) + ".");
+            }
             if (inboundMaterial.getWeightKg() == null) {
                 notes.add("Material weight_kg is missing; weight-constrained bins may be unusable.");
             }
@@ -464,6 +479,7 @@ public class PutawayCapacityPlanningService {
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
                     return !hasMaterial;
                 })
+                .thenComparingInt((Location loc) -> zonePutawayRank(loc.getZoneType()))
                 .thenComparing((Location loc) -> !locationMatchesVelocity(loc, requiredVelocity))
                 .thenComparing((Location loc) -> {
                     List<InventoryItem> inv = inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of());
@@ -474,6 +490,19 @@ public class PutawayCapacityPlanningService {
                     return hasMaterial ? level : -level;
                 })
                 .thenComparing(Location::getLocationCode);
+    }
+
+    /**
+     * Bulk receipts belong in reserve; pick faces are normally fed by replenishment. Rank them
+     * so putaway drains reserve first and only spills into pick faces when reserve is full --
+     * without that spill a warehouse whose reserve is 91% occupied simply stops receiving.
+     */
+    private int zonePutawayRank(String zoneType) {
+        String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(Locale.ROOT);
+        if ("RESERVE".equals(zone) || "STORAGE".equals(zone)) {
+            return 0;
+        }
+        return "PICK_FACE".equals(zone) ? 1 : 2;
     }
 
     private boolean locationMatchesVelocity(Location location, String requiredVelocity) {
@@ -528,6 +557,55 @@ public class PutawayCapacityPlanningService {
      * consuming the very claim that reserved it, so counting the claim would block the move it
      * exists to protect.
      */
+    /**
+     * Trim an allocation to a whole number of pallets so the plan does not manufacture partial
+     * pallets it did not need.
+     *
+     * <p>A pallet lives in exactly one bin, so putaway raises one task per pallet per bin. When a
+     * bin's headroom cut an allocation mid-pallet, the leftover units started a fresh partial
+     * pallet in the next bin and the receipt ended up with more tasks than pallets -- 3 tasks for
+     * 2 pallets. Aligning here keeps the total at ceil(total / unitsPerPallet).
+     *
+     * <p>The final chunk keeps its remainder (that partial pallet is real), and an allocation
+     * smaller than one pallet is kept intact rather than dropped, so a warehouse of small bins
+     * still makes progress instead of stalling.
+     */
+    private int palletAlign(int allocated, int remaining, BigDecimal unitsPerPallet) {
+        if (allocated <= 0 || unitsPerPallet == null || unitsPerPallet.compareTo(BigDecimal.ZERO) <= 0) {
+            return Math.max(allocated, 0);
+        }
+        int perPallet = Math.max(unitsPerPallet.setScale(0, RoundingMode.FLOOR).intValue(), 1);
+        if (allocated >= remaining || allocated < perPallet) {
+            return allocated;
+        }
+        int aligned = (allocated / perPallet) * perPallet;
+        return aligned > 0 ? aligned : allocated;
+    }
+
+    private void recordRejection(Map<String, Integer> rejections, CapacityComputation computation) {
+        if (computation.blockedByRackPalletRule()) {
+            rejections.merge("no free pallet slot", 1, Integer::sum);
+        }
+        if (computation.blockedByWeight()) {
+            rejections.merge("bin weight limit", 1, Integer::sum);
+        }
+        if (computation.blockedByVolume()) {
+            rejections.merge("bin volume limit", 1, Integer::sum);
+        }
+        if (computation.blockedByLpn()) {
+            rejections.merge("bin already holds another pallet", 1, Integer::sum);
+        }
+        if (computation.blockedByUnits()) {
+            rejections.merge("bin unit capacity", 1, Integer::sum);
+        }
+        if (computation.missingWeightMetric()) {
+            rejections.merge("material weight not recorded", 1, Integer::sum);
+        }
+        if (computation.missingVolumeMetric()) {
+            rejections.merge("material volume not recorded", 1, Integer::sum);
+        }
+    }
+
     private CapacityComputation computeCapacity(
             Location location,
             UUID inboundMaterialId,
@@ -597,19 +675,15 @@ public class PutawayCapacityPlanningService {
         }
 
         if (location.getMaxWeightKg() != null && location.getMaxWeightKg().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal palletWeight = handlingUnitCapacityService.resolvePalletWeightKg(
-                    inboundMaterial.getWeightKg(),
-                    inboundMaterial.getPalletSpaces(),
-                    inboundMaterial.getMaxPalletWeightKg());
-            if (currentQty == 0 && palletWeight.compareTo(BigDecimal.ZERO) > 0
-                    && palletWeight.compareTo(location.getMaxWeightKg()) > 0) {
-                allocatable = 0;
-                blockedByWeight = true;
-            } else if (inboundMaterial.getWeightKg() == null
+            if (inboundMaterial.getWeightKg() == null
                     || inboundMaterial.getWeightKg().compareTo(BigDecimal.ZERO) <= 0) {
                 allocatable = 0;
                 missingWeightMetric = true;
             } else {
+                // Weigh what is actually being placed, not a notional full pallet. An empty bin
+                // rated below a full pallet can still carry a partial one, and gating on the
+                // pallet rating made empty bins stricter than part-filled ones -- which stranded
+                // every heavy-pallet SKU in a warehouse whose free bins were all empty.
                 BigDecimal remainingWeight = location.getMaxWeightKg().subtract(currentWeight);
                 int byWeight = toPositiveIntFloor(
                         remainingWeight.divide(inboundMaterial.getWeightKg(), 8, RoundingMode.FLOOR));
@@ -746,10 +820,13 @@ public class PutawayCapacityPlanningService {
         return !BLOCKED_RACK_STATUSES.contains(normalizeRackStatus(rackStatus));
     }
 
+    /**
+     * Putaway uses the same storage definition as the rest of the system. Narrowing it to
+     * zone_type=STORAGE hid every PICK_FACE and RESERVE bin from the planner, which in the
+     * V8 layout is the entire live warehouse.
+     */
     private boolean isStorageLocation(Location loc) {
-        String zoneType = loc.getZoneType();
-        String locType = loc.getLocationType();
-        return "STORAGE".equals(zoneType) || "storage".equals(locType);
+        return LocationService.isOperationalStorageLocation(loc.getLocationType(), loc.getZoneType());
     }
 
     private Map<UUID, Material> buildMaterialCache(List<InventoryItem> warehouseInventory, UUID inboundMaterialId,

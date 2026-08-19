@@ -17,6 +17,22 @@ export interface ChartSpec {
   data: Record<string, unknown>[];
 }
 
+/** One step the assistant actually took, for showing its working. */
+export interface AIToolCall {
+  name: string;
+  /** "tool" ran a reviewed query, "llm" called a model, "rule" cost nothing. */
+  kind?: "tool" | "llm" | "rule" | "cache" | "mode";
+  ms?: number;
+  outcome?: string;
+  detail?: string;
+}
+
+export interface AITimings {
+  total_ms?: number;
+  llm_calls?: number;
+  tool_calls?: number;
+}
+
 export interface WarehouseAIResponse {
   mode?: "SOP" | "DATA" | "TOUR" | "CHAT" | "DENIED";
   answer: string;
@@ -30,6 +46,12 @@ export interface WarehouseAIResponse {
   raw?: unknown;
   action?: string;
   tourId?: string;
+  toolCalls?: AIToolCall[];
+  timings?: AITimings;
+  /** Where an instant answer came from -- shown so it does not appear from nowhere. */
+  evidenceSource?: string;
+  /** True when the answer came from stored evidence with no model call. */
+  fastPath?: boolean;
 }
 
 interface ToolEnvelope {
@@ -208,10 +230,15 @@ export function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Wa
  * cannot advertise a capability it does not have. Falls back to the caller's own
  * defaults on any failure -- an empty panel is worse than a generic prompt.
  */
+export interface AISuggestion {
+  title: string;
+  text: string;
+}
+
 export async function fetchSuggestions(
   role: WarehouseAIRole,
   pageContext?: PageContext
-): Promise<string[]> {
+): Promise<AISuggestion[]> {
   try {
     const base = DEFAULT_AI_ENDPOINT.replace(/\/ask$/, "");
     const response = await fetch(`${base}/suggestions`, {
@@ -221,7 +248,12 @@ export async function fetchSuggestions(
     });
     if (!response.ok) return [];
     const data = await response.json();
-    return Array.isArray(data?.suggestions) ? data.suggestions.filter((s: unknown) => typeof s === "string") : [];
+    if (!Array.isArray(data?.suggestions)) return [];
+    return data.suggestions.filter(
+      (s: unknown): s is AISuggestion =>
+        !!s && typeof (s as AISuggestion).title === "string" &&
+        typeof (s as AISuggestion).text === "string"
+    );
   } catch {
     return [];
   }
@@ -295,6 +327,10 @@ export async function askWarehouseAI(
       sql: typeof data.sql === "string" ? data.sql : undefined,
       data: Array.isArray(data.data) ? (data.data as Record<string, unknown>[]) : undefined,
       chart: isChartSpec(data.chart) ? data.chart : undefined,
+      toolCalls: Array.isArray(data.toolCalls) ? (data.toolCalls as AIToolCall[]) : undefined,
+      timings: (data.timings as AITimings) ?? undefined,
+      evidenceSource: typeof data.evidenceSource === "string" ? data.evidenceSource : undefined,
+      fastPath: Boolean(data.fastPath),
       error: typeof data.error === "string" ? data.error : undefined,
       download_url: typeof data.download_url === "string" ? data.download_url : undefined,
       session_id: typeof data.session_id === "string" ? data.session_id : undefined,

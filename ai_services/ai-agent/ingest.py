@@ -71,20 +71,42 @@ def ingest():
         google_api_key=os.getenv("GOOGLE_API_KEY")
     )
 
-    print("Cleaning up old database files if possible...")
-    try:
-        if os.path.exists(DB_PATH):
-            shutil.rmtree(DB_PATH)
-            print("DB path directory deleted from disk.")
-    except Exception as e:
-        print(f"Warning: could not delete DB path directory: {e}")
+    # Build into a temporary directory and swap it in only once it succeeds.
+    #
+    # This used to delete the live index first and rebuild afterwards, which is fine
+    # until the rebuild fails -- and it does fail, because embedding runs against a
+    # free-tier daily quota. Once that quota is spent, a restart destroyed a working
+    # index and could not replace it, so SOP retrieval stayed broken until the quota
+    # reset. Deleting only after a successful build makes a failed ingest a no-op.
+    staging = f"{DB_PATH}.building"
+    if os.path.exists(staging):
+        shutil.rmtree(staging, ignore_errors=True)
 
-    print("Saving to ChromaDB...")
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=DB_PATH
-    )
+    print("Building the vector store...")
+    try:
+        Chroma.from_documents(
+            documents=chunks,
+            embedding=embeddings,
+            persist_directory=staging,
+        )
+    except Exception as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        if os.path.exists(DB_PATH):
+            print(f"Ingest failed ({exc.__class__.__name__}); keeping the existing "
+                  f"index at '{DB_PATH}/'.")
+        else:
+            print(f"Ingest failed ({exc.__class__.__name__}) and there is no existing "
+                  f"index to fall back on. SOP answers are unavailable until this "
+                  f"succeeds.")
+        raise
+
+    previous = f"{DB_PATH}.previous"
+    shutil.rmtree(previous, ignore_errors=True)
+    if os.path.exists(DB_PATH):
+        os.rename(DB_PATH, previous)
+    os.rename(staging, DB_PATH)
+    shutil.rmtree(previous, ignore_errors=True)
+
     print(f"Done! Vector store saved to '{DB_PATH}/'")
     print(f"Your {len(documents)} database SOPs are ready to be queried.")
 

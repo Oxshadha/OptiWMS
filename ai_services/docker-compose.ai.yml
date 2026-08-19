@@ -69,6 +69,11 @@ services:
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
       - ../Ai miroservices/modeling/v6_academic_final:/v6_academic_final:ro
       - ../Ai miroservices/modeling/project_operational_baseline:/project_operational_baseline
+      # V8_FORECAST_ROOT points here. Without this mount /v8/recalculate fails with
+      # FileNotFoundError on /v8_operational, which surfaced in the UI only as
+      # "Forecast service returned HTTP 500". Writable because a run regenerates the
+      # forecast CSVs and the serving bundle.
+      - ../Ai miroservices/modeling/v8_controlled_synthetic_validation:/v8_operational
       - forecast-service-data:/data
     networks:
       - optiwms-network

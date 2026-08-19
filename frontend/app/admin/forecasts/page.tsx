@@ -41,8 +41,6 @@ import {
 import { logger } from "@/lib/utils/logger";
 import { usePublishPageContext } from "@/lib/pageContext";
 import { buildInventoryPlan } from "@/lib/forecast-planning";
-import ForecastChatButton from "@/components/ForecastChatButton";
-import { useForecastChat } from "@/hooks/useForecastChat";
 
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPS_RM_PM";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "PROJECT_OPS_EXTRA_TREES_CAUSAL";
@@ -402,7 +400,6 @@ export default function ForecastsPage() {
   >("risk_desc");
   const [showCI, setShowCI] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const { captureOpenContext } = useForecastChat();
   const [runStatus, setRunStatus] = useState<{
     phase: string;
     jobId?: string;
@@ -978,12 +975,6 @@ export default function ForecastsPage() {
 
   // Tell the assistant which material is on screen, so "why is this one low?"
   // resolves without the user retyping a code they can already see.
-  usePublishPageContext({
-    entityType: "material",
-    entityId: selectedSku || undefined,
-    entityLabel: selectedSku || undefined,
-    filters: filters.horizon ? { horizon: filters.horizon } : undefined,
-  });
 
   useEffect(() => {
     if (!selectedSku) {
@@ -1086,6 +1077,40 @@ export default function ForecastsPage() {
     }
     return Array.from(byHorizon.values()).sort((a, b) => a.horizon - b.horizon);
   }, [metrics, filters.horizon]);
+
+  // Forecast error by horizon.
+  //
+  // WAPE is an error measure, not accuracy -- 10% WAPE means the forecast was off by
+  // 10% of demand, not that it was 10% right. The card is named accordingly.
+  //
+  // Computed from the backtest rows rather than read from /forecast-metrics, which
+  // returns only the single horizon-0 summary. Aggregating
+  // sum|actual - predicted| / sum(actual) across every SKU at a horizon is a real
+  // WAPE. Per-SKU curves are deliberately not drawn: the backtest holds one
+  // observation per (SKU, horizon), which is too thin to plot as a rate.
+  const horizonError = useMemo(() => {
+    const agg = new Map<number, { err: number; actual: number; skus: Set<string> }>();
+    for (const row of backtests) {
+      const actual = Number(row.y_true);
+      const predicted = Number(row.p50);
+      if (!Number.isFinite(actual) || !Number.isFinite(predicted)) continue;
+      const bucket = agg.get(row.horizon) ?? { err: 0, actual: 0, skus: new Set<string>() };
+      bucket.err += Math.abs(actual - predicted);
+      bucket.actual += Math.abs(actual);
+      bucket.skus.add(row.sku);
+      agg.set(row.horizon, bucket);
+    }
+
+    return Array.from(agg.keys())
+      .sort((a, b) => a - b)
+      .map((h) => {
+        const bucket = agg.get(h)!;
+        return {
+          horizon: `h${h}`,
+          model: bucket.actual > 0 ? Number(((bucket.err / bucket.actual) * 100).toFixed(2)) : null,
+        };
+      });
+  }, [backtests]);
 
   const aggregateMetric = useMemo(
     () => filteredMetrics.find((metric) => metric.horizon === 0) ?? null,
@@ -1769,6 +1794,20 @@ export default function ForecastsPage() {
     return Math.max(0, Math.min(1, 1 - wapeVal / 100));
   }, [wapeVal]);
 
+  // These figures used to feed a second chat widget's context banner. They now go
+  // to the one assistant, so it can answer about the value actually on screen
+  // without the user restating it.
+  usePublishPageContext({
+    entityType: "material",
+    entityId: selectedSku || undefined,
+    entityLabel: selectedSku || undefined,
+    filters: {
+      ...(filters.horizon ? { horizon: filters.horizon } : {}),
+      ...(predictedUnitsForChat != null ? { predictedUnits: predictedUnitsForChat } : {}),
+      ...(wapeVal != null ? { wapePct: Number(wapeVal.toFixed(1)) } : {}),
+    },
+  });
+
   return (
     <div className="p-6 space-y-8">
       {/* Header */}
@@ -1879,7 +1918,7 @@ export default function ForecastsPage() {
                 disabled
               />
             </label>
-            <div className="flex items-center gap-4 mt-4 lg:mt-0">
+            <div className="flex flex-wrap items-center gap-3 mt-4 lg:mt-0 shrink-0">
               <button
                 className="btn btn-outline btn-primary btn-sm"
                 onClick={() => void loadData()}
@@ -1889,14 +1928,15 @@ export default function ForecastsPage() {
               </button>
               {isAdmin && (
                 <button
-                  className="btn btn-secondary btn-sm shadow-md"
+                  className="btn btn-secondary btn-sm shadow-md gap-1.5 whitespace-nowrap"
                   onClick={() => void triggerRun()}
                   disabled={triggering}
+                  title="Refits the model and republishes the forecast. This replaces the current forecast, its SHAP explanations and the serving bundle."
                 >
-                  <span className="material-symbols-outlined text-[16px] mr-1">
+                  <span className="material-symbols-outlined text-[16px] leading-none">
                     bolt
                   </span>
-                  {triggering ? "Recalculating..." : "Recalculate Forecast Now"}
+                  {triggering ? "Recalculating…" : "Recalculate forecast"}
                 </button>
               )}
             </div>
@@ -2239,7 +2279,7 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader
                 title="Seasonality Radar"
@@ -2279,6 +2319,44 @@ export default function ForecastsPage() {
                   </ResponsiveContainer>
                 )}
               </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+              <SectionHeader
+                title="Forecast Error By Horizon (WAPE)"
+                sub="Weighted absolute percentage error — lower is better. Recursive forecasting reuses its own output, so error accumulates"
+                color={C.accent}
+              />
+              <div className="h-56 w-full mt-3">
+                {horizonError.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
+                    Needs backtest evidence for the promoted model.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={horizonError} margin={{ top: 8, right: 12, left: -18, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
+                      <XAxis dataKey="horizon" tick={{ fontSize: 10 }} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" />
+                      <Tooltip
+                        formatter={(v: any) => [v === null ? "—" : `${v}%`, "Error"]}
+                      />
+                      <Line
+                        name="Forecast error"
+                        type="monotone"
+                        dataKey="model"
+                        stroke={C.accent}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <p className="text-[11px] text-base-content/55 mt-2 leading-relaxed">
+                Measured on held-out months the model never saw during training.
+              </p>
             </div>
           </div>
 
@@ -2714,23 +2792,6 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Where This Forecast Is Used" sub="The promoted rows are operational inputs; execution remains approval-controlled" color={C.accent3} />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
-              <div className="rounded-xl border border-base-300 p-4">
-                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Inventory policy</strong><span className="badge badge-success badge-sm">Connected</span></div>
-                <p className="text-xs text-base-content/60 mt-2 leading-5">P10/P50/P90 demand feeds lead-time safety stock, reorder point, min/max and the stochastic service/cost gate.</p>
-              </div>
-              <div className="rounded-xl border border-base-300 p-4">
-                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Draft purchasing</strong><span className="badge badge-warning badge-sm">Manager-gated</span></div>
-                <p className="text-xs text-base-content/60 mt-2 leading-5">An approved policy run may create draft inbound purchase suggestions. The forecast never releases a purchase order automatically.</p>
-              </div>
-              <div className="rounded-xl border border-base-300 p-4">
-                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Space and slotting</strong><span className="badge badge-success badge-sm">Connected via policy</span></div>
-                <p className="text-xs text-base-content/60 mt-2 leading-5">Forecast P50, stock delta and pallet demand flow into the constrained slotting optimizer after policy review.</p>
-              </div>
-            </div>
-          </div>
 
           {/* Model residuals */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
@@ -2898,38 +2959,11 @@ export default function ForecastsPage() {
         </div>
       )}
 
-      {/* Forecast Chat Assistant — context-aware floating panel */}
-      <ForecastChatButton
-        sku={selectedSku || filters.sku}
-        skuOptions={skuOptions}
-        forecastPoints={latestForecasts.map((f) => ({
-          sku: f.sku,
-          month: String(f.month ?? (f as any).label ?? ""),
-          p50: Number(f.p50 ?? (f as any).forecast ?? 0),
-        }))}
-        selectedMonth={transitionLabel}
-        predictedUnits={predictedUnitsForChat}
-        confidence={confidenceForChat}
-        mape={wapeVal}
-        onSkuChange={(newSku: string) => {
-          setSelectedSku(newSku);
-          setSkuSearchInput(newSku);
-        }}
-        onOpen={() => {
-          captureOpenContext({
-            sku: selectedSku || filters.sku,
-            forecastPoints: latestForecasts.map((f) => ({
-              sku: f.sku,
-              month: String(f.month ?? (f as any).label ?? ""),
-              p50: Number(f.p50 ?? (f as any).forecast ?? 0),
-            })),
-            selectedMonth: transitionLabel,
-            predictedUnits: predictedUnitsForChat,
-            confidence: confidenceForChat,
-            mape: wapeVal,
-          });
-        }}
-      />
+      {/* The forecast assistant is the global one in Topbar. It receives the
+          selected SKU and horizon through page context (see usePublishPageContext
+          above), so "why is this one low?" resolves without a second widget, a
+          second SKU picker, or a second floating button competing for the same
+          corner of the screen. */}
 
       {/* Footer */}
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">

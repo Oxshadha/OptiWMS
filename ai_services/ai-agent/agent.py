@@ -13,7 +13,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text, inspect, Column, String, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
+import threading
+
 from google import genai
+from google.genai import types
 from google.api_core.exceptions import ResourceExhausted
 
 import matplotlib
@@ -22,6 +25,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
 
+import fast_path
+import parallel
 import tools as tools_module
 
 # Langchain / SOP Q&A
@@ -79,8 +84,22 @@ DATABASE_URL = (
 REPORTS_DIR = Path(__file__).parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
+# One pooled engine for the process. This was building a fresh Engine per request,
+# so every question paid a new Postgres TCP connect and authentication before it
+# could read anything.
+_ENGINE = None
+_ENGINE_LOCK = threading.Lock()
+
+
 def get_engine():
-    return create_engine(DATABASE_URL)
+    global _ENGINE
+    if _ENGINE is None:
+        with _ENGINE_LOCK:
+            if _ENGINE is None:
+                _ENGINE = create_engine(
+                    DATABASE_URL, pool_size=5, max_overflow=5, pool_pre_ping=True
+                )
+    return _ENGINE
 
 Base = declarative_base()
 
@@ -363,7 +382,9 @@ def _fig_to_bytes(fig) -> bytes:
 
 # ── Provider quota handling and Groq fallback ────────────────────────────────
 logger = logging.getLogger("optiwms.agent")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# llama-3.3-70b-versatile was decommissioned by Groq, so every fallback attempt
+# returned 404 -- the resilience path was dead while appearing configured.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
@@ -392,6 +413,14 @@ def _is_quota_error(exc: Exception) -> bool:
     return "RESOURCE_EXHAUSTED" in text or "429" in text or "QUOTA" in text or "RATE LIMIT" in text
 
 
+# Some fallback models emit a visible chain-of-thought block before the answer.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_reasoning(text: str) -> str:
+    return _THINK_BLOCK.sub("", text or "").strip()
+
+
 def _generate_with_groq(prompt: str) -> str:
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
@@ -403,10 +432,17 @@ def _generate_with_groq(prompt: str) -> str:
             resp = client.post(
                 GROQ_URL,
                 headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}]},
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    # Reasoning models spend budget before emitting any content; too
+                    # small a cap returns an empty string rather than an answer.
+                    "max_tokens": 2048,
+                },
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            message = resp.json()["choices"][0]["message"]
+            return _strip_reasoning(message.get("content") or "")
     except Exception as exc:
         if _is_quota_error(exc):
             raise AIQuotaExceeded("Both Gemini and Groq are rate limited right now.") from exc
@@ -415,6 +451,32 @@ def _generate_with_groq(prompt: str) -> str:
 
 def _groq_configured() -> bool:
     return bool(os.getenv("GROQ_API_KEY"))
+
+
+# Gemini requests hang forever by default: http_options.timeout is unset, and the
+# handler is a sync def, so a stalled connection holds an anyio worker until the
+# process restarts. Bound it, and reuse one client so each call is not also paying
+# for a new connection pool and TLS handshake.
+# Gemini normally answers in 1-2.5s here. A long ceiling does not make a stalled call
+# succeed -- it just delays the Groq fallback, so a stall cost 20s *plus* the fallback.
+# The API rejects anything under 10s ("Minimum allowed deadline is 10s") with a 400, so
+# a shorter value does not tighten the bound, it fails every call; the floor is clamped
+# rather than trusted to configuration.
+GEMINI_TIMEOUT_MS = max(10_000, int(os.getenv("GEMINI_TIMEOUT_MS", "12000")))
+_GEMINI_CLIENT = None
+_GEMINI_LOCK = threading.Lock()
+
+
+def _gemini_client():
+    global _GEMINI_CLIENT
+    if _GEMINI_CLIENT is None:
+        with _GEMINI_LOCK:
+            if _GEMINI_CLIENT is None:
+                _GEMINI_CLIENT = genai.Client(
+                    api_key=os.getenv("GOOGLE_API_KEY"),
+                    http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_MS),
+                )
+    return _GEMINI_CLIENT
 
 
 def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-lite") -> tuple[str, bool]:
@@ -426,8 +488,7 @@ def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-
     being silently masked by the fallback.
     """
     try:
-        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-        response = client.models.generate_content(model=model, contents=prompt)
+        response = _gemini_client().models.generate_content(model=model, contents=prompt)
         return response.text, False
     except Exception as exc:
         quota = _is_quota_error(exc)
@@ -483,64 +544,79 @@ def format_turns(turns: list[tuple[str, str]]) -> str:
 # asked to invent prompts will happily propose "show me today's inbound orders" on a
 # page with no such tool, and the user's first interaction is then a failure. These
 # map to real entries in TOOL_REGISTRY.
-_PAGE_SUGGESTIONS: dict[str, list[str]] = {
+_PAGE_SUGGESTIONS: dict[str, list[tuple[str, str]]] = {
     "/admin/forecasts": [
-        "Why is demand {subject} this high?",
-        "What is driving the forecast {subject}?",
-        "Show the demand trend {subject}",
+        ("Explain this forecast", "Why is demand {subject} this high?"),
+        ("Model drivers", "What is driving the forecast {subject}?"),
+        ("Demand trend", "Show the demand trend {subject}"),
+        ("Compare", "Compare the forecast drivers for two materials"),
     ],
     "/admin/inventory-intelligence": [
-        "What is this recommendation most sensitive to?",
-        "Why did the min and max change {subject}?",
-        "Which materials are below their reorder point?",
+        ("What breaks this?", "What is this recommendation most sensitive to?"),
+        ("Why it changed", "Why did the min and max change {subject}?"),
+        ("Below reorder", "Which materials are below their reorder point?"),
+        ("Lead time risk", "What happens if the supplier lead time slips?"),
+    ],
+    "/admin/replenishment/forecast-space": [
+        ("What breaks this?", "What is this recommendation most sensitive to?"),
+        ("Why it changed", "Why did the min and max change {subject}?"),
+        ("Below reorder", "Which materials are below their reorder point?"),
     ],
     "/admin/slotting-plans": [
-        "Why was this location chosen {subject}?",
-        "Which materials are moving in this plan?",
-        "How much travel distance does this plan save?",
+        ("Why this bin?", "Why was this location chosen {subject}?"),
+        ("What is moving", "Which materials are moving in this plan?"),
+        ("Distance saved", "How much travel distance does this plan save?"),
+    ],
+    "/admin/ai-slotting": [
+        ("Why this bin?", "Why was this location chosen {subject}?"),
+        ("What is moving", "Which materials are moving in this plan?"),
     ],
     "/admin/inventory": [
-        "What is the stock level {subject}?",
-        "Which materials need reordering?",
-        "Show the top movers this quarter",
+        ("Stock level", "What is the stock level {subject}?"),
+        ("Reorder alerts", "Which materials need reordering?"),
+        ("Top movers", "Show the top movers this quarter"),
     ],
     "/admin/dashboard": [
-        "Which materials are below their reorder point?",
-        "Show inbound order volume over the last 90 days",
-        "What are the top moving materials?",
+        ("Reorder alerts", "Which materials are below their reorder point?"),
+        ("Inbound volume", "Show inbound order volume over the last 90 days"),
+        ("Top movers", "What are the top moving materials?"),
     ],
 }
 _DEFAULT_SUGGESTIONS = [
-    "Which materials are below their reorder point?",
-    "What are the top moving materials?",
-    "How do I use this dashboard?",
+    ("Reorder alerts", "Which materials are below their reorder point?"),
+    ("Top movers", "What are the top moving materials?"),
+    ("Getting around", "How do I use this dashboard?"),
 ]
 _WORKER_SUGGESTIONS = [
-    "How do I operate a forklift safely?",
-    "What are the steps for a cycle count?",
-    "How do I report damaged goods?",
+    ("Forklift safety", "How do I operate a forklift safely?"),
+    ("Cycle counts", "What are the steps for a cycle count?"),
+    ("Damaged goods", "How do I report damaged goods?"),
 ]
 
 
-def suggestions_for(page_context: dict | None, role: str | None = None) -> list[str]:
-    """Three prompts worth offering, given where the user is standing.
+def suggestions_for(page_context: dict | None, role: str | None = None) -> list[dict]:
+    """Prompts worth offering, given where the user is standing.
 
-    Deterministic rather than generated: these are cheap, instant, and cannot
-    propose a capability that does not exist.
+    Returns ``{"title", "text"}`` pairs so the label matches the question. Reusing a
+    generic card title over a page-specific prompt produced captions like
+    "Stock Levels" above "Why is demand high?", which reads as a bug.
+
+    Deterministic rather than generated: instant, free, and incapable of proposing a
+    capability the assistant does not have.
     """
     if (role or "").lower() == "worker":
-        return list(_WORKER_SUGGESTIONS)
-
-    route = (page_context or {}).get("route") or ""
-    templates = _PAGE_SUGGESTIONS.get(route, _DEFAULT_SUGGESTIONS)
+        entries = _WORKER_SUGGESTIONS
+    else:
+        route = (page_context or {}).get("route") or ""
+        entries = _PAGE_SUGGESTIONS.get(route, _DEFAULT_SUGGESTIONS)
 
     label = (page_context or {}).get("entityLabel") or (page_context or {}).get("entityId")
     subject = f"for {label}" if label else ""
-    rendered = []
-    for template in templates:
+    out = []
+    for title, template in entries:
         text = template.format(subject=subject) if "{subject}" in template else template
-        rendered.append(" ".join(text.split()).replace(" ?", "?"))
-    return rendered
+        out.append({"title": title, "text": " ".join(text.split()).replace(" ?", "?")})
+    return out
 
 
 PAGE_ROUTE_LABELS = {
@@ -654,7 +730,7 @@ Only include parameters the tool actually defines. Omit optional parameters you 
 
 
 # ── SQL generation (adhoc fallback — only used when no tool matches) ─────────
-def generate_sql(question: str, schema: str) -> tuple[str, bool]:
+def generate_sql(question: str, schema: str, page_context: dict | None = None) -> tuple[str, bool]:
     prompt = f"""You are a SQL expert for a Warehouse Management System (WMS) using PostgreSQL.
 
 Given the database schema below, write a SQL SELECT query to answer the user's question.
@@ -679,7 +755,8 @@ SQL QUERY:"""
 
 
 # ── Mode 1: Conversational summary ───────────────────────────────────────────
-def generate_conversational_answer(question: str, sql: str, df: pd.DataFrame) -> tuple[str, bool]:
+def generate_conversational_answer(question: str, sql: str, df: pd.DataFrame,
+                                   history: list[tuple[str, str]] | None = None) -> tuple[str, bool]:
     """Ask Gemini to summarise the query results in clear, natural English."""
     # Build a compact data sample for the prompt (max 20 rows)
     if df is not None and not df.empty:
@@ -690,6 +767,12 @@ def generate_conversational_answer(question: str, sql: str, df: pd.DataFrame) ->
         row_count = 0
 
     prompt = f"""You are a helpful warehouse analytics assistant for OptiWMS.
+
+EARLIER IN THIS CONVERSATION:
+{format_turns(history or [])}
+
+Refer back to it when the user does -- "that one", "those two", "compared to before".
+Do not repeat an earlier answer; build on it.
 
 The user asked: "{question}"
 
@@ -1272,7 +1355,8 @@ def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
         return None
 
 
-def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode: bool, fallback_used: bool):
+def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode: bool,
+                          fallback_used: bool, history: list[tuple[str, str]] | None = None):
     """Shared tail for both the guarded-tool path and the adhoc-SQL fallback:
     turn an executed (sql, df) pair into either a PDF report or a
     conversational answer + chart. Returns (df, sql, chart, error, answer,
@@ -1293,7 +1377,7 @@ def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode
 
     chart = generate_chart_spec_checked(df, question)
     try:
-        answer, conv_fb = generate_conversational_answer(question, sql, df)
+        answer, conv_fb = generate_conversational_answer(question, sql, df, history)
         fallback_used = fallback_used or conv_fb
         if fallback_used and answer:
             answer += "\n\n*(Note: Gemini API quota reached. Answer generated using Groq fallback.)*"
@@ -1303,7 +1387,7 @@ def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode
     return df, sql, chart, None, answer, None
 
 
-def _ask_database_adhoc(question: str, engine, report_mode: bool):
+def _ask_database_adhoc(question: str, engine, report_mode: bool, page_context: dict | None = None):
     """Last-resort path when no guarded tool matches: generate free-form SQL
     against the schema, same as before. Still SELECT-only and
     allowlist-checked."""
@@ -1311,7 +1395,7 @@ def _ask_database_adhoc(question: str, engine, report_mode: bool):
     fallback_used = False
 
     try:
-        sql, sql_fb = generate_sql(question, schema)
+        sql, sql_fb = generate_sql(question, schema, page_context)
         fallback_used = fallback_used or sql_fb
     except AIQuotaExceeded:
         raise
@@ -1340,7 +1424,9 @@ def _ask_database_adhoc(question: str, engine, report_mode: bool):
 
 # ── Database analytics ask_database ──────────────────────────────────────────
 def ask_database(question: str, page_context: dict | None = None,
-                 history: list[tuple[str, str]] | None = None):
+                 history: list[tuple[str, str]] | None = None,
+                 preselected: dict | None = None,
+                 trace: "TraceRecorder | None" = None):
     """
     Returns (df, sql, chart, error, answer, download_url)
 
@@ -1354,9 +1440,35 @@ def ask_database(question: str, page_context: dict | None = None,
     engine = get_engine()
     report_mode = is_report_request(question)
 
+    # ── Comparisons: plan every lookup at once, then run them together ────
+    if parallel.looks_comparative(question):
+        try:
+            calls = parallel.plan_calls(
+                question, tools_module.tool_menu_description(),
+                _generate_content_with_fallback)
+            if len(calls) > 1:
+                _t = time.perf_counter()
+                results = parallel.execute(calls, tools_module.TOOL_REGISTRY, engine)
+                if trace:
+                    for r_ in results:
+                        trace.record(r_["tool"], "tool", _t,
+                                     outcome="error" if "error" in r_ else "ok",
+                                     detail=str(r_.get("params", {}).get("search", "")))
+                combined, summary = parallel.combine(results)
+                if combined is not None and not combined.empty:
+                    return _finish_data_response(
+                        question, summary, combined, report_mode, False)
+        except AIQuotaExceeded:
+            raise
+        except Exception as exc:
+            logger.warning("parallel path failed, using single-tool routing: %s", exc)
+
     # ── Guarded tool selection ────────────────────────────────────────────
+    # The router upstream already chose, in the same call that classified the
+    # question; re-selecting here would be a second round trip for one answer.
     try:
-        selection = select_tool(question, page_context, history)
+        selection = preselected if preselected is not None else select_tool(
+            question, page_context, history)
     except AIQuotaExceeded:
         raise
     except Exception as e:
@@ -1368,15 +1480,22 @@ def ask_database(question: str, page_context: dict | None = None,
         try:
             fn = tools_module.TOOL_REGISTRY[tool_name]["fn"]
             params = selection.get("params") or {}
+            _t = time.perf_counter()
             df, sql = fn(engine, **params)
-            return _finish_data_response(question, sql, df, report_mode, fallback_used=False)
+            if trace:
+                trace.record(tool_name, "tool", _t, detail=f"{len(df)} rows")
+            result = _finish_data_response(question, sql, df, report_mode,
+                                           fallback_used=False, history=history)
+            if trace and not report_mode:
+                trace.record("generate_answer", "llm", _t)
+            return result
         except AIQuotaExceeded:
             raise
         except Exception as e:
             logger.warning("Tool '%s' failed, falling back to adhoc SQL: %s", tool_name, e)
 
     # ── Adhoc fallback ─────────────────────────────────────────────────────
-    return _ask_database_adhoc(question, engine, report_mode)
+    return _ask_database_adhoc(question, engine, report_mode, page_context)
 
 
 # ── RAG / SOP agent load ──────────────────────────────────────────────────────
@@ -1414,6 +1533,106 @@ def load_agent():
 
 
 # ── Question classifier ───────────────────────────────────────────────────────
+def classify_keyword_only(question: str) -> str | None:
+    """The zero-cost half of classification: greetings and explicit tour phrasings.
+
+    Extracted so both the old two-call path and the merged router share exactly one
+    definition of what can be decided without a model.
+    """
+    q_lower = question.lower()
+    stripped = re.sub(r"[^a-z\s]", "", q_lower).strip()
+    greetings = {
+        "hi", "hii", "hello", "hey", "yo", "hiya", "howdy", "good morning",
+        "good afternoon", "good evening", "thanks", "thank you", "ok", "okay",
+        "cool", "nice", "great", "bye", "goodbye", "test",
+    }
+    if stripped in greetings or (
+        len(stripped.split()) <= 2 and stripped in {"how are you", "whats up", "sup"}
+    ):
+        return "CHAT"
+
+    tour_triggers = ["tour", "guide", "navigate", "how do i use", "show me how",
+                     "walk me through", "tutorial", "how to use", "where is the",
+                     "where do i find"]
+    software_context = ["dashboard", "app", "system", "software", "platform", "admin",
+                        "screen", "page", "menu", "button", "tab", "feature", "panel",
+                        "widget"]
+    if any(k in q_lower for k in tour_triggers) and any(k in q_lower for k in software_context):
+        return "TOUR"
+    if "dashboard" in q_lower and any(
+        k in q_lower for k in ["how", "what", "where", "use", "in the", "overview"]
+    ):
+        return "TOUR"
+    return None
+
+
+def route_and_select(
+    question: str,
+    page_context: dict | None = None,
+    history: list[tuple[str, str]] | None = None,
+) -> dict:
+    """Classify the question and pick its tool in a single model call.
+
+    These were two sequential calls to the same model over largely the same context,
+    costing about 4.4 s together where one call answers both in about 1.2 s. The
+    classification decides whether a tool is needed at all, so nothing is wasted when
+    the answer is SOP, TOUR or CHAT.
+
+    Returns ``{"mode": ..., "tool": ..., "params": {...}}``. On any failure it falls
+    back to the previous two-call behaviour rather than guessing.
+    """
+    keyword_mode = classify_keyword_only(question)
+    if keyword_mode:
+        # Decided on keywords alone; no model was consulted.
+        return {"mode": keyword_mode, "tool": None, "params": {}, "used_llm": False}
+
+    prompt = f"""You route questions in a Warehouse Management System (WMS).
+
+Do two things at once: classify the question, and if it is DATA, choose one tool.
+
+CLASSES:
+- 'CHAT': greetings, thanks, small talk.
+- 'SOP': physical warehouse procedures -- forklifts, safety, damaged goods, cycle counts.
+- 'TOUR': how to use the software, where a feature is on screen, navigating the UI.
+- 'DATA': stock numbers, orders, analytics, forecasts, reports, and "why" questions
+  about a specific material's forecast, stock policy or slotting.
+
+AVAILABLE TOOLS (only for DATA):
+{tools_module.tool_menu_description()}
+
+EARLIER IN THIS CONVERSATION:
+{format_turns(history or [])}
+
+WHAT THE USER IS CURRENTLY LOOKING AT:
+{describe_page_context(page_context) or "(not provided)"}
+
+Use those only to resolve what the question leaves implicit -- "this material",
+"that SKU", "and the next one". Anything named explicitly wins.
+
+USER QUESTION:
+{question}
+
+Reply with ONLY a JSON object, no markdown fences:
+{{"mode": "<CHAT|SOP|TOUR|DATA>", "tool": "<tool_name_or_null>", "params": {{...}}}}
+Set "tool" to null for CHAT, SOP and TOUR. Omit parameters you cannot infer."""
+
+    text_out, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+    raw = re.sub(r"^```(?:json)?\s*", "", text_out.strip(), flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+    parsed = json.loads(raw)
+
+    mode = str(parsed.get("mode") or "DATA").upper()
+    if mode not in {"CHAT", "SOP", "TOUR", "DATA"}:
+        mode = "DATA"
+    selection = {"tool": parsed.get("tool"), "params": parsed.get("params") or {},
+                 "used_llm": True}
+    if mode == "DATA":
+        selection = apply_page_context_defaults(selection, page_context)
+    else:
+        selection = {"tool": None, "params": {}, "used_llm": True}
+    return {"mode": mode, **selection}
+
+
 def classify_question(question: str) -> str:
     """
     Classifies the user's question as:
@@ -1582,15 +1801,213 @@ Respond with ONLY the tour id (exactly as listed above), nothing else."""
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
+class TraceRecorder:
+    """Records what actually ran, so the UI can show it rather than imply it.
+
+    A chat answer that arrives with no visible working looks like the model made it
+    up. Naming the tool, the row count and the elapsed time turns the same answer
+    into something a reviewer can follow -- and it makes the fast path's advantage
+    visible, because "0 model calls" is the claim the XAI story rests on.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.started = time.perf_counter()
+
+    def record(self, name: str, kind: str, started: float,
+               outcome: str = "ok", detail: str | None = None) -> None:
+        entry = {
+            "name": name,
+            "kind": kind,                     # "tool" | "llm" | "cache"
+            "ms": round((time.perf_counter() - started) * 1000),
+            "outcome": outcome,
+        }
+        if detail:
+            entry["detail"] = detail
+        self.calls.append(entry)
+
+    def summary(self) -> dict:
+        return {
+            "total_ms": round((time.perf_counter() - self.started) * 1000),
+            "llm_calls": sum(1 for c in self.calls if c["kind"] == "llm"),
+            "tool_calls": sum(1 for c in self.calls if c["kind"] == "tool"),
+        }
+
+
+def answer_from_stored_evidence(question: str, page_context: dict | None,
+                                trace: "TraceRecorder | None" = None) -> dict | None:
+    """The fast path: read the stored explanation and return it with no model call.
+
+    Returns a response dict ready to send, or None if this question is not one the
+    fast path is confident about -- in which case the caller proceeds normally.
+
+    ``answer`` is left empty and ``narration_pending`` set, so the client can render
+    the table and chart at once and fill the sentence in afterwards. The numbers are
+    on screen before the assistant has said anything, which is both faster and a
+    more honest depiction of where the explanation came from.
+    """
+    resolved = fast_path.resolve(question, page_context)
+    if not resolved:
+        return None
+
+    spec = tools_module.TOOL_REGISTRY.get(resolved["tool"])
+    if not spec:
+        return None
+
+    started = time.perf_counter()
+    try:
+        df, sql = spec["fn"](get_engine(), **resolved["params"])
+        if trace:
+            trace.record(resolved["tool"], "tool", started, detail=f"{len(df)} rows")
+    except Exception as exc:  # fall through rather than surface a fast-path failure
+        logger.warning("fast path %s failed, deferring to normal routing: %s",
+                       resolved["tool"], exc)
+        return None
+
+    # A single "note" row means the evidence is not there yet (never computed, or an
+    # older run). That is a real answer, but not one worth charting.
+    only_note = list(df.columns) == ["note"]
+
+    return {
+        "mode": "DATA",
+        "sql": sql,
+        "data": df_records_json_safe(df),
+        "chart": None if only_note else generate_chart_spec_checked(df, question),
+        "error": None,
+        "answer": "",
+        "narration_pending": not only_note,
+        "evidence_source": resolved["source"],
+        "tool": resolved["tool"],
+        "fast_path": True,
+    }
+
+
+def narrate_stream(question: str, sql: str, df: pd.DataFrame):
+    """Yield the narration incrementally, so the sentence appears as it is written.
+
+    Real token streaming rather than generating fully and then chopping the string:
+    the existing forecast-explain endpoint does the latter, which costs the same wait
+    and only looks like streaming. Here the first words arrive as soon as the model
+    produces them.
+
+    Falls back to a single yielded block if streaming is unavailable, so a caller
+    never has to handle two shapes.
+    """
+    sample = df.head(20).to_string(index=False) if df is not None and not df.empty else "(no data)"
+    row_count = 0 if df is None else len(df)
+    prompt = f"""You are a warehouse analytics assistant for OptiWMS.
+
+The user asked: "{question}"
+
+The figures below were computed by the warehouse system, not by you. Explain what they
+show in clear English -- 3 to 5 sentences. Do not invent numbers that are not present.
+
+{row_count} row(s):
+{sample}"""
+
+    try:
+        stream = _gemini_client().models.generate_content_stream(
+            model="gemini-3.1-flash-lite", contents=prompt
+        )
+        produced = False
+        for chunk in stream:
+            piece = getattr(chunk, "text", None)
+            if piece:
+                produced = True
+                yield piece
+        if produced:
+            return
+    except Exception as exc:
+        logger.warning("streaming narration unavailable (%s); falling back", type(exc).__name__)
+
+    try:
+        text_out, _ = _generate_content_with_fallback(prompt)
+        if text_out:
+            yield text_out
+    except AIQuotaExceeded:
+        yield ("I could not write a summary just now, but the figures above are "
+               "complete and were computed by the warehouse system.")
+
+
+def stream_answer(question: str, page_context: dict | None = None,
+                  session_id: str | None = None):
+    """Answer as a sequence of events: the evidence first, then the prose.
+
+    The point of the ordering is that the numbers are on screen before any model has
+    spoken. On the fast path that happens in about 200ms, and the narration that
+    follows is visibly a commentary on figures the user can already see rather than
+    the source of them.
+    """
+    trace = TraceRecorder()
+
+    quick = answer_from_stored_evidence(question, page_context, trace)
+    if quick is not None:
+        yield {
+            "type": "frame",
+            "mode": "DATA",
+            "data": quick["data"],
+            "chart": quick["chart"],
+            "sql": quick["sql"],
+            "evidenceSource": quick.get("evidence_source"),
+            "fastPath": True,
+            "toolCalls": trace.calls,
+            "timings": trace.summary(),
+        }
+        if quick.get("narration_pending"):
+            frame = pd.DataFrame(quick["data"])
+            for piece in narrate_stream(question, quick["sql"], frame):
+                yield {"type": "token", "text": piece}
+        yield {"type": "done", "timings": trace.summary()}
+        return
+
+    # Not a stored-evidence question: fall back to the ordinary single-shot answer
+    # and emit it as one frame, so the client only implements one protocol.
+    result = ask(None, question, session_id=session_id, page_context=page_context)
+    yield {
+        "type": "frame",
+        "mode": result.get("mode"),
+        "data": result.get("data"),
+        "chart": result.get("chart"),
+        "sql": result.get("sql"),
+        "sources": result.get("sources"),
+        "action": result.get("action"),
+        "tourId": result.get("tourId"),
+        "toolCalls": result.get("toolCalls"),
+        "timings": result.get("timings"),
+    }
+    if result.get("answer"):
+        yield {"type": "token", "text": result["answer"]}
+    yield {"type": "done", "timings": result.get("timings") or {}}
+
+
 def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None,
-        page_context: dict | None = None) -> dict:
+        page_context: dict | None = None, preselected: dict | None = None) -> dict:
     # The API layer classifies first so it can apply role checks before any SQL
     # runs. It passes the result back here to avoid a second classifier call.
-    mode = mode or classify_question(question)
-    # Earlier turns let a follow-up like "and for RM-0002?" resolve its own subject.
-    history = recent_turns(session_id)
+    trace = TraceRecorder()
 
-    if mode == "CHAT":
+    # Before anything else: if the page pins down a decision and the question asks
+    # why, the stored evidence answers it directly -- no classification, no routing.
+    fast_result = None
+    if mode in (None, "DATA"):
+        fast_result = answer_from_stored_evidence(question, page_context, trace)
+
+    history = recent_turns(session_id)
+    if mode is None:
+        _t = time.perf_counter()
+        routed = route_and_select(question, page_context, history)
+        trace.record("route_and_select",
+                     "llm" if routed.get("used_llm") else "rule",
+                     _t, detail=routed.get("mode"))
+        mode, preselected = routed["mode"], {"tool": routed["tool"], "params": routed["params"]}
+
+    if fast_result is not None:
+        # The fast path answered. It still goes through the shared tail below so the
+        # turn is persisted -- otherwise it has no session id, which silently broke
+        # two things: "Full screen" had nothing to hand over and started a new chat,
+        # and the explanation never entered the history that later turns read.
+        res = fast_result
+    elif mode == "CHAT":
         res = {
             "mode": "CHAT",
             "answer": (
@@ -1623,6 +2040,16 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "action": "START_TOUR",
             "tourId": tour_id
         }
+    elif mode == "SOP" and chain is None:
+        # No retriever available (chain failed to load, or a caller passed none).
+        # Saying so beats an AttributeError from inside the chain.
+        res = {
+            "mode": "SOP",
+            "answer": ("I could not reach the procedure index just now, so I cannot "
+                       "answer that from the SOPs. Please try again shortly."),
+            "sources": [],
+            "error": "sop_index_unavailable",
+        }
     elif mode == "SOP":
         try:
             result = chain.invoke({"query": question})
@@ -1649,7 +2076,8 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "sources": sources
         }
     else:
-        df, sql, chart, error, answer, download_url = ask_database(question, page_context, history)
+        df, sql, chart, error, answer, download_url = ask_database(
+            question, page_context, history, preselected, trace)
         data = df_records_json_safe(df) if df is not None else None
         res = {
             "mode": "DATA",
@@ -1691,6 +2119,24 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
 
                 # 3. Save AI Message
                 ai_text = res.get("error") if res.get("error") else res.get("answer", "")
+                if not ai_text and res.get("data"):
+                    # A fast-path explanation carries its answer in the table, not in
+                    # prose. Storing an empty turn would leave the next question with
+                    # no idea what was just explained, so record the drivers.
+                    rows = res["data"][:4]
+                    first_key = next(iter(rows[0]), None) if rows else None
+                    if first_key:
+                        named = ", ".join(str(r.get(first_key)) for r in rows)
+                        ai_text = f"Explained with stored evidence. Top factors: {named}."
+                if not ai_text and res.get("data"):
+                    # A fast-path explanation carries its answer in the table, not in
+                    # prose. Storing an empty turn would leave the next question with
+                    # no idea what was just explained, so record the drivers.
+                    rows = res["data"][:4]
+                    first_key = next(iter(rows[0]), None) if rows else None
+                    if first_key:
+                        named = ", ".join(str(r.get(first_key)) for r in rows)
+                        ai_text = f"Explained with stored evidence. Top factors: {named}."
                 ai_metadata = {
                     "mode": res.get("mode"),
                     "sources": res.get("sources"),
@@ -1714,4 +2160,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
         except Exception as db_err:
             print(f"Failed to persist chat history: {db_err}")
 
+    # What ran, and how long it took. Attached last so every branch carries it.
+    res.setdefault("toolCalls", trace.calls)
+    res.setdefault("timings", trace.summary())
     return res

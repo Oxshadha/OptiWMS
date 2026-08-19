@@ -70,10 +70,10 @@
     "split": "recursive_untouched_test",
     "horizon": 0,
     "rows": 1440,
-    "WAPE": 0.08745157624882617,
-    "MAE": 772.9489500984512,
-    "RMSE": 1559.6373346441083,
-    "Bias": -0.004876989015605882,
+    "WAPE": 0.08745157624882621,
+    "MAE": 772.9489500984517,
+    "RMSE": 1559.6373346441085,
+    "Bias": -0.0048769890156058,
     "under_forecast_rate": 0.47708333333333336
   },
   "neural_challenger_comparison": {
@@ -81,15 +81,15 @@
     "challenger": "CONV1D_ATTENTION_GLOBAL",
     "paired_rows": 1440,
     "months": 12,
-    "champion_WAPE": 0.08745157624882617,
+    "champion_WAPE": 0.08745157624882621,
     "challenger_WAPE": 0.09899621151073594,
-    "relative_WAPE_improvement": 0.11661694003974866,
-    "mean_monthly_absolute_error_difference": -102.03834039049123,
-    "circular_block_bootstrap_ci_low": -178.7208471496093,
-    "circular_block_bootstrap_ci_high": -16.073915757599373,
-    "HAC_t_statistic": -2.331765344556307,
-    "HAC_p_value": 0.019713039090046663,
-    "Holm_adjusted_p_value": 0.019713039090046663,
+    "relative_WAPE_improvement": 0.11661694003974823,
+    "mean_monthly_absolute_error_difference": -102.03834039049076,
+    "circular_block_bootstrap_ci_low": -178.72084714960906,
+    "circular_block_bootstrap_ci_high": -16.073915757599064,
+    "HAC_t_statistic": -2.3317653445563002,
+    "HAC_p_value": 0.019713039090047017,
+    "Holm_adjusted_p_value": 0.019713039090047017,
     "decision": "RETAIN_EXTRA_TREES"
   }
 }

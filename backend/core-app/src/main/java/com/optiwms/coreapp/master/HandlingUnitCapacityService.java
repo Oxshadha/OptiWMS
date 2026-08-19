@@ -66,19 +66,6 @@ public class HandlingUnitCapacityService {
         return BigDecimal.ZERO;
     }
 
-    public BigDecimal resolvePalletWeightKg(
-            BigDecimal weightKg,
-            BigDecimal palletSpaces,
-            BigDecimal maxPalletWeightKg) {
-        if (maxPalletWeightKg != null && maxPalletWeightKg.compareTo(BigDecimal.ZERO) > 0) {
-            return maxPalletWeightKg;
-        }
-        if (weightKg != null && palletSpaces != null && palletSpaces.compareTo(BigDecimal.ZERO) > 0) {
-            return weightKg.multiply(palletSpaces);
-        }
-        return weightKg != null ? weightKg : BigDecimal.ZERO;
-    }
-
     public int computePalletCount(int quantity, MaterialEntity material) {
         return computePalletCount(BigDecimal.valueOf(quantity), resolveUnitsPerPallet(material));
     }
@@ -134,17 +121,38 @@ public class HandlingUnitCapacityService {
     }
 
     public boolean palletFitsBin(MaterialEntity material, LocationEntity location) {
-        BigDecimal palletWeight = resolvePalletWeightKg(material);
+        return quantityFitsBin(material, location, resolveUnitsPerPallet(material));
+    }
+
+    /**
+     * Whether this many units fit the bin's weight and volume limits.
+     *
+     * Sized to the quantity actually being placed rather than to a full pallet: a bin rated
+     * below a full pallet can still carry a partial one, and testing the pallet rating made
+     * heavy-pallet SKUs unplaceable in every bin regardless of how little was being received.
+     */
+    public boolean quantityFitsBin(MaterialEntity material, LocationEntity location, int quantity) {
+        return quantityFitsBin(material, location, BigDecimal.valueOf(Math.max(quantity, 0)));
+    }
+
+    private boolean quantityFitsBin(MaterialEntity material, LocationEntity location, BigDecimal quantity) {
+        if (material == null || quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return true;
+        }
         if (location.getMaxWeightKg() != null
-                && location.getMaxWeightKg().compareTo(BigDecimal.ZERO) > 0
-                && palletWeight.compareTo(location.getMaxWeightKg()) > 0) {
-            return false;
+                && location.getMaxWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal unitWeight = material.getWeightKg();
+            BigDecimal weight = unitWeight != null && unitWeight.compareTo(BigDecimal.ZERO) > 0
+                    ? unitWeight.multiply(quantity)
+                    : resolvePalletWeightKg(material);
+            if (weight.compareTo(location.getMaxWeightKg()) > 0) {
+                return false;
+            }
         }
         if (material.getVolumeCm3() != null
                 && location.getMaxVolumeCm3() != null
                 && location.getMaxVolumeCm3().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal palletVolume = material.getVolumeCm3().multiply(resolveUnitsPerPallet(material));
-            if (palletVolume.compareTo(location.getMaxVolumeCm3()) > 0) {
+            if (material.getVolumeCm3().multiply(quantity).compareTo(location.getMaxVolumeCm3()) > 0) {
                 return false;
             }
         }
@@ -155,14 +163,31 @@ public class HandlingUnitCapacityService {
             BigDecimal levelUsedKg,
             BigDecimal levelCapacityKg,
             MaterialEntity material) {
-        BigDecimal palletWeight = resolvePalletWeightKg(material);
-        if (palletWeight.compareTo(BigDecimal.ZERO) <= 0) {
+        return canAddQuantityToLevelBeam(levelUsedKg, levelCapacityKg, material, resolvePalletWeightKg(material));
+    }
+
+    /** Beam headroom for the quantity actually being placed, not for a notional full pallet. */
+    public boolean canAddQuantityToLevelBeam(
+            BigDecimal levelUsedKg,
+            BigDecimal levelCapacityKg,
+            MaterialEntity material,
+            int quantity) {
+        return canAddQuantityToLevelBeam(
+                levelUsedKg, levelCapacityKg, material, computeBinWeightKg(quantity, material));
+    }
+
+    private boolean canAddQuantityToLevelBeam(
+            BigDecimal levelUsedKg,
+            BigDecimal levelCapacityKg,
+            MaterialEntity material,
+            BigDecimal addedWeightKg) {
+        if (addedWeightKg == null || addedWeightKg.compareTo(BigDecimal.ZERO) <= 0) {
             return true;
         }
         if (levelCapacityKg == null || levelCapacityKg.compareTo(BigDecimal.ZERO) <= 0) {
             return true;
         }
-        return levelUsedKg.add(palletWeight).compareTo(levelCapacityKg) <= 0;
+        return levelUsedKg.add(addedWeightKg).compareTo(levelCapacityKg) <= 0;
     }
 
     public boolean binHasPalletHeadroom(LocationEntity location, int occupiedPallets) {

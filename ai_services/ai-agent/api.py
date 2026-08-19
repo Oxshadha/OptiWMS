@@ -13,12 +13,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Response, Security
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from agent import (
+    recent_turns,
+    route_and_select,
+    stream_answer,
     suggestions_for,
     AIQuotaExceeded,
     ChatMessage,
@@ -112,6 +116,11 @@ class DataResponse(BaseModel):
     facts: dict[str, Any] = {}
     warnings: List[str] = []
     toolCalls: List[dict[str, Any]] = []
+    # {"total_ms": int, "llm_calls": int, "tool_calls": int}
+    timings: dict[str, Any] = {}
+    # Where an instant answer came from, so it does not appear from nowhere.
+    evidenceSource: Optional[str] = None
+    fastPath: bool = False
     correlationId: Optional[str] = None
 
 
@@ -282,10 +291,22 @@ def ask_question(
     # supplied by the caller, so one user cannot write into another's history.
     user_id = identity_id(identity) or None
 
+    # One call decides the class and, for DATA, the tool. The role gate below still
+    # runs before any tool executes -- routing is a decision, not an execution.
     try:
-        mode = classify_question(question)
+        # Load the conversation before routing, not after. Moving classification up
+        # here for the single-call win accidentally cut it off from history, so
+        # "and what about RM-0002?" arrived with no idea the previous turn was about
+        # a forecast and routed to stock levels instead.
+        prior_turns = recent_turns(request.session_id)
+        routed = route_and_select(question, request.page_context, prior_turns)
+        mode = routed["mode"]
+        preselected = {"tool": routed["tool"], "params": routed["params"]}
     except AIQuotaExceeded as exc:
         raise quota_exceeded(exc, correlation_id, identity) from exc
+    except Exception:
+        logger.warning("merged routing failed, falling back to two-call classify", exc_info=True)
+        mode, preselected = classify_question(question), None
 
     if mode == "DATA" and role not in sql_roles:
         logger.info(
@@ -312,6 +333,7 @@ def ask_question(
             session_id=request.session_id,
             mode=mode,
             page_context=request.page_context,
+            preselected=preselected,
         )
     except AIQuotaExceeded as exc:
         raise quota_exceeded(exc, correlation_id, identity) from exc
@@ -337,8 +359,68 @@ def ask_question(
         session_id=res.get("session_id"),
         action=res.get("action"),
         tourId=res.get("tourId"),
-        toolCalls=[{"name": res.get("mode"), "outcome": "error" if res.get("error") else "ok"}],
+        # What actually ran, rather than a restatement of the mode. Lets the client
+        # show the working -- which tool, how long, and whether a model was involved.
+        toolCalls=res.get("toolCalls")
+        or [{"name": res.get("mode"), "kind": "mode",
+             "outcome": "error" if res.get("error") else "ok"}],
+        timings=res.get("timings") or {},
+        evidenceSource=res.get("evidence_source"),
+        fastPath=bool(res.get("fast_path")),
         correlationId=correlation_id,
+    )
+
+
+@app.post("/ask/stream")
+def ask_stream(
+    request: QuestionRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer),
+):
+    """Answer as newline-delimited JSON events: evidence first, then prose.
+
+    Emits ``{"type":"frame"}`` with the rows and chart, then ``{"type":"token"}``
+    for each piece of narration, then ``{"type":"done"}``. The client can render the
+    table and chart before the assistant has written a word -- which is both faster
+    and an accurate depiction of where the numbers came from.
+
+    Declared sync so Starlette runs it in a worker thread; the generator underneath
+    makes blocking calls and would otherwise stall the event loop for every other
+    request.
+    """
+    identity = authenticate(credentials)
+    question = (request.message or request.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="A message is required.")
+
+    enforce_rate_limit(credentials.credentials)
+    role = (identity.get("role") or "").upper()
+
+    def events():
+        try:
+            for event in stream_answer(question, request.page_context, request.session_id):
+                # The role gate applies to the streaming path too: a non-privileged
+                # caller must not receive warehouse rows just because they asked here.
+                if event.get("type") == "frame" and event.get("mode") == "DATA" \
+                        and role not in sql_roles:
+                    yield json.dumps({
+                        "type": "frame", "mode": "DENIED",
+                        "answer": ("Warehouse data queries are limited to manager and "
+                                   "administrator accounts."),
+                    }) + "\n"
+                    yield json.dumps({"type": "done", "timings": {}}) + "\n"
+                    return
+                yield json.dumps(event, default=str) + "\n"
+        except AIQuotaExceeded as exc:
+            yield json.dumps({"type": "error", "code": "AI_QUOTA_EXCEEDED",
+                              "message": str(exc)}) + "\n"
+        except Exception as exc:  # a stream cannot raise a 500 once it has begun
+            logger.exception("assistant_stream_error")
+            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
