@@ -28,7 +28,6 @@ def get_stock_level(engine: Engine, search: str, limit: int = 15) -> tuple[pd.Da
     """Current stock levels for materials matching a SKU code, material code, or name."""
     sql = """
         SELECT
-            m.sku_id,
             m.material_code,
             m.description,
             w.name AS warehouse,
@@ -41,10 +40,9 @@ def get_stock_level(engine: Engine, search: str, limit: int = 15) -> tuple[pd.Da
         FROM materials m
         JOIN inventory i ON i.material_id = m.id
         LEFT JOIN warehouses w ON w.id = i.warehouse_id
-        WHERE m.sku_id ILIKE :pattern
-           OR m.material_code ILIKE :pattern
+        WHERE m.material_code ILIKE :pattern
            OR m.description ILIKE :pattern
-        GROUP BY m.sku_id, m.material_code, m.description, w.name
+        GROUP BY m.material_code, m.description, w.name
         ORDER BY on_hand_qty DESC
         LIMIT :limit
     """
@@ -56,7 +54,6 @@ def get_reorder_alerts(engine: Engine, limit: int = 20) -> tuple[pd.DataFrame, s
     """Materials whose available stock has fallen below their reorder point."""
     sql = """
         SELECT
-            m.sku_id,
             m.material_code,
             m.description,
             SUM(i.available_quantity) AS available_qty,
@@ -65,7 +62,7 @@ def get_reorder_alerts(engine: Engine, limit: int = 20) -> tuple[pd.DataFrame, s
         FROM inventory i
         JOIN materials m ON m.id = i.material_id
         WHERE i.reorder_point IS NOT NULL
-        GROUP BY m.sku_id, m.material_code, m.description
+        GROUP BY m.material_code, m.description
         HAVING SUM(i.available_quantity) < MAX(i.reorder_point)
         ORDER BY shortfall DESC
         LIMIT :limit
@@ -82,7 +79,6 @@ def get_top_movers(engine: Engine, days: int = 90, limit: int = 10) -> tuple[pd.
     sql = """
         WITH latest AS (SELECT MAX(created_at) AS ts FROM stock_movements)
         SELECT
-            m.sku_id,
             m.material_code,
             m.description,
             COUNT(*) AS movement_count,
@@ -91,7 +87,7 @@ def get_top_movers(engine: Engine, days: int = 90, limit: int = 10) -> tuple[pd.
         JOIN materials m ON m.id = sm.material_id
         CROSS JOIN latest
         WHERE sm.created_at >= latest.ts - (:days || ' days')::interval
-        GROUP BY m.sku_id, m.material_code, m.description
+        GROUP BY m.material_code, m.description
         ORDER BY total_qty_moved DESC
         LIMIT :limit
     """
