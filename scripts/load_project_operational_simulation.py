@@ -221,44 +221,12 @@ def load_materials(cur, physical: pd.DataFrame, digest: str) -> dict[str, str]:
     return dict(cur.fetchall())
 
 
-# The v8 artifacts predate V54, which normalised storage codes to a three-digit bay
-# (E-03-07-1-A became E-03-007-1-A). The location id is derived from the layout and
-# is stable across that change, so re-running the loader against an already-migrated
-# database inserted a row whose code looked new while its id already existed --
-# ON CONFLICT(location_code) never fired and the primary key raised instead. That is
-# why this script could only ever succeed once.
-_STORAGE_CODE = re.compile(r"^([A-Z])-(\d{2})-(\d{2,3})-(\d{1,2})-([A-Z])$")
-
-
-def canonical_location_code(code: object) -> object:
-    """Rewrite a storage code to the canonical three-digit-bay form V54 enforces.
-
-    Anything that is not a storage code (a door, a staging lane) is returned as is.
-    """
-    if not isinstance(code, str):
-        return code
-    match = _STORAGE_CODE.match(code.strip().upper())
-    if not match:
-        return code
-    zone, aisle, bay, level, position = match.groups()
-    return f"{zone}-{aisle}-{bay.zfill(3)}-{level}-{position}"
-
-
-def canonicalise_location_codes(frames: dict) -> dict:
-    """Apply the canonical code to every frame that references a location."""
-    for name in ("layout", "assignments", "physical_inventory", "slotting_validation"):
-        frame = frames.get(name)
-        if frame is not None and "location_code" in frame.columns:
-            frame["location_code"] = frame["location_code"].map(canonical_location_code)
-    return frames
-
-
 def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str) -> int:
     locations = align_operational_apron(locations)
     locations = align_velocity_zones_to_doors(locations)
     rows = [(
         row.location_id, warehouse_id, row.location_code, row.area,
-        str(row.row_number).zfill(2), str(row.bay_number).zfill(3),
+        str(row.row_number).zfill(2), str(row.bay_number).zfill(2),
         int(row.level_number), row.bin_position, row.location_type, row.zone_type,
         float(row.capacity), True, int(row.accessibility_rating),
         float(row.coordinate_x), float(row.coordinate_y), float(row.coordinate_z),
@@ -279,7 +247,16 @@ def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str)
             max_weight_kg,max_volume_cm3,temperature_zone,hazard_allowed,amalgamated_class,
             dataset_version,source_lineage
         ) VALUES %s
-        ON CONFLICT(location_code) DO UPDATE SET
+        -- Conflict on id, not location_code.
+        --
+        -- The id is derived from the layout and is stable; the code is not. V54
+        -- rewrote some codes to a three-digit bay while leaving the id alone, so a
+        -- re-run offered a code the database had never seen against an id it already
+        -- held: ON CONFLICT(location_code) never matched and the primary key raised
+        -- instead. Keying on id makes the load idempotent in both directions and
+        -- repairs a drifted code on the way through.
+        ON CONFLICT(id) DO UPDATE SET
+            location_code=EXCLUDED.location_code,
             warehouse_id=EXCLUDED.warehouse_id,area=EXCLUDED.area,
             row_number=EXCLUDED.row_number,bay_number=EXCLUDED.bay_number,
             level_number=EXCLUDED.level_number,bin_position=EXCLUDED.bin_position,
@@ -827,7 +804,6 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
     # Keep display names stable even when loading older statistical artifacts
     # whose immutable codes still carry the original synthetic descriptions.
     frames["physical"] = apply_catalog_names(frames["physical"])
-    frames = canonicalise_location_codes(frames)
     conn = psycopg2.connect(db_url)
     try:
         conn.autocommit = False
@@ -889,6 +865,62 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         conn.close()
 
 
+def run_forecast_only(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
+    """Refresh the forecast and its evidence, leaving the warehouse layout alone.
+
+    A recalculation refits the model; it is not a reseed. Rebuilding locations,
+    materials and inventory from the layout artifact is a first-install concern, and
+    doing it on every recalculation fails as soon as the database and the artifact
+    disagree about a location id -- which they do here, because the warehouse was
+    seeded from an earlier layout than the one now on disk.
+
+    Separating the two means a recalculation can run repeatedly and safely, and
+    reseeding stays an explicit, deliberate act.
+    """
+    files = [
+        source_dir() / "operational_forecasts.csv",
+        source_dir() / "champion_prediction_intervals.csv",
+        source_dir() / "operational_backtest_metrics.csv",
+    ]
+    missing = [str(path) for path in files if not path.exists()]
+    if missing:
+        raise RuntimeError(f"missing v8 forecast artifacts: {missing}")
+    digest = dataset_hash(files)
+    forecasts = pd.read_csv(files[0])
+    backtests = pd.read_csv(files[1])
+
+    conn = psycopg2.connect(db_url)
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            warehouse_id = resolve_warehouse(cur, warehouse_code)
+            codes = sorted(set(forecasts["material_code"]).union(
+                backtests.loc[backtests["model"].eq("extra_trees_causal"), "material_code"]))
+            cur.execute(
+                "SELECT material_code, id::text FROM materials WHERE material_code=ANY(%s)",
+                (codes,),
+            )
+            material_ids = dict(cur.fetchall())
+            missing_codes = sorted(set(codes) - set(material_ids))
+            if missing_codes:
+                raise RuntimeError(
+                    "these materials are not in the warehouse yet, so run a full load "
+                    f"first: {missing_codes[:10]}"
+                )
+            counts = {
+                "forecast_rows": load_forecasts(cur, forecasts, material_ids, warehouse_id, digest),
+                "backtest_rows": load_backtests(cur, backtests, material_ids, warehouse_id, digest),
+                "model_evidence_rows": load_model_evidence(cur, digest, warehouse_id),
+            }
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+        return {"mode": "forecast_only", "dry_run": dry_run, "counts": counts}
+    finally:
+        conn.close()
+
+
 def run_evidence_only(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
     """Refresh only promoted forecast evidence without rebuilding WMS operations."""
     evidence_files = [
@@ -943,12 +975,22 @@ def main() -> int:
     parser.add_argument("--warehouse-code", default="WH-001")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--forecast-only",
+        action="store_true",
+        help="Refresh the forecast and its evidence without reseeding the warehouse",
+    )
+    parser.add_argument(
         "--evidence-only",
         action="store_true",
         help="Refresh promoted model metrics/backtests without rebuilding operational data",
     )
     args = parser.parse_args()
-    action = run_evidence_only if args.evidence_only else run
+    if args.forecast_only:
+        action = run_forecast_only
+    elif args.evidence_only:
+        action = run_evidence_only
+    else:
+        action = run
     print(json.dumps(action(args.db_url, args.warehouse_code, args.dry_run), indent=2, default=str))
     return 0
 

@@ -255,6 +255,11 @@ def recalculate(
             database_url,
             "--warehouse-code",
             warehouse_id,
+            # A recalculation refits the model; it does not reseed the warehouse.
+            # Reloading locations and materials from the layout artifact fails once
+            # the database and that artifact disagree about a location id, which is
+            # why this endpoint returned HTTP 500 on every run after the first.
+            "--forecast-only",
         ]
         if dry_run:
             publish_command.append("--dry-run")
