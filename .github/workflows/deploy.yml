@@ -1,0 +1,101 @@
+name: Deploy to AWS
+
+# Runs after images are published for a commit on main. The images are the
+# deliverable; this job only points the server at a new tag and restarts it,
+# so a deploy is a pull, never a build.
+#
+# Manual runs let you redeploy or roll back without pushing a commit: give the
+# tag of any published image (a commit SHA, or `edge` for the latest main).
+on:
+  workflow_run:
+    workflows: ["Publish versioned OptiWMS images"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (commit SHA, or 'edge')"
+        required: true
+        default: edge
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # A failed image build must not reach the server.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the tag to deploy
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy the compose stack to the server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "infra/deploy/docker-compose.team.yml,infra/deploy/Caddyfile,infra/init-scripts/**"
+          target: /opt/optiwms
+          overwrite: true
+
+      - name: Pull the new images and restart
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: TAG
+          script: |
+            set -euo pipefail
+            cd /opt/optiwms/infra/deploy
+
+            # Secrets live in /opt/optiwms/.env on the server and are never in
+            # git or in Actions. Only the image tag changes per deploy.
+            if [ ! -f /opt/optiwms/.env ]; then
+              echo "ERROR: /opt/optiwms/.env missing. Create it once from infra/deploy/.env.example." >&2
+              exit 1
+            fi
+            ln -sf /opt/optiwms/.env .env
+
+            # GHCR needs auth when the packages are private.
+            echo "${{ secrets.GHCR_TOKEN }}" \
+              | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+            # Record the tag so a restart cannot silently revert to an older one.
+            sed -i "s/^OPTIWMS_TAG=.*/OPTIWMS_TAG=${TAG}/" /opt/optiwms/.env \
+              || echo "OPTIWMS_TAG=${TAG}" >> /opt/optiwms/.env
+
+            docker compose -f docker-compose.team.yml pull
+            docker compose -f docker-compose.team.yml up -d --remove-orphans
+            docker image prune -f
+
+      - name: Wait for the site to answer
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              --max-time 10 "https://${{ secrets.DEPLOY_HOST_NAME }}/api/actuator/health" || true)
+            # 401 means Caddy's basic auth answered, which proves the proxy and
+            # TLS are up. That is a healthy deploy, not a failure.
+            case "$code" in
+              200|401) echo "healthy (HTTP $code)"; exit 0 ;;
+            esac
+            echo "attempt $i: HTTP $code"; sleep 10
+          done
+          echo "site did not become healthy" >&2
+          exit 1

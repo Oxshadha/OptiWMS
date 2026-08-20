@@ -1111,6 +1111,7 @@ shadow-mode testing, manager approval and site safety certification. Next.js
 **Running and building**
 
 - [Clone to running](SETUP.md)
+- [Deploying on AWS](docs/DEPLOYMENT.md)
 - [Database seed and restore](scripts/README_SEED.md)
 - [AI services overview](ai_services/README.md)
 
