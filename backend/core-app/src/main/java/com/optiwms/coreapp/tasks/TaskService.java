@@ -17,12 +17,17 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
 public class TaskService {
+
+    private static final Pattern HANDLING_UNIT_QUANTITY = Pattern.compile("PUTAWAY_HU_QTY=(\\d+)");
 
     private final TaskRepository repository;
     private final NotificationService notificationService;
@@ -167,6 +172,7 @@ public class TaskService {
         entity.setLocationCode(task.getLocationCode());
         entity.setReferenceType(task.getReferenceType());
         entity.setReferenceId(task.getReferenceId());
+        entity.setHandlingUnitSeq(task.getHandlingUnitSeq());
         entity.setNotes(task.getNotes());
 
         TaskEntity saved = repository.save(entity);
@@ -242,6 +248,24 @@ public class TaskService {
         return toDomain(saved);
     }
 
+    /**
+     * Records where the work actually happened, which is not always where it was planned.
+     *
+     * <p>A putaway task carried its planned bin and never learned the bin the worker really used.
+     * Anything reading the task afterwards -- the route guide releasing stop reservations, the
+     * putaway list, reporting -- was therefore told about a bin the pallet never reached.
+     */
+    @Transactional
+    public Task updateLocationCode(UUID id, String locationCode) {
+        if (locationCode == null || locationCode.isBlank()) {
+            return findById(id);
+        }
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setLocationCode(locationCode.trim().toUpperCase(java.util.Locale.ROOT));
+        return toDomain(repository.save(entity));
+    }
+
     private Task toDomain(TaskEntity entity) {
         Task task = new Task();
         task.setId(entity.getId());
@@ -258,8 +282,15 @@ public class TaskService {
         task.setLocationCode(entity.getLocationCode());
         task.setReferenceType(entity.getReferenceType());
         task.setReferenceId(entity.getReferenceId());
+        task.setHandlingUnitSeq(entity.getHandlingUnitSeq());
         task.setNotes(entity.getNotes());
         return task;
+    }
+
+    /** Remove a task outright. Used when an unstarted plan is rebuilt against a changed order. */
+    @Transactional
+    public void deleteById(UUID taskId) {
+        repository.deleteById(taskId);
     }
 
     private void createTaskNotifications(TaskEntity entity, boolean includeWorker) {
@@ -267,8 +298,8 @@ public class TaskService {
                 null,
                 "admin,warehouse_manager,inbound_coordinator",
                 entity.getWarehouseId(),
-                "Task Created",
-                "Task " + entity.getTaskNumber() + " is available for execution.",
+                taskNotificationTitle(entity),
+                taskNotificationBody(entity),
                 "task",
                 "/admin/tasks/" + entity.getId(),
                 "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"" + entity.getStatus() + "\"}"
@@ -279,12 +310,65 @@ public class TaskService {
                     null,
                     entity.getWarehouseId(),
                     "New Task Assigned",
-                    "Task " + entity.getTaskNumber() + " has been assigned to you.",
+                    taskNotificationBody(entity) + " Assigned to you.",
                     "task",
                     "/worker/tasks/" + entity.getId(),
                     "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"" + entity.getStatus() + "\"}"
             );
         }
+    }
+
+    /**
+     * Notification headline naming the kind of work, not just "Task Created".
+     *
+     * One receipt raises a receiving task and one putaway task per pallet. Titling all of them
+     * identically made a two-pallet receipt read as three interchangeable tasks, and left the
+     * reader counting rows to work out how many pallets were actually involved.
+     */
+    private String taskNotificationTitle(TaskEntity entity) {
+        String type = entity.getTaskType() == null ? "" : entity.getTaskType().toLowerCase(Locale.ROOT);
+        return switch (type) {
+            case "receiving" -> "Receiving Task Created";
+            case "putaway" -> "Putaway Task Created";
+            case "picking" -> "Picking Task Created";
+            case "packing" -> "Packing Task Created";
+            case "replenishment" -> "Replenishment Task Created";
+            case "cycle_count" -> "Cycle Count Task Created";
+            default -> "Task Created";
+        };
+    }
+
+    /** What the task actually asks for: pallet number, quantity and destination where known. */
+    private String taskNotificationBody(TaskEntity entity) {
+        StringBuilder body = new StringBuilder();
+        Integer sequence = entity.getHandlingUnitSeq();
+        if ("putaway".equalsIgnoreCase(entity.getTaskType()) && sequence != null) {
+            body.append("Pallet ").append(sequence);
+            Integer quantity = handlingUnitQuantity(entity.getNotes());
+            if (quantity != null) {
+                body.append(" · ").append(quantity).append(" units");
+            }
+            if (entity.getLocationCode() != null && !entity.getLocationCode().isBlank()) {
+                body.append(" to ").append(entity.getLocationCode());
+            }
+            body.append(" (").append(entity.getTaskNumber()).append(").");
+            return body.toString();
+        }
+        body.append("Task ").append(entity.getTaskNumber());
+        if (entity.getLocationCode() != null && !entity.getLocationCode().isBlank()) {
+            body.append(" at ").append(entity.getLocationCode());
+        }
+        body.append(" is available for execution.");
+        return body.toString();
+    }
+
+    /** Putaway writes the pallet quantity into the notes as PUTAWAY_HU_QTY=&lt;n&gt;. */
+    private Integer handlingUnitQuantity(String notes) {
+        if (notes == null) {
+            return null;
+        }
+        Matcher matcher = HANDLING_UNIT_QUANTITY.matcher(notes);
+        return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
     }
 
     private void createAssignedNotification(TaskEntity entity, String assignedBy) {

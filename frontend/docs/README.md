@@ -47,7 +47,6 @@ This directory contains all documentation for the OptiWMS frontend project.
 
 ### Operations
 
-- **[DOCK_MANAGEMENT.md](./DOCK_MANAGEMENT.md)** - Dock management and yard trailer queue workflow
 - **[LABOR_PRODUCTIVITY.md](./LABOR_PRODUCTIVITY.md)** - Labor productivity metrics and gamification guide
 - **[OFFLINE_RESILIENCE.md](./OFFLINE_RESILIENCE.md)** - Offline-first PWA best practices and implementation
 
@@ -96,7 +95,6 @@ docs/
     ├── DASHBOARD_VISIBILITY_IMPLEMENTATION.md
     ├── warehouse-layout-guide.md
     ├── VELOCITY_HEAT_MAP.md
-    ├── DOCK_MANAGEMENT.md
     ├── LABOR_PRODUCTIVITY.md
     └── OFFLINE_RESILIENCE.md
 ```
@@ -131,9 +129,6 @@ docs/
 **...AI services implementation:**
 → Read [AI_SERVICES_IMPLEMENTATION.md](./AI_SERVICES_IMPLEMENTATION.md)
 
-**...dock management:**
-→ Read [DOCK_MANAGEMENT.md](./DOCK_MANAGEMENT.md)
-
 **...labor productivity:**
 → Read [LABOR_PRODUCTIVITY.md](./LABOR_PRODUCTIVITY.md)
 
@@ -158,7 +153,6 @@ docs/
 | DASHBOARD_VISIBILITY_IMPLEMENTATION.md | ✅ Current | Current      |
 | warehouse-layout-guide.md              | ✅ Current | Current      |
 | AI_SERVICES_IMPLEMENTATION.md          | ✅ Current | New          |
-| DOCK_MANAGEMENT.md                     | ✅ Current | New          |
 | LABOR_PRODUCTIVITY.md                  | ✅ Current | New          |
 | VELOCITY_HEAT_MAP.md                   | ✅ Current | New          |
 | OFFLINE_RESILIENCE.md                  | ✅ Current | New          |

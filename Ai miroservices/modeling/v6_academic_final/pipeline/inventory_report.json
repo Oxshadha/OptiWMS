@@ -1,0 +1,17 @@
+{
+  "legacy_pkl_count": 3,
+  "legacy_pkls": [
+    "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v4_m5_proper/champion_model/model.pkl",
+    "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v3_beverage/champion_model/model.pkl",
+    "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v5_paper_compliant/data/03_lgbm_model.pkl"
+  ],
+  "artifacts_root": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/outputs/artifacts",
+  "artifact_entries": 0,
+  "wms_data_ready": false,
+  "wms_info": {
+    "reason": "missing_export",
+    "path": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v6_academic_final/data/wms_outbound_monthly.csv"
+  },
+  "bootstrap_csv": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v6_academic_final/data/bootstrap_fg_monthly.csv",
+  "mlflow_experiment": "OptiWMS_v6_FG"
+}

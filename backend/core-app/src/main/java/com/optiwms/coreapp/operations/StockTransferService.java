@@ -1,6 +1,7 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.inventory.InventoryService;
+import com.optiwms.coreapp.master.MaterialDefaultLocationService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.operations.StockTransfer;
@@ -12,6 +13,13 @@ import com.optiwms.infra.operations.StockTransferLineEventEntity;
 import com.optiwms.infra.operations.StockTransferLineEventRepository;
 import com.optiwms.infra.operations.StockTransferLineRepository;
 import com.optiwms.infra.operations.StockTransferRepository;
+import com.optiwms.infra.intelligence.PlanningCycleRepository;
+import com.optiwms.infra.slotting.SlottingPlanEntity;
+import com.optiwms.infra.slotting.SlottingPlanLineEntity;
+import com.optiwms.infra.slotting.SlottingPlanLineRepository;
+import com.optiwms.infra.slotting.SlottingPlanReserveLineEntity;
+import com.optiwms.infra.slotting.SlottingPlanReserveLineRepository;
+import com.optiwms.infra.slotting.SlottingPlanRepository;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +45,11 @@ public class StockTransferService {
     private final InventoryService inventoryService;
     private final TaskService taskService;
     private final OperationEventService operationEventService;
+    private final SlottingPlanLineRepository slottingPlanLineRepository;
+    private final SlottingPlanRepository slottingPlanRepository;
+    private final PlanningCycleRepository planningCycleRepository;
+    private final MaterialDefaultLocationService defaultLocationService;
+    private final SlottingPlanReserveLineRepository slottingReserveLineRepository;
 
     public StockTransferService(
             StockTransferRepository repository,
@@ -44,7 +57,12 @@ public class StockTransferService {
             StockTransferLineEventRepository lineEventRepository,
             InventoryService inventoryService,
             TaskService taskService,
-            OperationEventService operationEventService
+            OperationEventService operationEventService,
+            SlottingPlanLineRepository slottingPlanLineRepository,
+            SlottingPlanRepository slottingPlanRepository,
+            PlanningCycleRepository planningCycleRepository,
+            MaterialDefaultLocationService defaultLocationService,
+            SlottingPlanReserveLineRepository slottingReserveLineRepository
     ) {
         this.repository = repository;
         this.lineRepository = lineRepository;
@@ -52,6 +70,11 @@ public class StockTransferService {
         this.inventoryService = inventoryService;
         this.taskService = taskService;
         this.operationEventService = operationEventService;
+        this.slottingPlanLineRepository = slottingPlanLineRepository;
+        this.slottingPlanRepository = slottingPlanRepository;
+        this.planningCycleRepository = planningCycleRepository;
+        this.defaultLocationService = defaultLocationService;
+        this.slottingReserveLineRepository = slottingReserveLineRepository;
     }
 
     public List<StockTransfer> listAll() {
@@ -166,6 +189,11 @@ public class StockTransferService {
     }
 
     @Transactional
+    public StockTransfer releaseForSlotting(UUID transferId) {
+        return release(transferId, null);
+    }
+
+    @Transactional
     public StockTransfer release(UUID transferId, UUID managerId) {
         StockTransferEntity transfer = repository.findById(transferId)
                 .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + transferId));
@@ -209,6 +237,7 @@ public class StockTransferService {
             line.setStatus("in_progress");
         }
         line = lineRepository.save(line);
+        syncSlottingExecution(line);
 
         Task task = findLineTask(line.getId());
         if (task != null) {
@@ -259,6 +288,7 @@ public class StockTransferService {
         line.setAssignedWorkerId(workerId);
         line.setStatus(newMoved >= line.getRequestedQuantity() ? "completed" : "partial");
         line = lineRepository.save(line);
+        syncSlottingExecution(line);
 
         Task task = findLineTask(line.getId());
         if (task != null) {
@@ -308,6 +338,7 @@ public class StockTransferService {
 
         line.setStatus("blocked");
         line = lineRepository.save(line);
+        syncSlottingExecution(line);
 
         Task task = findLineTask(line.getId());
         if (task != null) {
@@ -370,7 +401,8 @@ public class StockTransferService {
         for (StockTransferLineEntity line : lineRepository.findByTransferIdOrderByLineNumberAsc(id)) {
             if (!"completed".equals(line.getStatus())) {
                 line.setStatus("cancelled");
-                lineRepository.save(line);
+                line = lineRepository.save(line);
+                syncSlottingExecution(line);
             }
             Task task = findLineTask(line.getId());
             if (task != null && !"completed".equals(task.getStatus())) {
@@ -397,6 +429,7 @@ public class StockTransferService {
                         : generateTransferNumber()
         );
         entity.setTransferType(transfer.getTransferType() != null ? transfer.getTransferType() : "intra_warehouse");
+        entity.setPlanningCycleId(transfer.getPlanningCycleId());
         entity.setMaterialId(transfer.getMaterialId());
         entity.setSourceWarehouseId(transfer.getSourceWarehouseId());
         entity.setSourceLocationCode(transfer.getSourceLocationCode());
@@ -422,6 +455,8 @@ public class StockTransferService {
         entity.setMovedQuantity(line.getMovedQuantity() != null ? line.getMovedQuantity() : 0);
         entity.setStatus(line.getStatus() != null ? line.getStatus() : "open");
         entity.setAssignedWorkerId(line.getAssignedWorkerId());
+        entity.setPlanningCycleId(line.getPlanningCycleId());
+        entity.setSlottingPlanLineId(line.getSlottingPlanLineId());
         entity.setNotes(line.getNotes());
         return lineRepository.save(entity);
     }
@@ -580,6 +615,7 @@ public class StockTransferService {
         transfer.setId(entity.getId());
         transfer.setTransferNumber(entity.getTransferNumber());
         transfer.setTransferType(entity.getTransferType());
+        transfer.setPlanningCycleId(entity.getPlanningCycleId());
         transfer.setMaterialId(entity.getMaterialId());
         transfer.setSourceWarehouseId(entity.getSourceWarehouseId());
         transfer.setSourceLocationCode(entity.getSourceLocationCode());
@@ -601,6 +637,10 @@ public class StockTransferService {
     private StockTransferLine toLineDomain(StockTransferLineEntity entity) {
         StockTransferLine line = new StockTransferLine();
         line.setId(entity.getId());
+        // Resolved rather than stored: the task is keyed by reference, so the line stays the
+        // single source of truth and cannot drift from it.
+        Task lineTask = findLineTask(entity.getId());
+        line.setTaskId(lineTask != null ? lineTask.getId() : null);
         line.setTransferId(entity.getTransferId());
         line.setLineNumber(entity.getLineNumber());
         line.setMaterialId(entity.getMaterialId());
@@ -612,7 +652,90 @@ public class StockTransferService {
         line.setMovedQuantity(entity.getMovedQuantity());
         line.setStatus(entity.getStatus());
         line.setAssignedWorkerId(entity.getAssignedWorkerId());
+        line.setPlanningCycleId(entity.getPlanningCycleId());
+        line.setSlottingPlanLineId(entity.getSlottingPlanLineId());
         line.setNotes(entity.getNotes());
         return line;
+    }
+
+    private void syncSlottingExecution(StockTransferLineEntity transferLine) {
+        if (transferLine.getSlottingPlanLineId() == null) {
+            return;
+        }
+        SlottingPlanLineEntity slottingLine = slottingPlanLineRepository
+                .findById(transferLine.getSlottingPlanLineId()).orElse(null);
+        if (slottingLine == null) {
+            return;
+        }
+
+        if ("completed".equals(transferLine.getStatus())) {
+            slottingLine.setStatus("APPLIED");
+            slottingLine.setRelocationApplied(true);
+            applyCompletedSlottingDefaults(transferLine, slottingLine);
+        } else if ("blocked".equals(transferLine.getStatus()) || "cancelled".equals(transferLine.getStatus())) {
+            slottingLine.setStatus("EXCEPTION");
+            slottingLine.setRelocationApplied(false);
+        } else {
+            slottingLine.setStatus("IN_PROGRESS");
+        }
+        slottingPlanLineRepository.save(slottingLine);
+
+        SlottingPlanEntity plan = slottingPlanRepository.findById(slottingLine.getPlanId()).orElse(null);
+        if (plan == null) {
+            return;
+        }
+        List<SlottingPlanLineEntity> planLines = slottingPlanLineRepository
+                .findByPlanIdOrderByMaterialCodeAsc(plan.getId());
+        List<SlottingPlanLineEntity> moves = planLines.stream()
+                .filter(line -> Boolean.TRUE.equals(line.getRelocationFlag()))
+                .toList();
+        boolean complete = !moves.isEmpty() && moves.stream().allMatch(line -> "APPLIED".equals(line.getStatus()));
+        boolean exception = moves.stream().anyMatch(line -> "EXCEPTION".equals(line.getStatus()));
+        long completedMoves = moves.stream().filter(line -> "APPLIED".equals(line.getStatus())).count();
+
+        plan.setRelocationMovesApplied(Math.toIntExact(completedMoves));
+        plan.setConfirmedDistanceSavedMeters(moves.stream()
+                .filter(line -> "APPLIED".equals(line.getStatus()))
+                .map(SlottingPlanLineEntity::getDistanceSavedMeters)
+                .filter(java.util.Objects::nonNull)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add));
+        plan.setExecutionStatus(complete ? "COMPLETED" : exception ? "EXCEPTION" : "IN_PROGRESS");
+        slottingPlanRepository.save(plan);
+
+        if (plan.getPlanningCycleId() != null) {
+            planningCycleRepository.findById(plan.getPlanningCycleId()).ifPresent(cycle -> {
+                cycle.setLifecycleStatus(complete ? "COMPLETED" : exception ? "IN_EXECUTION" : "IN_EXECUTION");
+                if (complete) cycle.setCompletedAt(java.time.OffsetDateTime.now());
+                planningCycleRepository.save(cycle);
+            });
+        }
+    }
+
+    private void applyCompletedSlottingDefaults(
+            StockTransferLineEntity transferLine,
+            SlottingPlanLineEntity slottingLine) {
+        defaultLocationService.assignDefaultLocation(
+                slottingLine.getMaterialId(),
+                transferLine.getDestWarehouseId(),
+                transferLine.getDestLocationCode(),
+                1,
+                slottingLine.getMaterialType(),
+                false);
+        int priority = 2;
+        for (SlottingPlanReserveLineEntity reserve : slottingReserveLineRepository
+                .findByPlanLineIdOrderBySequenceNoAsc(slottingLine.getId())) {
+            String reserveCode = reserve.getFinalReserveLocationCode() != null
+                    ? reserve.getFinalReserveLocationCode()
+                    : reserve.getRecommendedReserveLocationCode();
+            if (reserveCode != null) {
+                defaultLocationService.assignDefaultLocation(
+                        slottingLine.getMaterialId(),
+                        transferLine.getDestWarehouseId(),
+                        reserveCode,
+                        priority++,
+                        slottingLine.getMaterialType(),
+                        false);
+            }
+        }
     }
 }

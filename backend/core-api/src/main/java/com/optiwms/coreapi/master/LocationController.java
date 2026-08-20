@@ -1,11 +1,16 @@
 package com.optiwms.coreapi.master;
 
+import com.optiwms.coreapp.master.BinOccupancyService;
 import com.optiwms.coreapp.master.LocationService;
+import com.optiwms.coreapp.master.StockPlacementPlanner;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -13,9 +18,19 @@ import java.util.UUID;
 public class LocationController {
 
     private final LocationService locationService;
+    private final BinOccupancyService binOccupancyService;
+    private final StockPlacementPlanner stockPlacementPlanner;
+    private final JdbcTemplate jdbcTemplate;
 
-    public LocationController(LocationService locationService) {
+    public LocationController(
+            LocationService locationService,
+            BinOccupancyService binOccupancyService,
+            StockPlacementPlanner stockPlacementPlanner,
+            JdbcTemplate jdbcTemplate) {
         this.locationService = locationService;
+        this.binOccupancyService = binOccupancyService;
+        this.stockPlacementPlanner = stockPlacementPlanner;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping
@@ -76,6 +91,383 @@ public class LocationController {
     public ResponseEntity<List<LocationDto>> getStorageLocationsByWarehouse(@PathVariable UUID warehouseId) {
         var locations = locationService.findStorageLocationsByWarehouse(warehouseId);
         return ResponseEntity.ok(locations.stream().map(this::toDto).toList());
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/rack-occupancy")
+    public ResponseEntity<List<BinOccupancyDto>> getWarehouseRackOccupancy(@PathVariable UUID warehouseId) {
+        return ResponseEntity.ok(binOccupancyService.getWarehouseRackOccupancy(warehouseId).stream()
+                .map(this::toOccupancyDto)
+                .toList());
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/operational-stations")
+    public ResponseEntity<List<OperationalStationDto>> getOperationalStations(@PathVariable UUID warehouseId) {
+        var rows = jdbcTemplate.query("""
+                SELECT location_code, location_type, zone_type,
+                       COALESCE(coordinate_x, 0)::double precision AS coordinate_x,
+                       COALESCE(coordinate_y, 0)::double precision AS coordinate_y
+                FROM locations
+                WHERE warehouse_id = ?
+                  AND dataset_version = COALESCE(
+                      (SELECT dataset_version FROM warehouses WHERE id = ?), dataset_version)
+                  AND UPPER(COALESCE(zone_type, '')) IN
+                      ('RECEIVING', 'STAGING', 'DOOR', 'PACKING', 'DISPATCH', 'QUARANTINE')
+                  AND COALESCE(is_active, true) = true
+                ORDER BY coordinate_y, coordinate_x, location_code
+                """, (rs, rowNum) -> new OperationalStationDto(
+                rs.getString("location_code"),
+                rs.getString("location_type"),
+                rs.getString("zone_type"),
+                rs.getDouble("coordinate_x"),
+                rs.getDouble("coordinate_y")
+        ), warehouseId, warehouseId);
+        return ResponseEntity.ok(rows);
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/rack-summaries")
+    public ResponseEntity<List<RackSummaryDto>> getWarehouseRackSummaries(
+            @PathVariable UUID warehouseId,
+            @RequestParam(defaultValue = "1200") int limit,
+            @RequestParam(defaultValue = "0") int offset
+    ) {
+        int boundedLimit = Math.max(1, Math.min(limit, 2500));
+        int boundedOffset = Math.max(0, offset);
+        var sql = """
+                WITH bin_load AS (
+                    SELECT
+                        l.id,
+                        l.location_code,
+                        l.area,
+                        l.row_number,
+                        l.bay_number,
+                        l.level_number,
+                        l.bin_position,
+                        l.location_type,
+                        l.rack_status,
+                        l.amalgamated_class,
+                        l.description,
+                        l.is_active,
+                        l.coordinate_x,
+                        l.coordinate_y,
+                        COALESCE(l.max_pallet_capacity, 1) AS max_pallet_capacity,
+                        COALESCE(l.max_weight_kg, CASE WHEN l.level_number <= 3 THEN 500 ELSE 300 END) AS max_weight_kg,
+                        COALESCE(SUM(i.quantity), 0) AS quantity,
+                        COALESCE(SUM(CEIL(i.quantity::numeric / GREATEST(COALESCE(m.units_per_pallet, m.pallet_spaces, 1), 1))), 0) AS pallet_count,
+                        COALESCE(SUM(
+                            CEIL(i.quantity::numeric / GREATEST(COALESCE(m.units_per_pallet, m.pallet_spaces, 1), 1))
+                            * COALESCE(m.max_pallet_weight_kg, m.weight_kg, 0)
+                        ), 0) AS bin_weight_kg
+                    FROM locations l
+                    LEFT JOIN inventory i
+                        ON i.location_code = l.location_code
+                       AND i.warehouse_id = l.warehouse_id
+                       AND i.quantity > 0
+                       AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                    LEFT JOIN materials m ON m.id = i.material_id
+                    WHERE l.warehouse_id = ?
+                      AND l.dataset_version = COALESCE(
+                          (SELECT dataset_version FROM warehouses WHERE id = ?), l.dataset_version)
+                      AND (
+                          UPPER(COALESCE(l.zone_type, '')) IN ('STORAGE', 'PICK_FACE', 'RESERVE')
+                          OR UPPER(COALESCE(l.location_type, '')) IN ('STORAGE', 'PICKING', 'BULK')
+                      )
+                      AND COALESCE(l.is_active, true) = true
+                    GROUP BY l.id
+                )
+                SELECT
+                    area,
+                    row_number,
+                    bay_number,
+                    MIN(id::text) AS representative_location_id,
+                    MIN(location_code) AS representative_location_code,
+                    MIN(location_type) AS location_type,
+                    COALESCE(
+                        MAX(CASE WHEN rack_status = 'out_of_service' THEN rack_status END),
+                        MAX(CASE WHEN rack_status = 'maintenance' THEN rack_status END),
+                        MAX(CASE WHEN rack_status = 'reserved' THEN rack_status END),
+                        'active'
+                    ) AS rack_status,
+                    MAX(amalgamated_class) AS amalgamated_class,
+                    MAX(description) AS description,
+                    AVG(coordinate_x)::double precision AS coordinate_x,
+                    AVG(coordinate_y)::double precision AS coordinate_y,
+                    COUNT(*)::int AS bin_count,
+                    MAX(level_number)::int AS max_levels,
+                    COUNT(DISTINCT bin_position)::int AS positions_per_level,
+                    COUNT(*) FILTER (WHERE quantity > 0)::int AS occupied_bins,
+                    COALESCE(SUM(quantity), 0)::int AS total_quantity,
+                    COALESCE(SUM(pallet_count), 0)::int AS pallet_count,
+                    COALESCE(SUM(bin_weight_kg), 0)::double precision AS total_weight_kg,
+                    COALESCE(SUM(max_pallet_capacity), 0)::int AS pallet_capacity,
+                    COALESCE(SUM(max_weight_kg), 0)::double precision AS weight_capacity_kg,
+                    BOOL_OR(COALESCE(description, '') ILIKE 'Auto-generated%%') AS auto_generated
+                FROM bin_load
+                GROUP BY area, row_number, bay_number
+                ORDER BY area, LPAD(row_number, 12, '0'), LPAD(bay_number, 12, '0')
+                LIMIT ? OFFSET ?
+                """;
+
+        var rows = jdbcTemplate.query(sql, (rs, rowNum) -> new RackSummaryDto(
+                deriveRackId(rs.getString("area"), rs.getString("row_number"), rs.getString("bay_number")),
+                rs.getString("area"),
+                rs.getString("row_number"),
+                rs.getString("bay_number"),
+                rs.getString("representative_location_id"),
+                rs.getString("representative_location_code"),
+                rs.getString("location_type"),
+                rs.getString("rack_status"),
+                rs.getString("amalgamated_class"),
+                rs.getString("description"),
+                rs.getDouble("coordinate_x"),
+                rs.getDouble("coordinate_y"),
+                rs.getInt("bin_count"),
+                rs.getInt("max_levels"),
+                rs.getInt("positions_per_level"),
+                rs.getInt("occupied_bins"),
+                rs.getInt("total_quantity"),
+                rs.getInt("pallet_count"),
+                rs.getDouble("total_weight_kg"),
+                rs.getInt("pallet_capacity"),
+                rs.getDouble("weight_capacity_kg"),
+                rs.getBoolean("auto_generated")
+        ), warehouseId, warehouseId, boundedLimit, boundedOffset);
+        return ResponseEntity.ok(rows);
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/rack-detail")
+    public ResponseEntity<List<BinOccupancyDto>> getRackDetail(
+            @PathVariable UUID warehouseId,
+            @RequestParam String rackId
+    ) {
+        var parts = parseRackId(rackId);
+        if (parts == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        var sql = """
+                WITH bin_load AS (
+                    SELECT
+                        l.id,
+                        l.location_code,
+                        l.area,
+                        l.row_number,
+                        l.bay_number,
+                        l.level_number,
+                        l.bin_position,
+                        COALESCE(l.max_pallet_capacity, 1) AS max_pallet_capacity,
+                        COALESCE(l.max_weight_kg, CASE WHEN l.level_number <= 3 THEN 500 ELSE 300 END) AS max_weight_kg,
+                        COALESCE(SUM(i.quantity), 0)::int AS quantity,
+                        MIN(m.material_code) FILTER (WHERE i.quantity > 0) AS material_code,
+                        MAX(GREATEST(COALESCE(m.units_per_pallet, m.pallet_spaces, 1), 1))::double precision AS units_per_pallet,
+                        COALESCE(SUM(CEIL(i.quantity::numeric / GREATEST(COALESCE(m.units_per_pallet, m.pallet_spaces, 1), 1))), 0)::int AS pallet_count,
+                        COALESCE(SUM(
+                            CEIL(i.quantity::numeric / GREATEST(COALESCE(m.units_per_pallet, m.pallet_spaces, 1), 1))
+                            * COALESCE(m.max_pallet_weight_kg, m.weight_kg, 0)
+                        ), 0)::double precision AS bin_weight_kg,
+                        MAX(COALESCE(m.max_pallet_weight_kg, m.weight_kg, 0))::double precision AS pallet_weight_kg
+                    FROM locations l
+                    LEFT JOIN inventory i
+                        ON i.location_code = l.location_code
+                       AND i.warehouse_id = l.warehouse_id
+                       AND i.quantity > 0
+                       AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                    LEFT JOIN materials m ON m.id = i.material_id
+                    WHERE l.warehouse_id = ?
+                      AND l.dataset_version = COALESCE(
+                          (SELECT dataset_version FROM warehouses WHERE id = ?), l.dataset_version)
+                      AND (
+                          UPPER(COALESCE(l.zone_type, '')) IN ('STORAGE', 'PICK_FACE', 'RESERVE')
+                          OR UPPER(COALESCE(l.location_type, '')) IN ('STORAGE', 'PICKING', 'BULK')
+                      )
+                      AND UPPER(l.area) = ?
+                      AND LPAD(l.row_number, 2, '0') = ?
+                      AND LPAD(l.bay_number, 3, '0') = ?
+                    GROUP BY l.id
+                ),
+                level_load AS (
+                    SELECT
+                        level_number,
+                        SUM(bin_weight_kg)::double precision AS level_weight_used_kg,
+                        SUM(max_weight_kg)::double precision AS level_weight_capacity_kg,
+                        SUM(max_pallet_capacity)::int AS level_pallet_capacity
+                    FROM bin_load
+                    GROUP BY level_number
+                )
+                SELECT
+                    b.*,
+                    ll.level_weight_used_kg,
+                    ll.level_weight_capacity_kg,
+                    ll.level_pallet_capacity
+                FROM bin_load b
+                JOIN level_load ll ON ll.level_number = b.level_number
+                ORDER BY b.level_number DESC, b.bin_position
+                """;
+
+        var rows = jdbcTemplate.query(sql, (rs, rowNum) -> new BinOccupancyDto(
+                rs.getString("id"),
+                rs.getString("location_code"),
+                deriveRackId(rs.getString("area"), rs.getString("row_number"), rs.getString("bay_number")),
+                rs.getString("area"),
+                rs.getString("row_number"),
+                rs.getString("bay_number"),
+                rs.getInt("level_number"),
+                rs.getString("bin_position"),
+                rs.getInt("quantity"),
+                rs.getString("material_code"),
+                readNullableDouble(rs, "units_per_pallet"),
+                rs.getInt("pallet_count"),
+                readNullableDouble(rs, "bin_weight_kg"),
+                readNullableDouble(rs, "pallet_weight_kg"),
+                rs.getInt("max_pallet_capacity"),
+                readNullableDouble(rs, "max_weight_kg"),
+                readNullableDouble(rs, "level_weight_capacity_kg"),
+                readNullableDouble(rs, "level_weight_used_kg"),
+                rs.getInt("level_pallet_capacity")
+        ), warehouseId, warehouseId, parts.area(), parts.row(), parts.bay());
+        return ResponseEntity.ok(rows);
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/integrity-summary")
+    public ResponseEntity<IntegritySummaryDto> getIntegritySummary(@PathVariable UUID warehouseId) {
+        var sql = """
+                WITH material_counts AS (
+                    SELECT COUNT(*)::int AS total_materials
+                    FROM materials
+                    WHERE data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                ),
+                defaults AS (
+                    SELECT
+                        COUNT(DISTINCT mdl.material_id)::int AS defaults_assigned,
+                        COUNT(*) FILTER (
+                            WHERE mdl.priority = 1
+                              AND mdl.location_code IN (
+                                  SELECT mdl2.location_code
+                                  FROM material_default_locations mdl2
+                                  JOIN materials m2 ON m2.id = mdl2.material_id
+                                  WHERE mdl2.warehouse_id = ?
+                                    AND mdl2.priority = 1
+                                    AND m2.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                                  GROUP BY mdl2.location_code
+                                  HAVING COUNT(*) > 1
+                              )
+                        )::int AS duplicate_primary_location_count
+                    FROM material_default_locations mdl
+                    JOIN materials m ON m.id = mdl.material_id
+                    WHERE mdl.warehouse_id = ?
+                      AND m.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                ),
+                invalid_defaults AS (
+                    SELECT COUNT(*)::int AS defaults_to_inactive_or_blocked
+                    FROM material_default_locations mdl
+                    JOIN materials m ON m.id = mdl.material_id
+                    LEFT JOIN locations l ON l.location_code = mdl.location_code
+                    WHERE mdl.warehouse_id = ?
+                      AND m.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                      AND (
+                          l.location_code IS NULL
+                          OR COALESCE(l.is_active, true) = false
+                          OR COALESCE(l.rack_status, 'active') IN ('reserved', 'maintenance', 'out_of_service')
+                      )
+                ),
+                inventory_rows AS (
+                    SELECT
+                        COUNT(*)::int AS inventory_rows,
+                        COALESCE(SUM(quantity), 0)::int AS inventory_qty_sum,
+                        COUNT(*) FILTER (WHERE i.location_code IS NULL)::int AS inventory_rows_null_location,
+                        COUNT(*) FILTER (
+                            WHERE LOWER(COALESCE(m.storage_type, 'pallet')) <> 'bulk'
+                              AND LOWER(COALESCE(l.location_type, 'storage')) = 'bulk'
+                        )::int AS wrong_type_non_bulk_in_bulk,
+                        COUNT(*) FILTER (
+                            WHERE LOWER(COALESCE(m.storage_type, 'pallet')) = 'bulk'
+                              AND LOWER(COALESCE(l.location_type, 'storage')) NOT IN (
+                                  'bulk',
+                                  'storage_f',
+                                  'storage_g',
+                                  'storage_h',
+                                  'storage_i',
+                                  'storage_j',
+                                  'storage_r'
+                              )
+                        )::int AS wrong_type_bulk_in_non_bulk
+                    FROM inventory i
+                    LEFT JOIN materials m ON m.id = i.material_id
+                    LEFT JOIN locations l ON l.location_code = i.location_code
+                    WHERE i.warehouse_id = ?
+                      AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                ),
+                material_stock AS (
+                    SELECT
+                        material_id,
+                        SUM(quantity) AS qty,
+                        MAX(COALESCE(reorder_point, 0)) AS reorder_point,
+                        MAX(COALESCE(buffer_stock, 0)) AS buffer_stock
+                    FROM inventory
+                    WHERE warehouse_id = ?
+                      AND data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                    GROUP BY material_id
+                ),
+                stock_health AS (
+                    SELECT
+                        COUNT(*) FILTER (WHERE qty <= reorder_point OR qty <= buffer_stock OR qty < 10)::int AS low_like,
+                        COUNT(*) FILTER (WHERE NOT (qty <= reorder_point OR qty <= buffer_stock OR qty < 10))::int AS available_like
+                    FROM material_stock
+                )
+                SELECT
+                    mc.total_materials,
+                    COALESCE(d.defaults_assigned, 0) AS defaults_assigned,
+                    GREATEST(mc.total_materials - COALESCE(d.defaults_assigned, 0), 0) AS materials_without_default,
+                    ir.inventory_rows,
+                    ir.inventory_qty_sum,
+                    ir.inventory_rows_null_location,
+                    ir.wrong_type_non_bulk_in_bulk,
+                    ir.wrong_type_bulk_in_non_bulk,
+                    COALESCE(id.defaults_to_inactive_or_blocked, 0) AS defaults_to_inactive_or_blocked,
+                    COALESCE(d.duplicate_primary_location_count, 0) AS duplicate_primary_location_count,
+                    COALESCE(sh.low_like, 0) AS low_like,
+                    COALESCE(sh.available_like, 0) AS available_like
+                FROM material_counts mc
+                CROSS JOIN defaults d
+                CROSS JOIN invalid_defaults id
+                CROSS JOIN inventory_rows ir
+                CROSS JOIN stock_health sh
+                """;
+
+        var row = jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new IntegritySummaryDto(
+                rs.getInt("total_materials"),
+                rs.getInt("defaults_assigned"),
+                rs.getInt("materials_without_default"),
+                rs.getInt("inventory_rows"),
+                rs.getInt("inventory_qty_sum"),
+                rs.getInt("inventory_rows_null_location"),
+                rs.getInt("wrong_type_non_bulk_in_bulk"),
+                rs.getInt("wrong_type_bulk_in_non_bulk"),
+                rs.getInt("defaults_to_inactive_or_blocked"),
+                rs.getInt("duplicate_primary_location_count"),
+                rs.getInt("low_like"),
+                rs.getInt("available_like")
+        ), warehouseId, warehouseId, warehouseId, warehouseId, warehouseId);
+        return ResponseEntity.ok(row);
+    }
+
+    @PostMapping("/warehouse/{warehouseId}/reconcile-level-usage")
+    public ResponseEntity<Map<String, Object>> reconcileLevelUsage(@PathVariable UUID warehouseId) {
+        int updated = binOccupancyService.reconcileWarehouseLevelUsage(warehouseId);
+        return ResponseEntity.ok(Map.of("warehouseId", warehouseId.toString(), "updatedRecords", updated));
+    }
+
+    @PostMapping("/placement-plan")
+    public ResponseEntity<PlacementPlanDto> createPlacementPlan(@RequestBody PlacementPlanRequest request) {
+        Set<String> exclude = request.excludeLocationCodes() != null
+                ? new HashSet<>(request.excludeLocationCodes())
+                : Set.of();
+        StockPlacementPlanner.PlacementPlan plan = stockPlacementPlanner.planPlacement(
+                UUID.fromString(request.warehouseId()),
+                UUID.fromString(request.materialId()),
+                request.totalQuantity(),
+                request.preferredLocationCode(),
+                exclude);
+        return ResponseEntity.ok(toPlacementPlanDto(plan));
     }
 
     @GetMapping("/available")
@@ -194,27 +586,120 @@ public class LocationController {
         }
     }
 
-    // Rack-specific update endpoint (updates only rack properties)
+    // Rack-specific update endpoint (updates only rack properties on a single bin)
     @PutMapping("/racks/{id}")
     public ResponseEntity<?> updateRack(@PathVariable UUID id, @RequestBody UpdateRackRequest request) {
         try {
-            var location = locationService.findById(id);
-            if (request.rackStatus() != null) location.setRackStatus(request.rackStatus());
-            if (request.amalgamatedClass() != null) location.setAmalgamatedClass(request.amalgamatedClass());
-            if (request.description() != null) location.setDescription(request.description());
-            if (request.notes() != null) location.setNotes(request.notes());
-            if (request.accessibilityRating() != null) location.setAccessibilityRating(request.accessibilityRating());
-            if (request.capacity() != null) location.setCapacity(new java.math.BigDecimal(request.capacity()));
-            if (request.maxPalletCapacity() != null) location.setMaxPalletCapacity(request.maxPalletCapacity());
-            if (request.maxWeightKg() != null) location.setMaxWeightKg(new java.math.BigDecimal(request.maxWeightKg()));
-            if (request.maxVolumeCm3() != null) location.setMaxVolumeCm3(new java.math.BigDecimal(request.maxVolumeCm3()));
-            if (request.maxLpnCount() != null) location.setMaxLpnCount(request.maxLpnCount());
-
-            var updated = locationService.update(id, location);
+            var updated = locationService.updateRackAttributes(id, toRackAttributes(request));
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            return badRequest(e);
         }
+    }
+
+    /**
+     * Update every bin of a rack in one call.
+     *
+     * The layout editor used to fan out one PUT per bin, which meant a partial failure
+     * left the rack in mixed statuses and ran the stock guard once per bin.
+     */
+    @PutMapping("/racks/bulk")
+    public ResponseEntity<?> updateRackBulk(@RequestBody BulkRackUpdateRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "warehouseId is required"));
+            }
+            var result = locationService.updateRack(
+                    UUID.fromString(request.warehouseId()),
+                    request.rackId(),
+                    toRackAttributes(request.attributes()));
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Updated rack %s (%d bins).", result.rackId(), result.updatedLocations()),
+                    "rackId", result.rackId(),
+                    "updatedLocations", result.updatedLocations(),
+                    "locations", result.locations().stream().map(this::toDto).toList()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "warehouseId must be a valid UUID"));
+        } catch (RuntimeException e) {
+            return badRequest(e);
+        }
+    }
+
+    /** Apply a per-level capacity profile across a zone (or the whole warehouse) in one transaction. */
+    @PutMapping("/racks/capacity-profile")
+    public ResponseEntity<?> applyCapacityProfile(@RequestBody CapacityProfileRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "warehouseId is required"));
+            }
+            var levelProfile = new java.util.HashMap<Integer, LocationService.RackAttributes>();
+            if (request.levels() != null) {
+                for (var level : request.levels()) {
+                    if (level.level() != null) {
+                        levelProfile.put(level.level(), toRackAttributes(level.attributes()));
+                    }
+                }
+            }
+            int updated = locationService.applyCapacityProfile(
+                    UUID.fromString(request.warehouseId()),
+                    request.zone(),
+                    levelProfile,
+                    request.defaults() == null ? null : toRackAttributes(request.defaults()));
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Applied capacity profile to %d bin(s).", updated),
+                    "updatedLocations", updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "warehouseId must be a valid UUID"));
+        } catch (RuntimeException e) {
+            return badRequest(e);
+        }
+    }
+
+    private LocationService.RackAttributes toRackAttributes(UpdateRackRequest request) {
+        if (request == null) {
+            return new LocationService.RackAttributes(null, null, null, null, null, null, null, null, null, null);
+        }
+        return new LocationService.RackAttributes(
+                request.rackStatus(),
+                request.amalgamatedClass(),
+                request.description(),
+                request.notes(),
+                request.accessibilityRating(),
+                toDecimal(request.capacity()),
+                request.maxPalletCapacity(),
+                toDecimal(request.maxWeightKg()),
+                toDecimal(request.maxVolumeCm3()),
+                request.maxLpnCount());
+    }
+
+    private java.math.BigDecimal toDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("'" + value + "' is not a valid number");
+        }
+    }
+
+    /**
+     * Turn persistence failures into something an operator can act on.
+     *
+     * Without this, a foreign-key violation surfaced in the UI as the full generated SQL
+     * statement, which is unreadable and leaks schema internals.
+     */
+    private ResponseEntity<?> badRequest(RuntimeException e) {
+        if (e instanceof org.springframework.dao.DataIntegrityViolationException) {
+            return ResponseEntity.badRequest().body(Map.of("message",
+                    "This bin is still referenced by stock or material default locations, "
+                            + "so its address cannot be changed. Move the stock out first."));
+        }
+        String message = e.getMessage();
+        if (message == null || message.isBlank() || message.contains("could not execute")) {
+            message = "The rack could not be updated. Please retry, or contact support if it keeps failing.";
+        }
+        return ResponseEntity.badRequest().body(Map.of("message", message));
     }
 
     @DeleteMapping("/{id}")
@@ -360,6 +845,24 @@ public class LocationController {
             Integer maxLpnCount
     ) {}
 
+    public record BulkRackUpdateRequest(
+            String warehouseId,
+            String rackId,
+            UpdateRackRequest attributes
+    ) {}
+
+    public record CapacityProfileLevel(
+            Integer level,
+            UpdateRackRequest attributes
+    ) {}
+
+    public record CapacityProfileRequest(
+            String warehouseId,
+            String zone,
+            List<CapacityProfileLevel> levels,
+            UpdateRackRequest defaults
+    ) {}
+
     public record BulkCreateRacksRequest(
             String warehouseId,
             String area,
@@ -370,5 +873,173 @@ public class LocationController {
             Integer startRow,
             Integer startBay
     ) {}
+
+    private BinOccupancyDto toOccupancyDto(BinOccupancyService.BinOccupancyDto dto) {
+        return new BinOccupancyDto(
+                dto.locationId().toString(),
+                dto.locationCode(),
+                dto.rackId(),
+                dto.area(),
+                dto.rowNumber(),
+                dto.bayNumber(),
+                dto.levelNumber(),
+                dto.binPosition(),
+                dto.quantity(),
+                dto.materialCode(),
+                dto.unitsPerPallet() != null ? dto.unitsPerPallet().doubleValue() : null,
+                dto.palletCount(),
+                dto.binWeightKg() != null ? dto.binWeightKg().doubleValue() : null,
+                dto.palletWeightKg() != null ? dto.palletWeightKg().doubleValue() : null,
+                dto.maxPalletCapacity(),
+                dto.maxWeightKg() != null ? dto.maxWeightKg().doubleValue() : null,
+                dto.levelWeightCapacityKg() != null ? dto.levelWeightCapacityKg().doubleValue() : null,
+                dto.levelWeightUsedKg() != null ? dto.levelWeightUsedKg().doubleValue() : null,
+                dto.levelPalletCapacity());
+    }
+
+    private PlacementPlanDto toPlacementPlanDto(StockPlacementPlanner.PlacementPlan plan) {
+        return new PlacementPlanDto(
+                plan.requiredPallets(),
+                plan.assignedPallets(),
+                plan.remainingPallets(),
+                plan.lines().stream()
+                        .map(line -> new PlacementLineDto(
+                                line.locationCode(),
+                                line.palletCount(),
+                                line.quantityAllocated(),
+                                line.rackId(),
+                                line.levelNumber()))
+                        .toList(),
+                plan.notes());
+    }
+
+    private static String deriveRackId(String area, String rowNumber, String bayNumber) {
+        return String.format("%s-%s-%s",
+                normalizeArea(area),
+                normalizeNumber(rowNumber, 2),
+                normalizeNumber(bayNumber, 3));
+    }
+
+    private static String normalizeArea(String value) {
+        if (value == null || value.isBlank()) {
+            return "C";
+        }
+        var upper = value.trim().toUpperCase();
+        return upper.equals("ST") ? "C" : upper;
+    }
+
+    private static String normalizeNumber(String value, int width) {
+        try {
+            return String.format("%0" + width + "d", Integer.parseInt(value));
+        } catch (RuntimeException ignored) {
+            var fallback = value == null || value.isBlank() ? "1" : value.trim();
+            return fallback.length() >= width ? fallback : "0".repeat(width - fallback.length()) + fallback;
+        }
+    }
+
+    private static RackIdParts parseRackId(String rackId) {
+        if (rackId == null || rackId.isBlank()) {
+            return null;
+        }
+        var parts = rackId.trim().toUpperCase().split("-");
+        if (parts.length != 3) {
+            return null;
+        }
+        return new RackIdParts(normalizeArea(parts[0]), normalizeNumber(parts[1], 2), normalizeNumber(parts[2], 3));
+    }
+
+    private static Double readNullableDouble(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        double value = rs.getDouble(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    public record BinOccupancyDto(
+            String locationId,
+            String locationCode,
+            String rackId,
+            String area,
+            String rowNumber,
+            String bayNumber,
+            Integer levelNumber,
+            String binPosition,
+            int quantity,
+            String materialCode,
+            Double unitsPerPallet,
+            int palletCount,
+            Double binWeightKg,
+            Double palletWeightKg,
+            int maxPalletCapacity,
+            Double maxWeightKg,
+            Double levelWeightCapacityKg,
+            Double levelWeightUsedKg,
+            Integer levelPalletCapacity) {}
+
+    public record RackSummaryDto(
+            String rackId,
+            String area,
+            String rowNumber,
+            String bayNumber,
+            String representativeLocationId,
+            String representativeLocationCode,
+            String locationType,
+            String rackStatus,
+            String amalgamatedClass,
+            String description,
+            double coordinateX,
+            double coordinateY,
+            int binCount,
+            int maxLevels,
+            int positionsPerLevel,
+            int occupiedBins,
+            int totalQuantity,
+            int palletCount,
+            double totalWeightKg,
+            int palletCapacity,
+            double weightCapacityKg,
+            boolean autoGenerated) {}
+
+    public record OperationalStationDto(
+            String locationCode,
+            String locationType,
+            String zoneType,
+            double coordinateX,
+            double coordinateY) {}
+
+    private record RackIdParts(String area, String row, String bay) {}
+
+    public record IntegritySummaryDto(
+            int totalMaterials,
+            int defaultsAssigned,
+            int materialsWithoutDefault,
+            int inventoryRows,
+            int inventoryQtySum,
+            int inventoryRowsNullLocation,
+            int wrongTypeNonBulkInBulk,
+            int wrongTypeBulkInNonBulk,
+            int defaultsToInactiveOrBlocked,
+            int duplicatePrimaryLocationCount,
+            int lowLike,
+            int availableLike) {}
+
+    public record PlacementPlanRequest(
+            String warehouseId,
+            String materialId,
+            int totalQuantity,
+            String preferredLocationCode,
+            List<String> excludeLocationCodes) {}
+
+    public record PlacementLineDto(
+            String locationCode,
+            int palletCount,
+            int quantityAllocated,
+            String rackId,
+            Integer levelNumber) {}
+
+    public record PlacementPlanDto(
+            int requiredPallets,
+            int assignedPallets,
+            int remainingPallets,
+            List<PlacementLineDto> lines,
+            List<String> notes) {}
 
 }

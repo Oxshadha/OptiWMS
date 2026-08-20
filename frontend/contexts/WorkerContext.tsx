@@ -14,6 +14,7 @@ import {
   canAccessOperation,
   getAllowedOperations,
   getRoleDisplayName,
+  isValidRole,
 } from "@/lib/worker-roles";
 import { getFromStore, updateInStore, STORES, initDB } from "@/lib/indexeddb";
 import { authApi } from "@/lib/api/auth";
@@ -195,19 +196,14 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           const userInfo = await authApi.getCurrentUser();
           logger.debug("[WorkerContext] Fetched user info from API:", userInfo);
           
-          // Check if user is a worker role
-          const workerRoles = [
-            'forklift_operator', 'stacker_operator', 'powered_pallet_truck_operator',
-            'unloading_worker', 'cycle_count_worker', 'picker', 'packer',
-            'shipment_worker', 'returns_worker', 'vehicle_inspector', 'warehouse_safekeeping_worker'
-          ];
+          // Normalize role (remove ROLE_ prefix if present) before validation
+          let normalizedRole = userInfo.role?.toLowerCase() || "";
+          if (normalizedRole.startsWith("role_")) {
+            normalizedRole = normalizedRole.substring(5);
+          }
           
-          if (workerRoles.includes(userInfo.role?.toLowerCase())) {
-            // Normalize role (remove ROLE_ prefix if present)
-            let normalizedRole = userInfo.role.toLowerCase();
-            if (normalizedRole.startsWith("role_")) {
-              normalizedRole = normalizedRole.substring(5);
-            }
+          // Check if user is a worker role
+          if (isValidRole(normalizedRole)) {
             
             // Try to fetch full user details, but don't fail if workers don't have permission
             let workerData: WorkerData;
@@ -352,13 +348,13 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               workerData = {
                 id: userInfo.userId,
                 workerId: employeeId, // Use employeeId format, not UUID
-                name: userInfo.name || "Worker",
+                name: `${userInfo.firstName || ''} ${userInfo.lastName || ''}`.trim() || userInfo.name || userInfo.username || "Worker",
                 warehouse: warehouseName,
                 warehouseId: warehouseId || undefined, // Use found warehouseId (from API or fallback) - explicitly set to undefined if null
                 role: normalizedRole as WorkerRole,
-                avatar: undefined,
+                avatar: userInfo.avatarUrl || undefined,
                 email: userInfo.email,
-                phone: undefined,
+                phone: userInfo.phone || undefined,
                 deviceId: undefined,
               };
             }
@@ -390,10 +386,17 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           }
         } catch (apiError) {
           logger.error("[WorkerContext] Error fetching user from API:", apiError);
-          // Token might be invalid - clear it
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
+          // Only clear tokens for explicit auth/session failures.
+          const errorMessage =
+            apiError instanceof Error ? apiError.message.toLowerCase() : "";
+          const isAuthFailure =
+            errorMessage.includes("401") ||
+            errorMessage.includes("not authenticated") ||
+            errorMessage.includes("session expired") ||
+            errorMessage.includes("invalid refresh token");
+          if (isAuthFailure && typeof window !== "undefined") {
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
           }
           setWorkerState(null);
           setIsLoading(false); // Set loading to false on error

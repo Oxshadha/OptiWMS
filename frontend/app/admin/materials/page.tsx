@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -53,6 +54,30 @@ const cleanDisplayName = (description?: string) => {
   return first || description;
 };
 
+function hasCompleteDimensions(material: Material): boolean {
+  return (
+    material.lengthCm != null &&
+    material.widthCm != null &&
+    material.heightCm != null &&
+    material.weightKg != null &&
+    material.weightKg > 0 &&
+    material.volumeCm3 != null &&
+    material.volumeCm3 > 0 &&
+    material.palletSpaces != null &&
+    material.palletSpaces > 0
+  );
+}
+
+function dimCell(value: number | null | undefined, material: Material) {
+  const incomplete = !hasCompleteDimensions(material);
+  const missing = value == null || (incomplete && value <= 0);
+  return (
+    <span className={missing ? "text-warning font-semibold" : "text-base-content/60"}>
+      {value != null ? value : "—"}
+    </span>
+  );
+}
+
 export default function MaterialsPage() {
   const searchParams = useSearchParams();
   const supplierFilterId = searchParams.get("supplier")?.trim() || "";
@@ -79,7 +104,7 @@ export default function MaterialsPage() {
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortBy>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("sku");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -115,7 +140,7 @@ export default function MaterialsPage() {
             ? "materialCode"
             : sortBy === "type"
               ? "materialType"
-              : "createdAt";
+              : "materialCode";
 
       return materialsApi.getPaged({
         page: currentPage - 1,
@@ -129,6 +154,11 @@ export default function MaterialsPage() {
     },
   });
   const warehousesQuery = useReferenceWarehouses();
+  const summaryQuery = useQuery({
+    queryKey: ["admin-materials", "summary"],
+    queryFn: materialsApi.getSummary,
+    staleTime: 60_000,
+  });
   const reload = useInvalidateAdminList(["admin-materials"]);
 
   const loadMaterialLocations = async () => {
@@ -204,12 +234,23 @@ export default function MaterialsPage() {
   const totalItems = materialsQuery.data?.totalElements ?? 0;
   const totalPages = Math.max(materialsQuery.data?.totalPages ?? 1, 1);
 
-  const summaryStats = {
+  const summaryStats = summaryQuery.data ?? {
     total: totalItems,
-    rawMaterials: materials.filter((m) => (m.materialType || "raw_material") === "raw_material")
-      .length,
-    products: materials.filter((m) => m.materialType === "product").length,
-    packaging: materials.filter((m) => m.materialType === "packaging_material").length,
+    dimensioned: 0,
+    rawMaterials: 0,
+    products: 0,
+    packaging: 0,
+  };
+
+  const handleImportDimensions = async (file: File) => {
+    try {
+      const result = await materialsApi.importDimensionsCsv(file);
+      alert(result.message);
+      await reload();
+    } catch (err) {
+      logger.error("[Materials] Dimension import failed:", err);
+      alert(err instanceof Error ? err.message : "Dimension import failed");
+    }
   };
 
   const handleCreate = async (materialData: Omit<Material, "id">) => {
@@ -287,6 +328,23 @@ export default function MaterialsPage() {
                 <span className="material-symbols-outlined">location_on</span>
                 Assign Bin Locations (Bulk)
               </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = ".csv";
+                  input.onchange = () => {
+                    const file = input.files?.[0];
+                    if (file) void handleImportDimensions(file);
+                  };
+                  input.click();
+                }}
+                title="CSV: material_code,length_cm,width_cm,height_cm,weight_kg,pallet_spaces"
+              >
+                <span className="material-symbols-outlined">straighten</span>
+                Import Dimensions
+              </button>
               <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                 <span className="material-symbols-outlined">add</span>
                 Add Product
@@ -302,6 +360,11 @@ export default function MaterialsPage() {
             label: "Total Products",
             value: summaryStats.total.toString(),
             icon: "inventory_2",
+          },
+          {
+            label: "Dimensioned SKUs",
+            value: `${summaryStats.dimensioned}/${summaryStats.total}`,
+            icon: "straighten",
           },
           {
             label: "Raw Materials",
@@ -369,7 +432,6 @@ export default function MaterialsPage() {
                   setCurrentPage(1);
                 }}
               >
-                <option value="">No Sort</option>
                 <option value="name">Name</option>
                 <option value="sku">SKU</option>
                 <option value="type">Type</option>
@@ -427,7 +489,7 @@ export default function MaterialsPage() {
               },
               {
                 key: "materialType",
-                label: "Type",
+                label: "Category",
                 render: (material: Material) => {
                   const typeChip = getMaterialTypeChip(material.materialType);
                   return (
@@ -441,12 +503,64 @@ export default function MaterialsPage() {
               },
               {
                 key: "unitType",
-                label: "Handling Unit",
+                label: "Typical Unit Size",
                 render: (material: Material) => (
                   <span className="text-base-content/60 uppercase">
                     {material.unitType || "—"}
                   </span>
                 ),
+              },
+              {
+                key: "unitsPerHandlingUnit",
+                label: "Units / Handling Unit",
+                render: (material: Material) => (
+                  <span className="text-base-content/60">
+                    {material.unitsPerHandlingUnit != null ? material.unitsPerHandlingUnit : "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "unitsPerPallet",
+                label: "Units / Pallet",
+                render: (material: Material) => (
+                  <span className="text-base-content/60">
+                    {material.unitsPerPallet != null ? material.unitsPerPallet : "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "weightKg",
+                label: "Base Unit Weight (kg)",
+                render: (material: Material) => dimCell(material.weightKg, material),
+              },
+              {
+                key: "volumeCm3",
+                label: "Base Unit Volume (cm³)",
+                render: (material: Material) => dimCell(material.volumeCm3, material),
+              },
+              {
+                key: "maxPalletWeightKg",
+                label: "Pallet Gross Wt (kg)",
+                render: (material: Material) => (
+                  <span className="text-base-content/60">
+                    {material.maxPalletWeightKg != null ? material.maxPalletWeightKg : "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "lengthCm",
+                label: "Length (cm)",
+                render: (material: Material) => dimCell(material.lengthCm, material),
+              },
+              {
+                key: "widthCm",
+                label: "Width (cm)",
+                render: (material: Material) => dimCell(material.widthCm, material),
+              },
+              {
+                key: "heightCm",
+                label: "Height (cm)",
+                render: (material: Material) => dimCell(material.heightCm, material),
               },
               {
                 key: "storageType",
@@ -459,7 +573,7 @@ export default function MaterialsPage() {
               },
               {
                 key: "binLocation",
-                label: "Bin Location",
+                label: "Assigned Locations",
                 render: (material: Material) => {
                   const summary = materialsWithLocations.get(material.id);
                   if (!summary)
@@ -471,7 +585,7 @@ export default function MaterialsPage() {
                       </span>
                       {summary.all.length > 1 && (
                         <span className="text-[11px] text-base-content/60">
-                          +{summary.all.length - 1} fallback
+                          +{summary.all.length - 1} reserve
                         </span>
                       )}
                     </div>

@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16
@@ -9,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-optiwms}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
     ports:
-      - "5434:5432"
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
@@ -36,11 +34,16 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
       JWT_SECRET: ${JWT_SECRET:-CHANGE_THIS_IN_PRODUCTION}
       JAVA_OPTS: "-Xmx512m -Xms256m"
+      AI_FORECAST_BASE_URL: ${AI_FORECAST_BASE_URL:-http://host.docker.internal:8091}
+      AI_ORCHESTRATOR_BASE_URL: ${AI_ORCHESTRATOR_BASE_URL:-http://host.docker.internal:8092}
+      AI_SLOTTING_BASE_URL: ${AI_SLOTTING_BASE_URL:-http://host.docker.internal:8093}
+      AI_SLOTTING_ENABLED: ${AI_SLOTTING_ENABLED:-true}
+      # Dock/yard management is outside the active product scope.
+      OPTIWMS_DOCK_MANAGEMENT_ENABLED: "false"
+      OPTIWMS_BUILD_COMMIT: ${OPTIWMS_BUILD_COMMIT:-development}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     ports:
-      - "8080:8080"
-    volumes:
-      - ../backend:/app
-      - backend_build:/app/build
+      - "${BACKEND_HOST_PORT:-8080}:8080"
     networks:
       - optiwms-network
     restart: unless-stopped
@@ -51,28 +54,53 @@ services:
       retries: 3
       start_period: 60s
 
+  forecast-bootstrap:
+    profiles: ["bootstrap"]
+    build:
+      context: ..
+      dockerfile: ai_services/forecast-service/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      OPTIWMS_V8_OUTPUTS_DIR: /opt/optiwms/v8/outputs
+    command:
+      - python
+      - /opt/optiwms/scripts/load_project_operational_simulation.py
+      - --db-url
+      - postgresql://${POSTGRES_USER:-optiwms}:${POSTGRES_PASSWORD:-optiwms}@db:5432/${POSTGRES_DB:-optiwms}
+      - --warehouse-code
+      - WH-001
+    networks:
+      - optiwms-network
+    restart: "no"
+
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
+        NEXT_PUBLIC_WAREHOUSE_AI_URL: ${NEXT_PUBLIC_WAREHOUSE_AI_URL:-http://localhost:8000/ask}
+        NEXT_PUBLIC_BUILD_COMMIT: ${OPTIWMS_BUILD_COMMIT:-development}
+        NEXT_PUBLIC_DATASET_VERSION: ${PROJECT_DATASET_VERSION:-PROJECT_OPS_RM_PM}
     container_name: optiwms-frontend
     depends_on:
       backend:
         condition: service_healthy
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:8080/api
+      # NEXT_PUBLIC values execute in the operator's browser; Docker's internal
+      # `backend` hostname is not resolvable there.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
       NODE_ENV: production
     ports:
-      - "3000:3000"
-    volumes:
-      - ../frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
     networks:
       - optiwms-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      # Next standalone binds to IPv4; Alpine resolves localhost to ::1 first.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/admin/login"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -105,5 +133,3 @@ volumes:
 networks:
   optiwms-network:
     driver: bridge
-
-

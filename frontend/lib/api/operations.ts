@@ -76,6 +76,12 @@ export interface PutawayResponse {
   success: boolean;
   message: string;
   taskId?: string;
+  /** Where the pallet will fit, returned when the chosen bin refused it. */
+  alternatives?: Array<{
+    locationCode: string;
+    allocatableQuantity: number;
+    reason: string;
+  }>;
 }
 
 export interface SkipPutawayRequest {
@@ -88,6 +94,18 @@ export interface PutawaySplitPlanRequest {
   materialId: string;
   quantity: number;
   preferredLocationCode?: string;
+}
+
+export interface PutawayBatchSplitPlanItemRequest {
+  itemIndex: number;
+  materialId: string;
+  quantity: number;
+  preferredLocationCode?: string;
+}
+
+export interface PutawayBatchSplitPlanRequest {
+  warehouseId: string;
+  items: PutawayBatchSplitPlanItemRequest[];
 }
 
 export interface PutawaySplitCapacitySnapshot {
@@ -124,6 +142,18 @@ export interface PutawaySplitPlanResponse {
   notes: string[];
 }
 
+export interface PutawayBatchSplitPlanLine {
+  itemIndex: number;
+  success: boolean;
+  error?: string | null;
+  plan: PutawaySplitPlanResponse;
+}
+
+export interface PutawayBatchSplitPlanResponse {
+  items: PutawayBatchSplitPlanLine[];
+  notes: string[];
+}
+
 // Stock Transfer Operations
 export interface StockTransfer {
   id: string;
@@ -156,6 +186,8 @@ export interface StockTransferLine {
   movedQuantity: number;
   status: string;
   assignedWorkerId?: string;
+  /** The stock_transfer task this line runs through, for scoping a routing session. */
+  taskId?: string;
   notes?: string;
 }
 
@@ -191,6 +223,8 @@ export interface CreateStockTransferLineRequest {
   destLocationCode: string;
   quantity: string;
   assignedWorkerId?: string;
+  /** The stock_transfer task this line runs through, for scoping a routing session. */
+  taskId?: string;
   status?: string;
   notes?: string;
 }
@@ -289,6 +323,10 @@ export const operationsApi = {
 
   planPutawaySplit: async (request: PutawaySplitPlanRequest): Promise<PutawaySplitPlanResponse> => {
     return apiClient.post<PutawaySplitPlanResponse>('/operations/putaway/split-plan', request);
+  },
+
+  planPutawaySplitBatch: async (request: PutawayBatchSplitPlanRequest): Promise<PutawayBatchSplitPlanResponse> => {
+    return apiClient.post<PutawayBatchSplitPlanResponse>('/operations/putaway/split-plan/batch', request);
   },
 
   // Stock Transfer

@@ -34,6 +34,50 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+/** Longest server message we are willing to render verbatim in a toast. */
+const MAX_USER_FACING_ERROR_LENGTH = 240;
+
+/**
+ * Keep raw persistence failures out of the UI.
+ *
+ * Some endpoints let database exceptions escape, which produced multi-kilobyte
+ * messages containing the generated SQL. Those are logged in full but replaced with
+ * something an operator can act on before they reach a toast.
+ */
+function toUserFacingError(status: number, rawMessage: string): string {
+  const message = (rawMessage || '').trim();
+  const looksLikeDatabaseDump =
+    /could not execute|batch entry|violates .*constraint|org\.hibernate|jakarta\.persistence|SQLState/i.test(
+      message
+    );
+
+  if (looksLikeDatabaseDump) {
+    return status >= 500
+      ? 'The server could not complete this change. Please try again.'
+      : 'This change conflicts with existing warehouse data and was not saved.';
+  }
+
+  if (!message) {
+    return `Request failed (${status}). Please try again.`;
+  }
+
+  if (message.length > MAX_USER_FACING_ERROR_LENGTH) {
+    return `${message.slice(0, MAX_USER_FACING_ERROR_LENGTH).trimEnd()}…`;
+  }
+
+  return message;
+}
+
+/**
+ * An API failure that keeps the server's parsed response body alongside the message, so callers
+ * that need more than text (a rejected putaway returns the bins that would have worked) can read
+ * it. Existing callers only touch `.message`, which is unchanged.
+ */
+export interface ApiError extends Error {
+  status?: number;
+  body?: unknown;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     logger.error(`[API Client] Response not OK: ${response.status} ${response.statusText}`);
@@ -41,17 +85,20 @@ async function handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized
     if (response.status === 401) {
       logger.error("[API Client] 401 Unauthorized - attempting token refresh");
-      const refreshToken = localStorage.getItem('refreshToken');
       
-      // Try to refresh token if we have one
-      if (refreshToken) {
+      // We no longer check localStorage for refreshToken as it's an HttpOnly cookie.
+      // We just attempt to refresh if we have an accessToken (meaning we were logged in).
+      const accessToken = localStorage.getItem('accessToken');
+      
+      // Try to refresh token
+      if (accessToken) {
         try {
           const { authApi } = await import('./auth');
-          const refreshResponse = await authApi.refresh(refreshToken);
+          const refreshResponse = await authApi.refresh();
           
           if (refreshResponse.success && refreshResponse.accessToken) {
             // Token refreshed successfully - user should retry the request
-            throw new Error('Session refreshed. Please try again.');
+            throw new Error('__TOKEN_REFRESHED_RETRY__');
           } else {
             // Refresh failed - clear tokens and redirect
             logger.error("[API Client] Token refresh failed");
@@ -60,6 +107,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
             throw new Error('Session expired. Please login again.');
           }
         } catch (refreshError) {
+          // Refresh succeeded and token is updated; caller should retry.
+          if (
+            refreshError instanceof Error &&
+            refreshError.message === '__TOKEN_REFRESHED_RETRY__'
+          ) {
+            throw new Error('Session refreshed. Please try again.');
+          }
+
           // Refresh failed - clear tokens and redirect
           logger.error("[API Client] Token refresh error:", refreshError);
           const { authApi } = await import('./auth');
@@ -68,8 +123,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
           throw new Error('Session expired. Please login again.');
         }
       } else {
-        // No refresh token - redirect to login
-        logger.error("[API Client] No refresh token available");
+        // Not logged in at all - redirect to login
+        logger.error("[API Client] No active session available");
         redirectToLogin();
         throw new Error('Not authenticated. Please login.');
       }
@@ -114,11 +169,13 @@ async function handleResponse<T>(response: Response): Promise<T> {
     
     // Parse error body from text first (single read), then try JSON.
     let errorMessage = response.statusText;
+    let errorBody: unknown = undefined;
     try {
       const rawText = await response.text();
       if (rawText && rawText.trim() !== '') {
         try {
           const errorData = JSON.parse(rawText);
+          errorBody = errorData;
           errorMessage = extractErrorMessage(errorData, rawText);
         } catch {
           errorMessage = rawText;
@@ -127,9 +184,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       errorMessage = response.statusText;
     }
-    
+
     logger.error(`[API Client] Error response: ${errorMessage}`);
-    throw new Error(`API Error: ${response.status} - ${errorMessage}`);
+    // Keep the parsed body on the error so callers that need structure can use it -- a rejected
+    // putaway carries the bins that would have worked. `.message` is unchanged, so every existing
+    // caller behaves exactly as before.
+    const apiError = new Error(toUserFacingError(response.status, errorMessage)) as ApiError;
+    apiError.status = response.status;
+    apiError.body = errorBody;
+    throw apiError;
   }
   
   // Handle 204 No Content (empty response)

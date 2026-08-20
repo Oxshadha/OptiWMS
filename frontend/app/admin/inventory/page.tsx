@@ -32,8 +32,15 @@ export default function InventoryPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>("sku");
+  // Descending by default.
+  //
+  // Ascending puts the legacy numeric SKUs first, and those rows were created by
+  // hand without a reorder point, MOQ, buffer or lead time -- so the opening screen
+  // was ten rows of em-dashes while 2,921 fully populated rows sat 310 pages away.
+  // Descending surfaces the seeded RM-/PM- materials immediately, and unlike jumping
+  // to the last page it does not drift as rows are added.
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
@@ -206,13 +213,14 @@ export default function InventoryPage() {
                   Location {sortBy === "location" && (sortDirection === "asc" ? "↑" : "↓")}
                 </button>
               </li>
-              <li>
-                <button onClick={() => setSortBy(null)}>Clear Sort</button>
-              </li>
             </ul>
           </div>
 
-          <button className="btn btn-sm btn-primary" onClick={() => setShowAddModal(true)}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => setShowAddModal(true)}
+            data-tour-target="inventory-add-btn"
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Add Item</span>
           </button>
@@ -263,7 +271,10 @@ export default function InventoryPage() {
       <div className="flex flex-col gap-4">
         <div className="flex gap-4 items-center">
           <div className="flex-1">
-            <label className="input input-bordered flex items-center gap-2 w-full">
+            <label
+              className="input input-bordered flex items-center gap-2 w-full"
+              data-tour-target="inventory-search"
+            >
               <span className="material-symbols-outlined text-base-content/60">search</span>
               <input
                 type="text"
@@ -278,7 +289,10 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        <div className="flex gap-4 items-center">
+        <div
+          className="flex gap-4 items-center"
+          data-tour-target="inventory-filters"
+        >
           <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
             <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Type:</span>
             {itemTypes.map((type) => (
@@ -344,7 +358,10 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
+      <div
+        className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden"
+        data-tour-target="inventory-table"
+      >
         <InventoryTable
           items={filteredInventory}
           visibleColumns={visibleColumns}

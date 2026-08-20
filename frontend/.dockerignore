@@ -8,7 +8,11 @@ node_modules/
 .pnp.js
 
 # Build
-.next/
+.next/*
+!.next/standalone/
+!.next/standalone/**
+!.next/static/
+!.next/static/**
 out/
 dist/
 build/
@@ -28,9 +32,8 @@ coverage/
 Thumbs.db
 
 # Environment
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # Temporary
 *.tmp
@@ -39,4 +42,3 @@ Thumbs.db
 
 # Documentation
 *.md
-

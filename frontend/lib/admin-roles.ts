@@ -21,6 +21,7 @@ export type Permission = 'view' | 'create' | 'edit' | 'delete' | 'approve';
 export const ADMIN_ROUTES = {
   DASHBOARD: '/admin/dashboard',
   WAREHOUSES: '/admin/warehouses',
+  PATHFINDING: '/admin/pathfinding',
   ORDERS: '/admin/orders',
   SHIPMENTS: '/admin/shipments',
   DELIVERY_PARTNERS: '/admin/delivery-partners',
@@ -31,6 +32,7 @@ export const ADMIN_ROUTES = {
   PRODUCTS: '/admin/products',
   RAW_MATERIALS: '/admin/raw-materials',
   SUPPLIERS: '/admin/suppliers',
+  BOM_MASTER: '/admin/bom-master',
   WORKERS: '/admin/workers',
   ADMINS: '/admin/admins',
   TASKS: '/admin/tasks',
@@ -49,6 +51,12 @@ export const ADMIN_ROUTES = {
   NOTIFICATIONS: '/admin/notifications',
   DOCK_MANAGEMENT: '/admin/dock-management',
   LABOR_PRODUCTIVITY: '/admin/labor-productivity',
+  DATA_QUALITY: '/admin/data-quality',
+  INVENTORY_INTELLIGENCE: '/admin/inventory-intelligence',
+  REPLENISHMENT: '/admin/replenishment',
+  STORAGE_OPTIMIZER: '/admin/replenishment/storage',
+  SLOTTING_PLANS: '/admin/slotting-plans',
+  AI_SLOTTING: '/admin/ai-slotting',
 } as const;
 
 export type AdminRoute = typeof ADMIN_ROUTES[keyof typeof ADMIN_ROUTES];
@@ -61,6 +69,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     // Admin has all permissions on all routes
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.WAREHOUSES]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.PATHFINDING]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -71,6 +80,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.BOM_MASTER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.WORKERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.ADMINS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -87,14 +97,22 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SOPS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
-    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    // Deliberately masked: dock/yard management is outside the active project scope.
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]),
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.DATA_QUALITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
   },
   warehouse_manager: {
     // Warehouse Manager: Operational focus - day-to-day warehouse operations
     // Cannot: Change system settings, modify user permissions, alter integrations, delete delivery partners
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only - cannot modify warehouse configurations
+    [ADMIN_ROUTES.PATHFINDING]: new Set(['view', 'create', 'edit']), // Test routing scenarios and review collision risk
     [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']), // Review, prioritize, manage workflows
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']), // Manage shipping workflows
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']), // Cannot delete
@@ -105,6 +123,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']), // Operational product management
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']), // Raw materials management
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO, cannot delete (no delete permission)
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only - cannot modify user accounts
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access - cannot modify user permissions
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']), // Assign tasks to staff
@@ -123,11 +142,18 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
     [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // No access for warehouse manager
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
+    [ADMIN_ROUTES.DATA_QUALITY]: new Set([]), // Admin-only repair workflow
+    [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'approve']), // Can review and approve replenishment plans
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view', 'create', 'edit', 'approve']),
+    [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'approve']), // Can execute moves
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'approve']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view', 'create', 'edit', 'approve']),
   },
   inbound_coordinator: {
     // Inbound Coordinator: focused on inbound receipt coordination, dock scheduling, and ERP integration
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only
+    [ADMIN_ROUTES.PATHFINDING]: new Set([]), // Admin and warehouse manager operational lab
     [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']),
@@ -138,6 +164,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),
@@ -154,8 +181,14 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
-    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for inbound coordinator
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // Feature is outside the active project scope
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
+    [ADMIN_ROUTES.DATA_QUALITY]: new Set([]), // Admin-only repair workflow
+    [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view']), // View only
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view']),
+    [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view']), // View only
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view']),
   },
 };
 

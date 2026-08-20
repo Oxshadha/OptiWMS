@@ -19,6 +19,7 @@ import {
 } from "@/lib/worker-roles";
 import { WorkerProvider } from "@/contexts/WorkerContext";
 import { logger } from "@/lib/utils/logger";
+import { WarehouseAssistant } from "@/components/WarehouseAssistant";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -73,6 +74,8 @@ function WorkerServiceWorkerRegistrar() {
       "/worker/tasks",
       "/worker/picking",
       "/worker/putaway",
+      "/worker/receiving",
+      "/worker/packing",
       "/worker/cycle-count",
     ];
 
@@ -170,7 +173,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     id: "N/A",
     warehouse: "N/A",
     deviceId: "N/A",
-    avatar: "/assets/avatars/placeholder.svg",
+    avatar: "/assets/avatars/Jhon Doe.jpg",
   };
 
   const [notifications, setNotifications] = useState<Array<{
@@ -283,6 +286,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
   const dueDaySet = new Set(
     calendarTasks
+      .filter((task) => task.status !== "COMPLETED" && task.status !== "CANCELLED")
       .map((task) => (task.dueDate ? new Date(task.dueDate) : null))
       .filter((date): date is Date => !!date && !Number.isNaN(date.getTime()))
       .filter(
@@ -294,7 +298,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   );
 
   const todaysTaskCount = calendarTasks.filter((task) => {
-    if (!task.dueDate) {
+    if (!task.dueDate || task.status === "COMPLETED" || task.status === "CANCELLED") {
       return false;
     }
     const dueDate = new Date(task.dueDate);
@@ -306,7 +310,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   endOfWeek.setHours(23, 59, 59, 999);
 
   const upcomingTaskCount = calendarTasks.filter((task) => {
-    if (!task.dueDate) {
+    if (!task.dueDate || task.status === "COMPLETED" || task.status === "CANCELLED") {
       return false;
     }
     const dueDate = new Date(task.dueDate);
@@ -319,13 +323,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
   const handleNotificationClick = async (notif: { id: string; read: boolean }) => {
     if (!notif.read && isOnline) {
+      // Optimistic update
+      setNotifications(prev => 
+        prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+
       try {
         const { notificationsApi } = await import("@/lib/api/notifications");
         await notificationsApi.markAsRead(notif.id);
-        setNotifications(prev => 
-          prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
-        );
-        setUnreadCount(prev => Math.max(0, prev - 1));
       } catch (error) {
         logger.error("Failed to mark notification as read:", error);
       }
@@ -425,17 +431,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
         // If we have a token but no worker state, wait a bit more (API call might be in progress)
         if (!worker && !role && currentHasToken) {
-          logger.debug("[WorkerLayout] Has token but no worker - waiting for API call...");
-          const retryTimeout = setTimeout(() => {
-            if (!worker && !role) {
-              logger.debug("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
-              // Token might be invalid, clear it
-              localStorage.removeItem('accessToken');
-              localStorage.removeItem('refreshToken');
-              router.replace("/worker/login");
-            }
-          }, 3000); // Increased timeout to allow API call
-          return () => clearTimeout(retryTimeout);
+          logger.debug("[WorkerLayout] Has token but no worker - waiting for session restore");
+          return;
         }
 
         // Check if worker has permission for this operation
@@ -483,7 +480,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   const [loadingTimeout, setLoadingTimeout] = React.useState(false);
   
   React.useEffect(() => {
-    if (isLoading && hasToken && !worker) {
+    if (isLoading && !hasToken && !worker) {
       // Set a timeout - if still loading after 5 seconds, force stop
       const timeout = setTimeout(() => {
         logger.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
@@ -498,11 +495,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   
   // If timeout occurred, redirect to login
   React.useEffect(() => {
-    if (loadingTimeout && !worker && !role) {
+    if (loadingTimeout && !worker && !role && !hasToken) {
       logger.debug("[WorkerLayout] Loading timeout - redirecting to login");
       router.replace("/worker/login");
     }
-  }, [loadingTimeout, worker, role, router]);
+  }, [loadingTimeout, worker, role, hasToken, router]);
   
   // Show loading while checking auth, but with timeout
   if (!mounted) {
@@ -571,24 +568,27 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       <header className="bg-base-100 text-base-content border-b border-base-300 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
-          <div className="flex items-center gap-3">
-            <div
-              className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
-              style={{ backgroundColor: "#EEEEEE" }}
-            >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 p-1.5 shadow-sm ring-1 ring-slate-800">
+              {/* Pre-trimmed mark: the original PNG carries ~33% transparent padding,
+                  which is why this used to need a scale transform that clipped it. */}
               <Image
-                src="/assets/logos/OptiWMS Logo.JPG"
-                alt="OptiWMS Logo"
-                width={48}
-                height={48}
-                className="object-contain w-full h-full"
+                src="/assets/logos/optiwms-mark.png?v=7"
+                alt="OptiWMS"
+                width={835}
+                height={718}
+                className="h-full w-full object-contain"
+                priority
               />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-base-content">
-                OptiWMS
-              </h1>
-              <p className="text-xs text-base-content/70">Worker App</p>
+              <div className="text-sm font-black leading-none tracking-tight">
+                <span className="text-slate-900">Opti</span>
+                <span className="text-primary">WMS</span>
+              </div>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/55">
+                Worker app
+              </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -616,15 +616,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               }}
               className="flex items-center gap-3 px-2 py-1 rounded-lg hover:bg-base-200 transition-colors"
             >
-              <div className="text-right">
-                <h2 className="text-sm font-semibold text-base-content">
-                  {displayWorker.name}
+              <div className="text-right flex flex-col items-end justify-center">
+                <h2 className="text-sm font-bold text-base-content leading-none">
+                  {displayWorker.name.split(' ')[0]}
                 </h2>
-                <p className="text-xs text-base-content/60">
+                <p className="text-[10px] sm:text-xs text-base-content/60 hidden sm:block mt-1 leading-none">
                   Worker ID: {displayWorker.id}
                 </p>
                 {role && (
-                  <p className="text-xs text-primary font-medium mt-0.5">
+                  <p className="text-[11px] text-primary/90 font-medium mt-1 leading-none">
                     {getRoleDisplayName(role)}
                   </p>
                 )}
@@ -632,7 +632,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center overflow-hidden">
                 <Image
                   src={
-                    displayWorker.avatar || "/assets/avatars/placeholder.svg"
+                    displayWorker.avatar || "/assets/avatars/Jhon Doe.jpg"
                   }
                   alt={displayWorker.name}
                   width={40}
@@ -772,6 +772,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       >
         {children}
       </main>
+
+      <WarehouseAssistant userRole="worker" userId={worker?.id} />
 
       {/* Bottom Navigation - Always visible on mobile */}
       <nav className="bg-base-100 border-t border-base-300 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
@@ -915,8 +917,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     <div
                       key={notif.id}
                       onClick={() => handleNotificationClick(notif)}
-                      className={`p-4 hover:bg-base-200 cursor-pointer ${
-                        !notif.read ? "bg-primary/5" : ""
+                      className={`p-4 hover:bg-base-200 cursor-pointer border-l-2 ${
+                        !notif.read ? "border-primary bg-base-100" : "border-transparent bg-base-100"
                       }`}
                     >
                       <div className="flex items-start gap-3">
@@ -1046,21 +1048,28 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     {upcomingTaskCount} task{upcomingTaskCount === 1 ? "" : "s"} due this week
                   </div>
                 </div>
-                {calendarTasks.length > 0 && (
+                {calendarTasks.filter((task) => !!task.dueDate && task.status !== "COMPLETED" && task.status !== "CANCELLED").length > 0 && (
                   <div className="p-3 bg-base-200 rounded-lg">
                     <div className="font-semibold text-sm text-base-content">
                       Next Due Tasks
                     </div>
                     <div className="mt-2 space-y-2">
                       {calendarTasks
-                        .filter((task) => !!task.dueDate)
+                        .filter((task) => !!task.dueDate && task.status !== "COMPLETED" && task.status !== "CANCELLED")
                         .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime())
                         .slice(0, 3)
                         .map((task) => (
                           <div key={task.id} className="text-xs text-base-content/70">
                             <span className="font-medium text-base-content">{task.taskNumber}</span>
                             {" · "}
-                            {new Date(task.dueDate || "").toLocaleString()}
+                            {new Date(task.dueDate || "").toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true
+                            })}
                           </div>
                         ))}
                     </div>

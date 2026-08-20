@@ -11,8 +11,8 @@ import React, {
 import { usePathname, useRouter } from "next/navigation";
 import { authApi } from "@/lib/api/auth";
 import { usersApi } from "@/lib/api/users";
-import { AdminRole, isValidAdminRole } from "@/lib/admin-roles";
-import { WorkerRole, isValidWorkerRole } from "@/lib/worker-roles";
+import { AdminRole } from "@/lib/admin-roles";
+import { WorkerRole, getAllWorkerRoles } from "@/lib/worker-roles";
 import { logger } from "@/lib/utils/logger";
 
 export type UserRole = AdminRole | WorkerRole | null;
@@ -45,16 +45,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ADMIN_ROLES: string[] = ['admin', 'warehouse_manager', 'inbound_coordinator'];
-const WORKER_ROLES: string[] = [
-  'forklift_operator',
-  'picker',
-  'packer',
-  'receiver',
-  'quality_checker',
-  'cycle_count_worker',
-  'shipment_worker',
-  'unloading_worker',
-];
+const WORKER_ROLES: string[] = getAllWorkerRoles();
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);

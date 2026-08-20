@@ -14,15 +14,23 @@ spring:
     password: optiwms
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQL17Dialect
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    validate-on-migrate: false
+    out-of-order: true
+    placeholders:
+      skip_bad_migrations: true
 
 management:
   endpoints:
@@ -38,6 +46,12 @@ logging:
 optiwms:
   seed:
     racks: false
+  features:
+    # Dock/yard management is outside the active OptiWMS project scope.
+    # Retain the dormant implementation for recoverability, but do not expose
+    # its controller unless an explicit future scope decision enables it.
+    dock-management:
+      enabled: false
 
 # -----------------------------------------------------------------------------
 # DEVELOPMENT DEFAULTS
@@ -51,7 +65,24 @@ optiwms:
 
 
 ai:
+  http:
+    connect-timeout-seconds: 3
+    read-timeout-seconds: 300
   services:
     forecast-base-url: http://localhost:8091
     orchestrator-base-url: http://localhost:8092
-    auth-token: ""
+    slotting-base-url: http://localhost:8093
+    # The MILP solver is what turns a heuristic draft into an approvable plan.
+    # Left off, slotting silently produced plans that could never be approved.
+    # The client still health-checks before calling, so this is safe when the
+    # service is not running.
+    slotting-enabled: ${AI_SLOTTING_ENABLED:true}
+    auth-token: ${AI_SERVICES_AUTH_TOKEN:}
+  monitoring:
+    enabled: false
+    fixed-delay-ms: 300000
+    limit: 200
+    trigger-block-on-critical: true
+    trigger-guard-window: 200
+    allow-critical-override: true
+    trigger-fail-open-on-guard-error: true

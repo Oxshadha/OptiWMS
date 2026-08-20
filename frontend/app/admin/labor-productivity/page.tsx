@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
   analyticsApi,
+  type AnalyticsPeriod,
   WorkerProductivityMetrics,
   LeaderboardEntry,
 } from "@/lib/api/analytics";
@@ -19,9 +20,7 @@ export default function LaborProductivityPage() {
   const { hasPermission } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
-  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">(
-    "monthly",
-  );
+  const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsPeriod>("current_month");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -54,10 +53,14 @@ export default function LaborProductivityPage() {
   }, [selectedPeriod]);
 
   // Extract data with defaults
-  const productivityMetrics: WorkerProductivityMetrics[] =
-    productivityQuery.data?.productivityMetrics || [];
-  const leaderboard: LeaderboardEntry[] =
-    productivityQuery.data?.leaderboard || [];
+  const productivityMetrics: WorkerProductivityMetrics[] = useMemo(
+    () => productivityQuery.data?.productivityMetrics || [],
+    [productivityQuery.data?.productivityMetrics],
+  );
+  const leaderboard: LeaderboardEntry[] = useMemo(
+    () => productivityQuery.data?.leaderboard || [],
+    [productivityQuery.data?.leaderboard],
+  );
   const error =
     productivityQuery.error instanceof Error
       ? productivityQuery.error.message
@@ -113,7 +116,7 @@ export default function LaborProductivityPage() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <p className="text-lg text-base-content/60">
-            You don't have permission to view this page.
+            You do not have permission to view this page.
           </p>
         </div>
       </div>
@@ -142,26 +145,6 @@ export default function LaborProductivityPage() {
       </div>
     );
   }
-
-  const summary = {
-    averagePPH: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.picksPerHour ?? 0), 0) / productivityMetrics.length
-      : 0,
-    averageDwellTime: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.averageDwellTime ?? 0), 0) / productivityMetrics.length
-      : 0,
-    averageErrorRate: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.errorRate ?? 0), 0) / productivityMetrics.length
-      : 0,
-    totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
-    topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
-  };
-  const pagedMetrics = productivityMetrics.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-  const totalPages = Math.max(Math.ceil(productivityMetrics.length / itemsPerPage), 1);
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -180,48 +163,63 @@ export default function LaborProductivityPage() {
             className="select select-bordered select-sm"
             value={selectedPeriod}
             onChange={(e) =>
-              setSelectedPeriod(e.target.value as "weekly" | "monthly")
+              setSelectedPeriod(e.target.value as AnalyticsPeriod)
             }
             disabled={productivityQuery.isFetching && !productivityQuery.data}
           >
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
+            <option value="current_month">Current month</option>
+            <option value="last_90_days">Last 90 days</option>
+            <option value="all">All available data</option>
           </select>
         </div>
       </div>
+      {productivityMetrics.length === 0 && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <div className="flex-1">
+            <div className="font-semibold">No worker events in selected period.</div>
+            <div className="text-sm">Use all available data to inspect older completed worker activity.</div>
+          </div>
+          {selectedPeriod !== "all" && (
+            <button className="btn btn-sm btn-outline" onClick={() => setSelectedPeriod("all")}>
+              Show latest available worker activity
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards */}
-      <SummaryCards
-        cards={[
-          {
-            label: "Average PPH",
-            value: summary.averagePPH.toFixed(1),
-            icon: "trending_up",
-          },
-          {
-            label: "Avg Dwell Time",
-            value: `${summary.averageDwellTime.toFixed(1)} min`,
-            icon: "schedule",
-          },
-          {
-            label: "Avg Error Rate",
-            value: `${summary.averageErrorRate.toFixed(2)}%`,
-            icon: "error_outline",
-          },
-          {
-            label: "Total Tasks",
-            value: summary.totalTasksCompleted.toString(),
-            icon: "task",
-          },
-          {
-            label: "Top Performer",
-            value: summary.topPerformer,
-            icon: "emoji_events",
-          },
-        ]}
-      />
+        <SummaryCards
+          cards={[
+            {
+              label: "Average PPH",
+              value: summary.averagePPH.toFixed(1),
+              icon: "trending_up",
+            },
+            {
+              label: "Avg Dwell Time",
+              value: `${summary.averageDwellTime.toFixed(1)} min`,
+              icon: "schedule",
+            },
+            {
+              label: "Avg Error Rate",
+              value: `${summary.averageErrorRate.toFixed(2)}%`,
+              icon: "error_outline",
+            },
+            {
+              label: "Total Tasks",
+              value: summary.totalTasksCompleted.toString(),
+              icon: "task",
+            },
+            {
+              label: "Top Performer",
+              value: summary.topPerformer,
+              icon: "emoji_events",
+            },
+          ]}
+        />
 
-      {/* Leaderboard */}
+        {/* Leaderboard */}
       <Leaderboard entries={leaderboard} showBadges={true} maxEntries={10} />
 
       {/* Productivity Charts */}
@@ -299,7 +297,7 @@ export default function LaborProductivityPage() {
                       colSpan={7}
                       className="text-center py-8 text-base-content/60"
                     >
-                      No productivity data found for the selected period.
+                      No worker events in selected period.
                     </td>
                   </tr>
                 )}

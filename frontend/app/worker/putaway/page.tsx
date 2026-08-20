@@ -15,33 +15,51 @@ import { logger } from "@/lib/utils/logger";
 import { PutawayOrderSelection } from "./components/PutawayOrderSelection";
 import { PutawayOrderWorkflow } from "./components/PutawayOrderWorkflow";
 
-const parsePutawayProgress = (notes?: string | null): { completed: number; required: number } | null => {
-  if (!notes) return null;
-  const match = notes.match(/PUTAWAY_PROGRESS=(\d+)\/(\d+)/i);
-  if (!match) return null;
-  const completed = Number(match[1]);
-  const required = Number(match[2]);
-  if (Number.isNaN(completed) || Number.isNaN(required)) return null;
-  return { completed, required };
+/**
+ * Identity of a row in the putaway list. A row is one pallet move, so the task is its identity.
+ * The only rows without a task are lines the planner has not reached yet, which fall back to the
+ * line id so they still key uniquely.
+ */
+const rowKey = (item: PutawayItem): string => item.taskId ?? `line:${item.itemId}`;
+
+/** Units this pallet still owes. The backend rejects anything above this. */
+const remainingForRow = (item: PutawayItem): number =>
+  Math.max(item.palletQuantity - item.completedQuantity, 0);
+
+const finiteOr = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+/**
+ * Makes a row safe to render whatever the server sent.
+ *
+ * A worker must never be shown "NaN" in a quantity box they are about to submit. That is exactly
+ * what happened when the app was newer than the API it was talking to: the pallet-level fields were
+ * absent, the arithmetic produced NaN, and the screen offered it as a real value. Missing numbers
+ * now fall back to the line quantity and missing counts to a single pallet, so a version skew
+ * degrades to something sensible and obviously incomplete rather than something broken.
+ */
+const normalizeRow = (raw: PutawayItem): PutawayItem => {
+  const lineQuantity = finiteOr(raw.lineReceivedQuantity, 0);
+  const palletQuantity = finiteOr(raw.palletQuantity, lineQuantity);
+  return {
+    ...raw,
+    handlingUnitSeq: finiteOr(raw.handlingUnitSeq, 1),
+    totalHandlingUnits: Math.max(finiteOr(raw.totalHandlingUnits, 1), 1),
+    palletQuantity,
+    completedQuantity: finiteOr(raw.completedQuantity, 0),
+    lineReceivedQuantity: lineQuantity || palletQuantity,
+  };
 };
 
-const parsePutawaySkipReason = (notes?: string | null): string | null => {
-  if (!notes) return null;
-  const match = notes.match(/PUTAWAY_SKIP_REASON=([^\n\r;]+)/i);
-  if (!match?.[1]) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
-};
+export type AlternativeLocation = { locationCode: string; allocatableQuantity: number; reason: string };
 
-const isItemFullyPutAway = (status?: string, completed?: number, required?: number): boolean => {
-  if ((status || "").toLowerCase() === "completed") return true;
-  if (typeof completed === "number" && typeof required === "number") {
-    return completed >= required && required > 0;
-  }
-  return false;
+/**
+ * Bins the server offered when it refused the chosen one. Carried on the error body by the API
+ * client; absent for every other kind of failure.
+ */
+const extractAlternatives = (error: unknown): AlternativeLocation[] => {
+  const body = (error as { body?: { alternatives?: AlternativeLocation[] } } | null)?.body;
+  return Array.isArray(body?.alternatives) ? body.alternatives : [];
 };
 
 const extractErrorMessage = (error: unknown): string => {
@@ -65,7 +83,11 @@ export default function PutawayPage() {
   
   // Order selection state
   const [orders, setOrders] = useState<Array<{ id: string; orderNumber: string; status: string }>>([]);
-  const [selectedOrder, setSelectedOrder] = useState<{ id: string; orderNumber: string } | null>(null);
+  // Status is carried so "Start Putaway" can move a quality_approved order to putaway_in_progress.
+  // It was read but never set, so that transition silently never happened.
+  const [selectedOrder, setSelectedOrder] = useState<
+    { id: string; orderNumber: string; status?: string } | null
+  >(null);
   const [putawayItems, setPutawayItems] = useState<PutawayItem[]>([]);
   const [scannedPONumber, setScannedPONumber] = useState("");
   const [showPOScanner, setShowPOScanner] = useState(false);
@@ -78,24 +100,28 @@ export default function PutawayPage() {
   const [isLoading, setIsLoading] = useState(false); // Changed to false - only set to true when loading items
   const [locationError, setLocationError] = useState<string>("");
   const [validatingLocation, setValidatingLocation] = useState(false);
-  const [putawayProgress, setPutawayProgress] = useState<Map<string, boolean>>(new Map()); // Track which items are put away
-  const [allocatedByItem, setAllocatedByItem] = useState<Map<string, number>>(new Map());
-  const [skippedReasonsByItem, setSkippedReasonsByItem] = useState<Map<string, string>>(new Map());
+  // Keyed by rowKey (the task), not by order line: a line is several pallets, each its own move.
+  const [putawayProgress, setPutawayProgress] = useState<Map<string, boolean>>(new Map());
+  const [allocatedByRow, setAllocatedByRow] = useState<Map<string, number>>(new Map());
+  const [skippedReasonsByRow, setSkippedReasonsByRow] = useState<Map<string, string>>(new Map());
   const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
-  const [startedPutawayTaskItemIds, setStartedPutawayTaskItemIds] = useState<Set<string>>(new Set());
-  const [putawayTaskIdsByItem, setPutawayTaskIdsByItem] = useState<Map<string, string>>(new Map());
   const [fallbackOrderTaskId, setFallbackOrderTaskId] = useState<string | null>(null);
-  
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isOrderStarted, setIsOrderStarted] = useState(false);
+  const [isStartingOrder, setIsStartingOrder] = useState(false);
+  // Bins the server offered after refusing the one the worker tried.
+  const [suggestedAlternatives, setSuggestedAlternatives] = useState<AlternativeLocation[]>([]);
+
   const getFirstPendingItemIndex = (
     items: PutawayItem[],
     progress: Map<string, boolean>,
     skipped: Map<string, string>
   ) => {
     const nonSkippedPending = items.findIndex(
-      (item) => !(progress.get(item.itemId) || false) && !skipped.has(item.itemId)
+      (item) => !(progress.get(rowKey(item)) || false) && !skipped.has(rowKey(item))
     );
     if (nonSkippedPending >= 0) return nonSkippedPending;
-    const pendingIndex = items.findIndex((item) => !(progress.get(item.itemId) || false));
+    const pendingIndex = items.findIndex((item) => !(progress.get(rowKey(item)) || false));
     return pendingIndex >= 0 ? pendingIndex : 0;
   };
 
@@ -106,12 +132,14 @@ export default function PutawayPage() {
       return;
     }
 
+    let isFirstLoad = true;
     const loadOrders = async () => {
       try {
-        setIsLoadingOrders(true);
+        if (isFirstLoad) setIsLoadingOrders(true);
         const ordersList = await ordersApi.getOrdersNeedingPutaway(worker.warehouseId!);
         setOrders(ordersList.map(o => ({ id: o.id, orderNumber: o.orderNumber, status: o.status })));
         logger.debug("[Putaway] Orders needing putaway:", ordersList.length);
+        isFirstLoad = false;
       } catch (err) {
         logger.error("[Putaway] Failed to load orders:", err);
         showToast.error("Failed to load orders. Please try again.");
@@ -120,7 +148,7 @@ export default function PutawayPage() {
       }
     };
 
-    loadOrders();
+    void loadOrders();
     // Refresh every 5 seconds
     const interval = setInterval(loadOrders, 5000);
     return () => clearInterval(interval);
@@ -130,90 +158,59 @@ export default function PutawayPage() {
   useEffect(() => {
     if (!selectedOrder) {
       setPutawayItems([]);
-      setStartedPutawayTaskItemIds(new Set());
+      setIsOrderStarted(false);
       return;
     }
 
     const loadPutawayItems = async () => {
       try {
         setIsLoading(true);
-        setStartedPutawayTaskItemIds(new Set());
-        setPutawayTaskIdsByItem(new Map());
         setFallbackOrderTaskId(null);
-        const items = await orderItemsApi.getPutawayItems(selectedOrder.id);
+        const items = (await orderItemsApi.getPutawayItems(selectedOrder.id, worker?.id)).map(normalizeRow);
         setPutawayItems(items);
-        logger.debug("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
-        
-        // Initialize progress from persisted task status/progress, not only local session state.
+        logger.debug("[Putaway] Pallet moves for order:", selectedOrder.orderNumber, items.length);
+
+        // Each row already carries its own task state, so progress is read straight off the row
+        // rather than reconstructed by scanning every task in the warehouse and guessing which
+        // one belonged to which line.
         const progress = new Map<string, boolean>();
         const allocated = new Map<string, number>();
         const skipped = new Map<string, string>();
 
-        items.forEach(item => {
-          progress.set(item.itemId, false);
-          allocated.set(item.itemId, 0);
+        items.forEach((item) => {
+          const key = rowKey(item);
+          const done = item.status === "completed" || remainingForRow(item) <= 0;
+          progress.set(key, done);
+          allocated.set(key, item.completedQuantity);
+          if (item.skipReason) skipped.set(key, item.skipReason);
         });
 
         try {
+          // Only still needed for legacy order-level tasks and for resuming a started order.
           const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-          const relevantTasks = tasks.filter(
-            (task) =>
-              task.referenceType === "order_item" &&
-              items.some((item) => item.itemId === task.referenceId)
-          );
-          const hydratedTaskIds = new Map<string, string>();
-          relevantTasks
-            .filter((task) => task.referenceType === "order_item" && task.referenceId)
-            .forEach((task) => {
-              hydratedTaskIds.set(task.referenceId!, task.id);
-            });
-          setPutawayTaskIdsByItem(hydratedTaskIds);
           setFallbackOrderTaskId(
             tasks.find(
-              (task) =>
-                task.referenceType === "order" &&
-                task.referenceId === selectedOrder.id
+              (task) => task.referenceType === "order" && task.referenceId === selectedOrder.id
             )?.id || null
           );
-
-          for (const item of items) {
-            const itemTasks = relevantTasks.filter((task) => task.referenceId === item.itemId);
-            const completedTask = itemTasks.find((task) => task.status === "completed");
-            const activeTask = itemTasks.find((task) => task.status === "in_progress" || task.status === "pending");
-            const taskForProgress = completedTask ?? activeTask;
-            const progressInfo = parsePutawayProgress(taskForProgress?.notes);
-            const skipReason = parsePutawaySkipReason(taskForProgress?.notes);
-            if (skipReason) {
-              skipped.set(item.itemId, skipReason);
-            }
-
-            if (completedTask) {
-              allocated.set(item.itemId, item.receivedQuantity);
-            } else if (progressInfo) {
-              allocated.set(item.itemId, Math.min(progressInfo.completed, item.receivedQuantity));
-            }
-
-            const done = isItemFullyPutAway(
-              completedTask?.status ?? item.status,
-              progressInfo?.completed,
-              progressInfo?.required
-            );
-            progress.set(item.itemId, done);
-          }
+          const resumable = tasks.some(
+            (t) =>
+              t.status === "in_progress" &&
+              t.assignedTo === worker?.id &&
+              items.some((item) => item.taskId === t.id)
+          );
+          if (resumable) setIsOrderStarted(true);
         } catch (taskError) {
-          logger.warn("[Putaway] Could not hydrate progress from tasks, using defaults.", taskError);
+          logger.warn("[Putaway] Could not check for resumable tasks.", taskError);
         }
 
         setPutawayProgress(progress);
-        setAllocatedByItem(allocated);
-        setSkippedReasonsByItem(skipped);
+        setAllocatedByRow(allocated);
+        setSkippedReasonsByRow(skipped);
         const firstPendingIndex = getFirstPendingItemIndex(items, progress, skipped);
         setCurrentItemIndex(firstPendingIndex);
         if (items.length > 0) {
-          const firstItem = items[firstPendingIndex];
-          const alreadyAllocated = allocated.get(firstItem.itemId) || 0;
-          const remaining = Math.max(firstItem.receivedQuantity - alreadyAllocated, 0);
-          setAllocationQuantity(Math.max(remaining, 1));
+          setAllocationQuantity(remainingForRow(items[firstPendingIndex]));
         }
       } catch (err) {
         logger.error("[Putaway] Failed to load putaway items:", err);
@@ -224,17 +221,25 @@ export default function PutawayPage() {
     };
 
     loadPutawayItems();
-  }, [selectedOrder]);
+  }, [selectedOrder, refreshTrigger]);
 
   useEffect(() => {
     const currentItem = putawayItems[currentItemIndex];
     if (!currentItem) {
       return;
     }
-    const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
-    const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
-    setAllocationQuantity(Math.max(remaining, 1));
-  }, [currentItemIndex, putawayItems, allocatedByItem]);
+    // Default to what THIS pallet owes. Defaulting to the whole line's remainder was rejected by
+    // the backend every time, because a task will not accept more than its own pallet quantity.
+    setAllocationQuantity(remainingForRow(currentItem));
+
+    // Direct the move rather than interview the driver: the planned bin is already capacity
+    // checked, so put it in the field and let them confirm it or scan a different one. Making
+    // them enter by hand what the system already decided is pure cognitive load on a forklift.
+    if (currentItem.plannedLocation) {
+      setScannedLocation(currentItem.plannedLocation);
+      setLocationError("");
+    }
+  }, [currentItemIndex, putawayItems]);
 
   useEffect(() => {
     const currentItem = putawayItems[currentItemIndex];
@@ -242,50 +247,49 @@ export default function PutawayPage() {
       return;
     }
 
-    // If current item is already complete (e.g., resumed order), jump to first pending item.
-    if (putawayProgress.get(currentItem.itemId)) {
-      const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, skippedReasonsByItem);
+    // If the current pallet is already away (e.g. resumed order), jump to the first pending one.
+    if (putawayProgress.get(rowKey(currentItem))) {
+      const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, skippedReasonsByRow);
       if (nextIndex !== currentItemIndex) {
         setCurrentItemIndex(nextIndex);
       }
     }
-  }, [currentItemIndex, putawayItems, putawayProgress, skippedReasonsByItem]);
+  }, [currentItemIndex, putawayItems, putawayProgress, skippedReasonsByRow]);
 
-  useEffect(() => {
-    const startCurrentPutawayTask = async () => {
-      if (!isOnline) return;
-      const currentItem = putawayItems[currentItemIndex];
-      if (!currentItem) return;
-      if (!selectedOrder) return;
-      if (putawayProgress.get(currentItem.itemId)) return;
-      if (startedPutawayTaskItemIds.has(currentItem.itemId)) return;
-      try {
-        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-        const itemTask = tasks.find(
-          (t: any) =>
-            t.referenceType === "order_item" &&
-            t.referenceId === currentItem.itemId &&
-            (t.status === "pending" || t.status === "assigned")
+  const handleStartOrder = async () => {
+    if (!isOnline || !selectedOrder || putawayItems.length === 0) return;
+    setIsStartingOrder(true);
+    try {
+      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+      const orderTasks = tasks.filter(
+        (t: any) =>
+          (
+            (t.referenceType === "order_item" && putawayItems.some((item) => item.itemId === t.referenceId)) ||
+            (t.referenceType === "order" && t.referenceId === selectedOrder.id)
+          ) &&
+          (t.status === "pending" || t.status === "assigned") &&
+          (!t.assignedTo || t.assignedTo === worker?.id)
+      );
+
+      if (orderTasks.length > 0) {
+        await Promise.all(
+          orderTasks.map((task) => tasksApi.updateStatus(task.id, "in_progress", worker?.id))
         );
-        if (itemTask) {
-          await tasksApi.updateStatus(itemTask.id, "in_progress", worker?.id);
-        }
-        setStartedPutawayTaskItemIds((prev) => new Set(prev).add(currentItem.itemId));
-      } catch (error) {
-        logger.warn("[Putaway] Could not mark task in progress for item:", currentItem.itemId, error);
       }
-    };
-    void startCurrentPutawayTask();
-  }, [
-    currentItemIndex,
-    putawayItems,
-    putawayProgress,
-    selectedOrder,
-    worker?.warehouseId,
-    worker?.id,
-    startedPutawayTaskItemIds,
-    isOnline,
-  ]);
+
+      if (selectedOrder.status === "quality_approved") {
+        await ordersApi.updateStatus(selectedOrder.id, "putaway_in_progress");
+      }
+
+      setIsOrderStarted(true);
+      showToast.success(`Started putaway for ${selectedOrder.orderNumber}`);
+    } catch (error) {
+      logger.error("[Putaway] Could not start order:", error);
+      showToast.error("Failed to start order. Please try again.");
+    } finally {
+      setIsStartingOrder(false);
+    }
+  };
 
   const handleLocationSelect = async (locationCode: string) => {
     setValidatingLocation(true);
@@ -335,7 +339,7 @@ export default function PutawayPage() {
     const poNumber = result.trim().toUpperCase();
     const matchingOrder = orders.find((o: { id: string; orderNumber: string; status: string }) => o.orderNumber === poNumber);
     if (matchingOrder) {
-      setSelectedOrder({ id: matchingOrder.id, orderNumber: matchingOrder.orderNumber });
+      setSelectedOrder({ id: matchingOrder.id, orderNumber: matchingOrder.orderNumber, status: matchingOrder.status });
       setScannedPONumber("");
       setShowPOScanner(false);
       showToast.success(`Selected order: ${poNumber}`);
@@ -349,7 +353,7 @@ export default function PutawayPage() {
     if (value.trim() !== "") {
       try {
         const order = await ordersApi.getByOrderNumber(value.trim().toUpperCase());
-        setSelectedOrder({ id: order.id, orderNumber: order.orderNumber });
+        setSelectedOrder({ id: order.id, orderNumber: order.orderNumber, status: order.status });
         showToast.success(`Selected order: ${order.orderNumber}`);
       } catch (err) {
         // Order not found - will show error when trying to confirm
@@ -388,35 +392,19 @@ export default function PutawayPage() {
     }
 
     try {
-      let taskToCompleteId: string | null = null;
-      if (isOnline) {
-        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-        const itemTask = tasks.find((t: any) => 
-          t.referenceType === "order_item" &&
-          t.referenceId === currentItem.itemId &&
-          (t.status === "pending" || t.status === "in_progress")
-        );
-
-        // Backward compatibility for legacy tasks created at order level.
-        const fallbackTask = tasks.find((t: any) =>
-          t.referenceType === "order" &&
-          t.referenceId === selectedOrder.id &&
-          (t.status === "pending" || t.status === "in_progress")
-        );
-        taskToCompleteId = itemTask?.id ?? fallbackTask?.id ?? null;
-      } else {
-        taskToCompleteId = putawayTaskIdsByItem.get(currentItem.itemId) || fallbackOrderTaskId;
-      }
+      // The row IS the task, so there is nothing to search for and nothing to guess. Picking the
+      // first matching pending task used to complete an arbitrary pallet of the line.
+      const taskToCompleteId = currentItem.taskId ?? fallbackOrderTaskId;
 
       if (!taskToCompleteId) {
-        showToast.error("Putaway task not found for this item. Tasks are created automatically after receiving.");
+        showToast.error("Putaway task not found for this pallet. Tasks are created automatically after receiving.");
         return;
       }
 
-      const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
-      const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+      const alreadyAllocated = currentItem.completedQuantity;
+      const remaining = remainingForRow(currentItem);
       if (allocationQuantity <= 0 || allocationQuantity > remaining) {
-        showToast.error(`Putaway quantity must be between 1 and ${remaining}`);
+        showToast.error(`Putaway quantity for this pallet must be between 1 and ${remaining}`);
         return;
       }
 
@@ -441,63 +429,77 @@ export default function PutawayPage() {
           },
         });
       }
-      
+
+      const key = rowKey(currentItem);
       const nextAllocated = alreadyAllocated + allocationQuantity;
-      const isComplete = nextAllocated >= currentItem.receivedQuantity;
-      const updatedAllocated = new Map(allocatedByItem);
-      updatedAllocated.set(currentItem.itemId, nextAllocated);
-      setAllocatedByItem(updatedAllocated);
+      const isComplete = nextAllocated >= currentItem.palletQuantity;
+      const updatedAllocated = new Map(allocatedByRow);
+      updatedAllocated.set(key, nextAllocated);
+      setAllocatedByRow(updatedAllocated);
       if (isComplete) {
-        setSkippedReasonsByItem((prev) => {
+        setSkippedReasonsByRow((prev) => {
           const next = new Map(prev);
-          next.delete(currentItem.itemId);
+          next.delete(key);
           return next;
         });
       }
 
-      // Mark item as put away when fully allocated
       const newProgress = new Map(putawayProgress);
-      newProgress.set(currentItem.itemId, isComplete);
+      newProgress.set(key, isComplete);
       setPutawayProgress(newProgress);
-      
+
+      const palletLabel = `Pallet ${currentItem.handlingUnitSeq} of ${currentItem.totalHandlingUnits}`;
       showToast.success(
         isComplete
           ? isOnline
-            ? "Item fully put away to location(s)."
-            : "Putaway queued and item marked complete locally."
+            ? `${palletLabel} put away to ${putawayPayload.locationCode}.`
+            : `${palletLabel} queued for ${putawayPayload.locationCode}.`
           : isOnline
-          ? `Partial putaway saved (${nextAllocated}/${currentItem.receivedQuantity}).`
-          : `Partial putaway queued (${nextAllocated}/${currentItem.receivedQuantity}).`
+          ? `Partial putaway saved (${nextAllocated}/${currentItem.palletQuantity} of ${palletLabel.toLowerCase()}).`
+          : `Partial putaway queued (${nextAllocated}/${currentItem.palletQuantity} of ${palletLabel.toLowerCase()}).`
       );
+      
+      if (isOnline) {
+        setRefreshTrigger(t => t + 1);
+      }
       
       // Reset form
       setScannedLocation("");
       setLocationError("");
+      setSuggestedAlternatives([]);
       
-      // Move to next pending item when fully allocated.
+      // Move to the next pallet once this one is fully away.
       if (isComplete) {
         const allDone = Array.from(newProgress.values()).every((done) => done);
         if (allDone) {
-          showToast.success(`All items in ${selectedOrder.orderNumber} have been put away! Inventory and warehouse layout will update automatically.`);
+          showToast.success(`Every pallet in ${selectedOrder.orderNumber} is away. Inventory and warehouse layout will update automatically.`);
           setTimeout(() => {
             setSelectedOrder(null);
             setPutawayItems([]);
           }, 2000);
         } else {
-          const nextIndex = getFirstPendingItemIndex(putawayItems, newProgress, skippedReasonsByItem);
+          const nextIndex = getFirstPendingItemIndex(putawayItems, newProgress, skippedReasonsByRow);
           setCurrentItemIndex(nextIndex);
           const nextItem = putawayItems[nextIndex];
-          const nextAllocatedQty = updatedAllocated.get(nextItem.itemId) || 0;
-          setAllocationQuantity(Math.max(nextItem.receivedQuantity - nextAllocatedQty, 1));
+          const nextAllocatedQty = updatedAllocated.get(rowKey(nextItem)) ?? nextItem.completedQuantity;
+          setAllocationQuantity(Math.max(nextItem.palletQuantity - nextAllocatedQty, 1));
         }
       } else {
-        const nextRemaining = Math.max(currentItem.receivedQuantity - nextAllocated, 0);
-        setAllocationQuantity(Math.max(nextRemaining, 1));
+        setAllocationQuantity(Math.max(currentItem.palletQuantity - nextAllocated, 1));
       }
     } catch (error) {
       const message = extractErrorMessage(error);
       logger.error("Error confirming putaway:", error);
-      showToast.error(`Failed to complete putaway: ${message}`);
+
+      // A capacity refusal now comes back with bins that would work. Offering the nearest one
+      // turns a dead end into the next move; without it the worker was left at a full rack.
+      const alternatives = extractAlternatives(error);
+      setSuggestedAlternatives(alternatives);
+      if (alternatives.length > 0) {
+        showToast.error(message);
+      } else {
+        showToast.error(`Failed to complete putaway: ${message}`);
+      }
     }
   };
 
@@ -517,22 +519,10 @@ export default function PutawayPage() {
     }
 
     try {
-      let itemTaskId: string | null = null;
-      if (isOnline) {
-        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-        const itemTask = tasks.find(
-          (t: any) =>
-            t.referenceType === "order_item" &&
-            t.referenceId === currentItem.itemId &&
-            (t.status === "pending" || t.status === "in_progress")
-        );
-        itemTaskId = itemTask?.id ?? null;
-      } else {
-        itemTaskId = putawayTaskIdsByItem.get(currentItem.itemId) || null;
-      }
+      const itemTaskId = currentItem.taskId;
 
       if (!itemTaskId) {
-        showToast.error("Item-level putaway task not found. Cannot skip this item safely.");
+        showToast.error("No putaway task for this pallet yet. Cannot skip it safely.");
         return;
       }
 
@@ -555,13 +545,13 @@ export default function PutawayPage() {
         });
       }
 
-      const updatedSkipped = new Map(skippedReasonsByItem);
-      updatedSkipped.set(currentItem.itemId, reason.trim());
-      setSkippedReasonsByItem(updatedSkipped);
+      const updatedSkipped = new Map(skippedReasonsByRow);
+      updatedSkipped.set(rowKey(currentItem), reason.trim());
+      setSkippedReasonsByRow(updatedSkipped);
       showToast.success(
         isOnline
-          ? "Item skipped with reason. Continue with next pending item."
-          : "Skip queued. Continue with next pending item."
+          ? "Pallet skipped with reason. Continue with the next one."
+          : "Skip queued. Continue with the next pallet."
       );
 
       const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, updatedSkipped);
@@ -640,11 +630,46 @@ export default function PutawayPage() {
     );
   }
 
-  // If order selected, show items for putaway
-  if (selectedOrder && putawayItems.length > 0) {
+  // If order selected but not explicitly started yet
+  if (selectedOrder && putawayItems.length > 0 && !isOrderStarted) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="bg-base-100 rounded-xl p-6 border border-base-300 text-center flex flex-col items-center justify-center space-y-4 h-64">
+          <div className="material-symbols-outlined text-5xl text-primary">play_circle</div>
+          <h2 className="text-xl font-bold">Start Putaway Order {selectedOrder.orderNumber}?</h2>
+          <p className="text-sm text-base-content/60">
+            This will lock all pending putaway tasks for this order to you, so no other worker can claim them.
+          </p>
+          <div className="flex gap-4 w-full justify-center mt-4">
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                setSelectedOrder(null);
+                setPutawayItems([]);
+              }}
+              disabled={isStartingOrder}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleStartOrder}
+              disabled={isStartingOrder}
+            >
+              {isStartingOrder ? <span className="loading loading-spinner"></span> : null}
+              Start Putaway
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If order selected, started, and has items
+  if (selectedOrder && putawayItems.length > 0 && isOrderStarted) {
     const currentItem = putawayItems[currentItemIndex];
-    const alreadyAllocated = currentItem ? (allocatedByItem.get(currentItem.itemId) || 0) : 0;
-    const remainingQuantity = currentItem ? Math.max(currentItem.receivedQuantity - alreadyAllocated, 0) : 0;
+    // The cap the backend enforces is this pallet's, not the whole line's.
+    const remainingQuantity = currentItem ? remainingForRow(currentItem) : 0;
     return (
       <PutawayOrderWorkflow
         selectedOrder={selectedOrder}
@@ -674,7 +699,12 @@ export default function PutawayPage() {
         allocationQuantity={allocationQuantity}
         remainingQuantity={remainingQuantity}
         onAllocationQuantityChange={setAllocationQuantity}
-        skippedReasonsByItem={skippedReasonsByItem}
+        skippedReasonsByRow={skippedReasonsByRow}
+        suggestedAlternatives={suggestedAlternatives}
+        onUseAlternative={(code) => {
+          setSuggestedAlternatives([]);
+          void handleLocationChange(code);
+        }}
       />
     );
   }

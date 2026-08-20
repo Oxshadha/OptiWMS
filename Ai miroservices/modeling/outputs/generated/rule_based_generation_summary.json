@@ -1,0 +1,112 @@
+{
+  "portable": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1886.7388117283951,
+    "demand_median": 49.0,
+    "demand_p95": 5625.899999999998,
+    "zero_demand_rate": 0.15113811728395063
+  },
+  "wms": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1886.7388117283951,
+    "demand_median": 49.0,
+    "demand_p95": 5625.899999999998,
+    "zero_demand_rate": 0.15113811728395063
+  },
+  "wms_feature_ranges": {
+    "on_hand_inventory": {
+      "min": 0.0,
+      "max": 570733.0
+    },
+    "stockout_days": {
+      "min": 0.0,
+      "max": 6.0
+    },
+    "promotion_flag": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "price_or_discount": {
+      "min": 0.0,
+      "max": 0.2798
+    },
+    "lead_time_days": {
+      "min": 8.65,
+      "max": 137.58
+    },
+    "supplier_otif": {
+      "min": 0.55,
+      "max": 0.995
+    },
+    "inbound_po_qty": {
+      "min": 1.0,
+      "max": 253000.0
+    },
+    "open_sales_orders": {
+      "min": 0.0,
+      "max": 41675.0
+    },
+    "returns_qty": {
+      "min": 0.0,
+      "max": 2971.0
+    },
+    "holiday_flag": {
+      "min": 0.0,
+      "max": 1.0
+    }
+  },
+  "category_counts": {
+    "FRAGRANCE_COOLANT_SLOW": 1260,
+    "FRAGRANCE_COOLANT_STANDARD": 720,
+    "ACTIVE_INTERMITTENT": 684,
+    "FRAGRANCE_COOLANT_INTERMITTENT": 468,
+    "ACTIVE_SLOW": 432,
+    "FRAGRANCE_COOLANT_CORE": 432,
+    "OIL_WAX_INTERMITTENT": 396,
+    "PACKAGING_BULK_FAST": 360,
+    "STARCH_GUM_STANDARD": 360,
+    "FRAGRANCE_COOLANT_BULK_FAST": 324,
+    "ACID_BASE_CORE": 288,
+    "OIL_WAX_SLOW": 288,
+    "PACKAGING_CORE": 252,
+    "COLORANT_SLOW": 252,
+    "SURFACTANT_STANDARD": 252,
+    "ACTIVE_STANDARD": 216,
+    "ACTIVE_CORE": 216,
+    "STARCH_GUM_SLOW": 216,
+    "COLORANT_STANDARD": 180,
+    "ACID_BASE_STANDARD": 180,
+    "OIL_WAX_STANDARD": 180,
+    "COLORANT_INTERMITTENT": 180,
+    "PACKAGING_STANDARD": 180,
+    "GENERAL_INTERMITTENT": 144,
+    "SOLVENT_BULK_FAST": 144,
+    "OIL_WAX_CORE": 144,
+    "SURFACTANT_CORE": 144,
+    "GENERAL_BULK_FAST": 144,
+    "SURFACTANT_INTERMITTENT": 108,
+    "SOLVENT_CORE": 108,
+    "ACTIVE_BULK_FAST": 108,
+    "GENERAL_SLOW": 108,
+    "SURFACTANT_BULK_FAST": 108,
+    "OIL_WAX_BULK_FAST": 108,
+    "ACID_BASE_BULK_FAST": 108,
+    "STARCH_GUM_CORE": 108,
+    "COLORANT_BULK_FAST": 72,
+    "ACID_BASE_INTERMITTENT": 72,
+    "SURFACTANT_SLOW": 72,
+    "GENERAL_STANDARD": 72,
+    "PACKAGING_SLOW": 72,
+    "SOLVENT_STANDARD": 36,
+    "SOLVENT_INTERMITTENT": 36,
+    "ACID_BASE_SLOW": 36
+  }
+}

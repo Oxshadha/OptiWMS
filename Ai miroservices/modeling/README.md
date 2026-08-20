@@ -1,59 +1,99 @@
-# WMS Forecast Modeling Workspace
+# OptiWMS Modeling and Evaluator Workspace
 
-This workspace trains and compares baseline forecasting models for datasets A/B/C and produces dashboard-ready outputs.
+This directory contains the forecasting, inventory-policy, physical-layout,
+slotting and routing evidence used by OptiWMS.
 
-## Structure
-- `configs/experiment_config.yaml`: experiment protocol and paths
-- `scripts/common.py`: shared loaders, split logic, metrics, inventory outputs
-- `scripts/run_classical.py`: ETS, ARIMA, SARIMA runs
-- `scripts/run_boosting.py`: XGBoost, CatBoost runs (multi-horizon)
-- `scripts/run_all_models.py`: one-command run for all models on A/B/C
-- `scripts/rolling_cv.py`: rolling-origin CV diagnostics
-- `scripts/compare_models.py`: aggregates results and builds report tables
-- `scripts/build_deployment_registry.py`: champion + fallback model registry
-- `notebooks/01_classical_models.ipynb`: run classical models
-- `notebooks/02_boosted_models.ipynb`: run boosting models
-- `notebooks/03_model_comparison.ipynb`: compare all models and outputs
-- `outputs/`: forecasts, metrics, inventory, reports
+## Current Authority
 
-## Statistical Protocol
-- Time split: Train / Validation / Test using 18/6/12 monthly holdout (for 36-month data).
-- Multi-horizon: H+1 ... H+12 metrics and outputs.
-- Dataset C: scenario-safe evaluation (`scenario_split=train` for fitting/validation and `scenario_split=test` for stress testing).
-- No feature leakage: only lagged operational features are used for boosted models.
+`v8_controlled_synthetic_validation` is the current project-operational
+population and model decision. It is deterministic controlled synthetic data,
+not externally observed warehouse history.
 
-## Run
+- Dataset version: `PROJECT_OPERATIONAL_SIMULATION_V8`
+- Forecast dataset: `PROJECT_OPS_RM_PM`
+- Champion: `PROJECT_OPS_EXTRA_TREES_CAUSAL`
+- Generation seed: `20260711`
+- External population validity: `UNVERIFIED`
+
+Start with:
+
+- [Current status](CURRENT_STATUS.md)
+- [v8 pipeline and evidence](v8_controlled_synthetic_validation/README.md)
+- [Final project report](../../report.md)
+
+## Active Evidence Packages
+
+| Package | Purpose |
+| --- | --- |
+| [`v8_controlled_synthetic_validation`](v8_controlled_synthetic_validation/README.md) | Current generated population, forecasting, policy and physical-layout evidence |
+| [`project_operational_baseline`](project_operational_baseline/README.md) | Retained V3 regression baseline and complete shared evaluator artifacts |
+| [`evaluator_forecasting`](evaluator_forecasting) | Leakage, cyclic/spectral, normalization and neural-contract implementation/tests |
+| [`warehouse_routing_evaluation`](warehouse_routing_evaluation/README.md) | Dijkstra/A*/reservation-A* benchmark and executed notebook |
+
+All current notebook and artifact links are indexed in
+[Appendix B of the final report](../../report.md#appendix-b--evidence-and-file-index).
+
+## Reproduce v8 Evidence
+
 ```bash
-cd "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling"
-python scripts/run_all_models.py --datasets A B C --sample-frac-c 0.5 --horizons 1,2,3,4,5,6,7,8,9,10,11,12
-python scripts/rolling_cv.py --datasets A B C --initial-train-months 18 --val-window 3 --n-folds 4 --horizons 1,2,3,6,12 --sample-frac-c 0.3
-python scripts/compare_models.py
-python scripts/build_deployment_registry.py
+cd "Ai miroservices/modeling/v8_controlled_synthetic_validation"
+MPLCONFIGDIR=/tmp/optiwms-v8-mpl \
+XDG_CACHE_HOME=/tmp/optiwms-v8-cache \
+PYTHONPATH=. \
+../../../.venv/bin/python -m pipeline.run_all
 ```
 
-## Dashboard-ready Outputs
-- `outputs/reports/dashboard_forecast_output.csv`
-- `outputs/reports/dashboard_inventory_recommendations.csv`
-- `outputs/reports/leaderboard_top5_per_dataset.csv`
-- `outputs/reports/test_metrics_by_horizon.csv`
-- `outputs/reports/model_coverage_matrix.csv`
-- `outputs/reports/rolling_cv_metrics_summary.csv`
-- `outputs/reports/deployment_registry.json`
+## Reproduce the Clean Neural Evaluator
 
-## Notebook Cells (recommended run order)
-Use these commands in notebook cells:
+The evaluator uses the locked Python 3.12 environment at
+`.venv-evaluator`. Environment dependencies are listed in
+[`requirements-evaluator-lock.txt`](requirements-evaluator-lock.txt).
 
-```python
-!python ../scripts/run_all_models.py --datasets A B C --sample-frac-c 0.5 --horizons 1,2,3,4,5,6,7,8,9,10,11,12
-!python ../scripts/rolling_cv.py --datasets A B C --initial-train-months 18 --val-window 3 --n-folds 4 --horizons 1,2,3,6,12 --sample-frac-c 0.3
-!python ../scripts/compare_models.py
-!python ../scripts/build_deployment_registry.py
+```bash
+cd "Ai miroservices/modeling/project_operational_baseline"
+../../../.venv-evaluator/bin/python run_evaluator_upgrade.py
 ```
 
-## References (method/protocol)
-- FPP3 (rolling-origin CV, prediction intervals, accuracy): https://otexts.com/fpp3/
-- Statsmodels SARIMAX docs: https://www.statsmodels.org/stable/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html
-- Statsmodels ETS docs: https://www.statsmodels.org/stable/generated/statsmodels.tsa.holtwinters.ExponentialSmoothing.html
-- XGBoost docs: https://xgboost.readthedocs.io/
-- CatBoost docs: https://catboost.ai/docs/
-- Pinball/quantile loss (sklearn): https://scikit-learn.org/stable/modules/generated/sklearn.metrics.mean_pinball_loss.html
+`--quick` is a developer check and is not the five-seed evaluator result.
+
+## Test
+
+Run packages separately so their import roots remain explicit:
+
+```bash
+cd "Ai miroservices/modeling/v8_controlled_synthetic_validation"
+../../../.venv/bin/python -m pytest tests -q
+```
+
+```bash
+cd "Ai miroservices/modeling/project_operational_baseline"
+../../../.venv/bin/python -m pytest tests/test_baseline_contract.py -q
+```
+
+```bash
+cd "Ai miroservices/modeling"
+../../.venv-evaluator/bin/python -m pytest evaluator_forecasting/tests -q
+../../.venv/bin/python -m pytest warehouse_routing_evaluation/tests -q
+```
+
+Latest results and test-case links are in
+[Appendix A of the final report](../../report.md#appendix-a--test-catalogue-and-execution).
+
+## Historical Research Directories
+
+The `v1_legacy`, `v2_m5_clean`, `v3_beverage`, `v4_m5_proper`,
+`v5_paper_compliant`, `v6_academic_final` and
+`v7_rm_pm_forecast_planning` directories are retained for research history.
+They are not current serving or PostgreSQL population authorities. They must
+not be mixed with v8 results when reporting the deployed model.
+
+## Governance Rules
+
+- preserve dataset, model, origin, seed and artifact lineage;
+- do not use future actuals in origin features;
+- do not describe generated evidence as measured production performance;
+- do not promote a neural/tree/statistical model by name or novelty alone;
+- do not use forward forecasts as residuals;
+- do not hide rejected assumptions;
+- retain external population validity as `UNVERIFIED` until the locked protocol
+  passes on representative real history.

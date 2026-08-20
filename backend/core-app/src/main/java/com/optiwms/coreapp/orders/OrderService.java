@@ -2,6 +2,8 @@ package com.optiwms.coreapp.orders;
 
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderEntity;
+import com.optiwms.infra.orders.OrderNumberAliasEntity;
+import com.optiwms.infra.orders.OrderNumberAliasRepository;
 import com.optiwms.infra.orders.OrderRepository;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
@@ -11,21 +13,35 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 @Service
 public class OrderService {
 
     private final OrderRepository repository;
+    private final OrderNumberAliasRepository aliasRepository;
+    private final com.optiwms.coreapp.operations.PutawayReservationService putawayReservationService;
     private static final Map<String, Set<String>> OUTBOUND_TRANSITIONS = buildOutboundTransitions();
 
-    public OrderService(OrderRepository repository) {
+    /** Statuses after which an inbound order can no longer be holding warehouse space. */
+    private static final Set<String> RESERVATION_RELEASING_STATUSES =
+            Set.of("cancelled", "put_away", "completed", "closed");
+
+    public OrderService(
+            OrderRepository repository,
+            OrderNumberAliasRepository aliasRepository,
+            com.optiwms.coreapp.operations.PutawayReservationService putawayReservationService) {
         this.repository = repository;
+        this.aliasRepository = aliasRepository;
+        this.putawayReservationService = putawayReservationService;
     }
 
     public List<Order> listAll() {
@@ -90,6 +106,12 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    public List<Order> findByTypeAndStatus(String orderType, String status) {
+        return repository.findByOrderTypeAndStatus(orderType, status).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Order findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -98,15 +120,17 @@ public class OrderService {
 
     public Order findByOrderNumber(String orderNumber) {
         return repository.findByOrderNumber(orderNumber)
+                .or(() -> aliasRepository.findByAliasOrderNumber(orderNumber)
+                        .flatMap(alias -> repository.findById(alias.getOrderId())))
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderNumber));
     }
 
     @Transactional
     public Order create(Order order) {
-        if (repository.findByOrderNumber(order.getOrderNumber()).isPresent()) {
-            throw new RuntimeException("Order number already exists: " + order.getOrderNumber());
-        }
+        String requestedNumber = normalizeBlank(order.getOrderNumber());
+        String canonicalNumber = generateOrderNumber(order.getOrderType(), order.getOrderDate());
+        order.setOrderNumber(canonicalNumber);
 
         OrderEntity entity = new OrderEntity();
         entity.setOrderNumber(order.getOrderNumber());
@@ -122,7 +146,127 @@ public class OrderService {
         entity.setNotes(order.getNotes());
 
         OrderEntity saved = repository.save(entity);
+        if (requestedNumber != null && !requestedNumber.equals(canonicalNumber)) {
+            saveAlias(saved.getId(), requestedNumber);
+        }
         return toDomain(saved);
+    }
+
+    private String generateOrderNumber(String orderType, LocalDate orderDate) {
+        Set<String> reservedNumbers = repository.findAll().stream()
+                .map(OrderEntity::getOrderNumber)
+                .filter(number -> number != null && !number.isBlank())
+                .collect(Collectors.toCollection(HashSet::new));
+        return generateOrderNumber(orderType, orderDate, reservedNumbers);
+    }
+
+    private String generateOrderNumber(String orderType, LocalDate orderDate, Set<String> reservedNumbers) {
+        String normalizedType = orderType == null ? "" : orderType.toLowerCase().trim();
+        String prefix = switch (normalizedType) {
+            case "inbound" -> "PO";
+            case "outbound" -> "SO";
+            default -> throw new RuntimeException("Unsupported order type: " + orderType);
+        };
+        LocalDate date = orderDate != null ? orderDate : LocalDate.now();
+        String stem = prefix + "-" + date.format(DateTimeFormatter.BASIC_ISO_DATE) + "-";
+        long next = repository.countByOrderNumberStartingWith(stem) + 1;
+        String candidate;
+        do {
+            candidate = stem + String.format("%06d", next);
+            next += 1;
+        } while (reservedNumbers.contains(candidate));
+        reservedNumbers.add(candidate);
+        return candidate;
+    }
+
+    private boolean saveAlias(java.util.UUID orderId, String alias) {
+        if (aliasRepository.existsByAliasOrderNumber(alias)) {
+            return false;
+        }
+        OrderNumberAliasEntity entity = new OrderNumberAliasEntity();
+        entity.setOrderId(orderId);
+        entity.setAliasOrderNumber(alias);
+        aliasRepository.save(entity);
+        return true;
+    }
+
+    private String normalizeBlank(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    @Transactional
+    public CanonicalOrderRepairResult repairCanonicalOrderNumbers(boolean dryRun) {
+        List<OrderEntity> candidates = repository.findAll().stream()
+                .filter(this::needsCanonicalRepair)
+                .sorted(Comparator
+                        .comparing((OrderEntity order) -> order.getOrderDate() != null ? order.getOrderDate() : LocalDate.now())
+                        .thenComparing(OrderEntity::getId))
+                .toList();
+
+        Set<String> reservedNumbers = repository.findAll().stream()
+                .map(OrderEntity::getOrderNumber)
+                .filter(number -> number != null && !number.isBlank())
+                .filter(this::isCanonicalOrderNumber)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        List<CanonicalOrderRepairItem> repaired = new ArrayList<>();
+        int aliasesCreated = 0;
+        int aliasesAlreadyPresent = 0;
+
+        for (OrderEntity entity : candidates) {
+            String oldNumber = normalizeBlank(entity.getOrderNumber());
+            String newNumber = generateOrderNumber(entity.getOrderType(), entity.getOrderDate(), reservedNumbers);
+            boolean aliasAlreadyExists = oldNumber != null && aliasRepository.existsByAliasOrderNumber(oldNumber);
+
+            repaired.add(new CanonicalOrderRepairItem(
+                    entity.getId(),
+                    oldNumber,
+                    newNumber,
+                    entity.getOrderType(),
+                    entity.getOrderDate(),
+                    oldNumber == null ? "no_alias" : aliasAlreadyExists ? "alias_exists" : "alias_created"
+            ));
+
+            if (aliasAlreadyExists) {
+                aliasesAlreadyPresent++;
+            } else if (oldNumber != null) {
+                aliasesCreated++;
+            }
+
+            if (!dryRun) {
+                entity.setOrderNumber(newNumber);
+                repository.save(entity);
+                if (oldNumber != null && !oldNumber.equals(newNumber)) {
+                    saveAlias(entity.getId(), oldNumber);
+                }
+            }
+        }
+
+        return new CanonicalOrderRepairResult(
+                dryRun,
+                candidates.size(),
+                dryRun ? 0 : candidates.size(),
+                aliasesCreated,
+                aliasesAlreadyPresent,
+                repaired
+        );
+    }
+
+    private boolean needsCanonicalRepair(OrderEntity order) {
+        String orderType = order.getOrderType() != null ? order.getOrderType().toLowerCase().trim() : "";
+        if (!"inbound".equals(orderType) && !"outbound".equals(orderType)) {
+            return false;
+        }
+        return !isCanonicalOrderNumber(order.getOrderNumber());
+    }
+
+    private boolean isCanonicalOrderNumber(String orderNumber) {
+        return orderNumber != null
+                && (orderNumber.matches("^PO-\\d{8}-\\d{6}$")
+                || orderNumber.matches("^SO-\\d{8}-\\d{6}$"));
     }
 
     @Transactional
@@ -143,6 +287,15 @@ public class OrderService {
 
         entity.setStatus(nextStatus);
         OrderEntity saved = repository.save(entity);
+
+        // An inbound order holds racking from the moment its destinations are planned. Once it is
+        // cancelled the goods are never coming, and once it is put away the stock is real inventory
+        // -- either way the claim must stop counting, or a receipt that never arrives ties up bins
+        // indefinitely.
+        if (RESERVATION_RELEASING_STATUSES.contains(nextStatus)) {
+            putawayReservationService.releaseForOrder(saved.getId());
+        }
+
         return toDomain(saved);
     }
 
@@ -276,4 +429,22 @@ public class OrderService {
         }
         return allowed.contains(nextStatus);
     }
+
+    public record CanonicalOrderRepairResult(
+            boolean dryRun,
+            int candidates,
+            int repaired,
+            int aliasesCreated,
+            int aliasesAlreadyPresent,
+            List<CanonicalOrderRepairItem> items
+    ) {}
+
+    public record CanonicalOrderRepairItem(
+            java.util.UUID orderId,
+            String oldOrderNumber,
+            String newOrderNumber,
+            String orderType,
+            LocalDate orderDate,
+            String aliasStatus
+    ) {}
 }

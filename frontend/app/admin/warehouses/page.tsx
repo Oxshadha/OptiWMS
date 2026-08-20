@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RackElevationView } from "@/components/RackElevationView";
 import { RackEditModal } from "@/components/RackEditModal";
-import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/lib/utils/location-to-layout";
+import { convertRackSummariesToLayout, occupancyRowsToBins } from "@/lib/utils/location-to-layout";
 import { RackUnit, LocationBin, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, Location } from "@/lib/api/locations";
@@ -22,8 +25,29 @@ import { SimpleSlottingView } from "./components/SimpleSlottingView";
 import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
 import { calculateWarehouseStats } from "./types";
 
+const WAREHOUSE_LAYOUT_RACK_LIMIT = 1200;
+const WAREHOUSE_LAYOUT_STALE_TIME_MS = 10 * 60 * 1000;
+const WAREHOUSE_LAYOUT_GC_TIME_MS = 30 * 60 * 1000;
+
+interface WarehouseLayoutQueryData {
+  layout: WarehouseLayout;
+  hasRealData: boolean;
+  limitNotice: string | null;
+  errorMessage: string | null;
+}
+
+const warehouseLayoutQueryKey = (warehouseId: string | null) => [
+  "warehouse-layout",
+  warehouseId || "none",
+  WAREHOUSE_LAYOUT_RACK_LIMIT,
+] as const;
+
 export default function WarehousesPage() {
+  const searchParams = useSearchParams();
+  const rackFromUrl = searchParams.get("rack");
+  const warehouseFromUrl = searchParams.get("warehouseId");
   const { admin, role } = useAdmin();
+  const queryClient = useQueryClient();
   const isSystemAdmin = role === "admin";
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
@@ -31,14 +55,9 @@ export default function WarehousesPage() {
 
   const [selectedRack, setSelectedRack] = useState<RackUnit | null>(null);
   const [selectedBin, setSelectedBin] = useState<LocationBin | null>(null);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(
     null
   );
-  const [layout, setLayout] = useState<WarehouseLayout | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingLayout, setIsLoadingLayout] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingRack, setEditingRack] = useState<RackUnit | null>(null);
   const [showCreateLocationModal, setShowCreateLocationModal] = useState(false);
@@ -48,110 +67,135 @@ export default function WarehousesPage() {
   const [showBulkRackModal, setShowBulkRackModal] = useState(false);
   const [showSlottingPlannerModal, setShowSlottingPlannerModal] = useState(false);
   const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple">("detailed");
-  const [layoutHasRealData, setLayoutHasRealData] = useState(false);
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", "layout-selector"],
+    queryFn: warehousesApi.getAll,
+    staleTime: WAREHOUSE_LAYOUT_STALE_TIME_MS,
+    gcTime: WAREHOUSE_LAYOUT_GC_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
 
-  // Load warehouses on mount
-  useEffect(() => {
-    const loadWarehouses = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await warehousesApi.getAll();
-        setWarehouses(data);
+  const warehouses = useMemo(() => warehousesQuery.data || [], [warehousesQuery.data]);
 
-        // Set initial warehouse based on role
-        let initialWarehouseId: string | null = null;
-        if (isWarehouseManager && assignedWarehouseId) {
-          initialWarehouseId = assignedWarehouseId;
-        } else if (isSystemAdmin && data.length > 0) {
-          initialWarehouseId = data[0].id;
-        } else if (data.length > 0) {
-          initialWarehouseId = data[0].id;
-        }
+  const loadWarehouseLayout = useCallback(async (warehouseId: string): Promise<WarehouseLayoutQueryData> => {
+    const warehouse = warehouses.find((w) => w.id === warehouseId);
+    const warehouseName = warehouse?.name || `Warehouse ${warehouseId}`;
 
-        if (initialWarehouseId) {
-          setSelectedWarehouseId(initialWarehouseId);
-          await loadWarehouseLayout(initialWarehouseId);
-        }
-      } catch (error) {
-        logger.error("Failed to load warehouses:", error);
-        setError("Failed to load warehouses. Layout data is unavailable until the warehouse list loads.");
-        setLayoutHasRealData(false);
-        if (isWarehouseManager && assignedWarehouseId) {
-          setSelectedWarehouseId(assignedWarehouseId);
-          setLayout(createEmptyLayout(assignedWarehouseId, assignedWarehouseName || "Assigned Warehouse"));
-        } else {
-          setSelectedWarehouseId(null);
-          setLayout(createEmptyLayout("unavailable", "Unavailable"));
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadWarehouses();
-  }, [
-    isWarehouseManager,
-    assignedWarehouseId,
-    assignedWarehouseName,
-    isSystemAdmin,
-  ]);
-
-  // Load warehouse layout from API
-  const loadWarehouseLayout = async (warehouseId: string) => {
     try {
-      setIsLoadingLayout(true);
-      setError(null);
+      const summaries = await locationsApi.getRackSummaries(warehouseId, {
+        limit: WAREHOUSE_LAYOUT_RACK_LIMIT,
+        offset: 0,
+      });
 
-      // Try to get hierarchy first
-      try {
-        const hierarchy = await locationsApi.getHierarchy(warehouseId);
-        const warehouse = warehouses.find((w) => w.id === warehouseId);
-        const layout = await convertLocationHierarchyToLayout(
-          hierarchy,
+      if (summaries.length > 0) {
+        const nextLayout = await convertRackSummariesToLayout(
+          summaries,
           warehouseId,
-          warehouse?.name || `Warehouse ${warehouseId}`
+          warehouseName
         );
-        setLayout(layout);
-        setLayoutHasRealData(true);
-      } catch (hierarchyError) {
-        // Fallback: get storage-only locations and convert
-        // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
-        logger.debug("Hierarchy not available, using storage-only locations list");
-        const locations = await locationsApi.getStorageLocationsByWarehouse(warehouseId);
-        if (locations.length > 0) {
-          const warehouse = warehouses.find((w) => w.id === warehouseId);
-          const layout = await convertLocationsToLayout(
-            locations,
-            warehouseId,
-            warehouse?.name || `Warehouse ${warehouseId}`
-          );
-          setLayout(layout);
-          setLayoutHasRealData(true);
-        } else {
-          const warehouse = warehouses.find((w) => w.id === warehouseId);
-          logger.debug("No storage locations found, showing empty layout state");
-          setLayout(createEmptyLayout(
-            warehouseId,
-            warehouse?.name || `Warehouse ${warehouseId}`
-          ));
-          setLayoutHasRealData(false);
-          setError("No storage locations are configured for this warehouse yet.");
-        }
+        return {
+          layout: nextLayout,
+          hasRealData: true,
+          limitNotice:
+            summaries.length >= WAREHOUSE_LAYOUT_RACK_LIMIT
+              ? `Showing first ${WAREHOUSE_LAYOUT_RACK_LIMIT.toLocaleString()} racks for browser safety. Use search/slotting views for full warehouse-scale analysis.`
+              : null,
+          errorMessage: null,
+        };
       }
+
+      logger.debug("No storage rack summaries found, showing empty layout state");
+      return {
+        layout: createEmptyLayout(warehouseId, warehouseName),
+        hasRealData: false,
+        limitNotice: null,
+        errorMessage: "No storage locations are configured for this warehouse yet.",
+      };
     } catch (error) {
       logger.error("Failed to load warehouse layout:", error);
-      const warehouse = warehouses.find((w) => w.id === warehouseId);
-      setError("Failed to load warehouse layout. Showing an empty state instead of generated mock racks.");
-      setLayout(createEmptyLayout(
-        warehouseId,
-        warehouse?.name || `Warehouse ${warehouseId}`
-      ));
-      setLayoutHasRealData(false);
-    } finally {
-      setIsLoadingLayout(false);
+      return {
+        layout: createEmptyLayout(warehouseId, warehouseName),
+        hasRealData: false,
+        limitNotice: null,
+        errorMessage: "Failed to load warehouse layout. Showing an empty state instead of generated mock racks.",
+      };
     }
-  };
+  }, [warehouses]);
+
+  useEffect(() => {
+    if (selectedWarehouseId || warehousesQuery.isPending) {
+      return;
+    }
+
+    if (isWarehouseManager && assignedWarehouseId) {
+      setSelectedWarehouseId(assignedWarehouseId);
+      return;
+    }
+
+    if (warehouses.length > 0) {
+      setSelectedWarehouseId(warehouses[0].id);
+    }
+  }, [
+    assignedWarehouseId,
+    isWarehouseManager,
+    selectedWarehouseId,
+    warehouses,
+    warehousesQuery.isPending,
+  ]);
+
+  const layoutQuery = useQuery({
+    queryKey: warehouseLayoutQueryKey(selectedWarehouseId),
+    queryFn: () => selectedWarehouseId
+      ? loadWarehouseLayout(selectedWarehouseId)
+      : Promise.resolve({
+          layout: createEmptyLayout("unavailable", "Unavailable"),
+          hasRealData: false,
+          limitNotice: null,
+          errorMessage: "No warehouse selected.",
+        }),
+    enabled: Boolean(selectedWarehouseId),
+    staleTime: WAREHOUSE_LAYOUT_STALE_TIME_MS,
+    gcTime: WAREHOUSE_LAYOUT_GC_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
+
+  const openRackDetail = useCallback(async (rack: RackUnit) => {
+    if (!selectedWarehouseId) {
+      setSelectedRack(rack);
+      return;
+    }
+
+    setSelectedRack(rack);
+    try {
+      const rows = await queryClient.fetchQuery({
+        queryKey: ["warehouse-rack-detail", selectedWarehouseId, rack.id],
+        queryFn: () => locationsApi.getRackDetail(selectedWarehouseId, rack.id),
+        staleTime: 2 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+      });
+      const detailedRack = {
+        ...rack,
+        bins: occupancyRowsToBins(rows),
+        maxLevels: Math.max(...rows.map((row) => row.levelNumber || 1), rack.maxLevels, 5),
+      };
+      setSelectedRack(detailedRack);
+      queryClient.setQueryData<WarehouseLayoutQueryData>(warehouseLayoutQueryKey(selectedWarehouseId), (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          layout: {
+            ...current.layout,
+            racks: current.layout.racks.map((item) => item.id === rack.id ? detailedRack : item),
+          },
+        };
+      });
+    } catch (error) {
+      logger.error(`Failed to load rack detail for ${rack.id}:`, error);
+      showToast.error("Rack summary loaded, but bin details could not be loaded.");
+    }
+  }, [queryClient, selectedWarehouseId]);
 
   // Filter warehouses based on role
   const availableWarehouses =
@@ -163,7 +207,7 @@ export default function WarehousesPage() {
     // Active racks open side elevation for occupancy details.
     // Non-active racks open the edit modal directly so operators can re-activate quickly.
     if (rack.status === "active") {
-      setSelectedRack(rack);
+      void openRackDetail(rack);
       return;
     }
 
@@ -184,16 +228,19 @@ export default function WarehousesPage() {
   };
 
   const handleRackUpdate = (updatedRack: RackUnit) => {
-    if (!layout) return;
+    if (!selectedWarehouseId) return;
 
-    // Update the rack in the layout
-    const updatedRacks = layout.racks.map((rack) =>
-      rack.id === updatedRack.id ? updatedRack : rack
-    );
-
-    setLayout({
-      ...layout,
-      racks: updatedRacks,
+    queryClient.setQueryData<WarehouseLayoutQueryData>(warehouseLayoutQueryKey(selectedWarehouseId), (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        layout: {
+          ...current.layout,
+          racks: current.layout.racks.map((rack) =>
+            rack.id === updatedRack.id ? updatedRack : rack
+          ),
+        },
+      };
     });
 
     // If this rack was selected, update it
@@ -211,11 +258,42 @@ export default function WarehousesPage() {
     setSelectedRack(null);
   };
 
-  const handleWarehouseChange = async (warehouseId: string) => {
+  const handleWarehouseChange = (warehouseId: string) => {
     setSelectedWarehouseId(warehouseId);
-    setSelectedRack(null); // Clear selection when switching warehouses
-    await loadWarehouseLayout(warehouseId);
+    setSelectedRack(null);
   };
+
+  useEffect(() => {
+    if (!warehouseFromUrl || warehouses.length === 0) return;
+    if (warehouses.some((w) => w.id === warehouseFromUrl) && selectedWarehouseId !== warehouseFromUrl) {
+      handleWarehouseChange(warehouseFromUrl);
+    }
+  }, [selectedWarehouseId, warehouseFromUrl, warehouses]);
+
+  const layoutData = layoutQuery.data;
+  const layout = layoutData?.layout ?? null;
+  const layoutHasRealData = Boolean(layoutData?.hasRealData);
+  const layoutLimitNotice = layoutData?.limitNotice ?? null;
+  const error =
+    warehousesQuery.error
+      ? "Failed to load warehouses. Layout data is unavailable until the warehouse list loads."
+      : layoutData?.errorMessage ?? null;
+  const isLoading = warehousesQuery.isPending && !warehousesQuery.data;
+  const isLoadingLayout = layoutQuery.isPending && !layoutQuery.data;
+  const isRefreshingLayout =
+    (warehousesQuery.isFetching && !warehousesQuery.isPending) ||
+    (layoutQuery.isFetching && !layoutQuery.isPending);
+
+  useEffect(() => {
+    if (!layout || !rackFromUrl) return;
+    const match = layout.racks.find(
+      (rack) => rack.id === rackFromUrl || rack.id.toUpperCase() === rackFromUrl.toUpperCase()
+    );
+    if (match) {
+      setLayoutViewMode("detailed");
+      void openRackDetail(match);
+    }
+  }, [layout, rackFromUrl, openRackDetail]);
 
   if (isLoading || isLoadingLayout || !layout) {
     return (
@@ -264,7 +342,7 @@ export default function WarehousesPage() {
       if (result.skippedRacks && result.skippedRacks.length > 0) {
         showToast.warning(`${result.skippedRacks.length} existing rack(s) were skipped safely.`);
       }
-      await loadWarehouseLayout(selectedWarehouseId);
+      await queryClient.invalidateQueries({ queryKey: warehouseLayoutQueryKey(selectedWarehouseId) });
     } catch (error) {
       logger.error("Failed to create Zone A racks:", error);
       showToast.error(error instanceof Error ? error.message : "Failed to create racks.");
@@ -281,39 +359,60 @@ export default function WarehousesPage() {
         assignedWarehouseName={assignedWarehouseName}
         selectedWarehouseId={selectedWarehouseId}
         availableWarehouses={availableWarehouses}
-        isLoadingLayout={isLoadingLayout}
+        isLoadingLayout={layoutQuery.isFetching}
         onRefresh={() => {
           if (selectedWarehouseId) {
-            void loadWarehouseLayout(selectedWarehouseId);
+            void layoutQuery.refetch();
           }
         }}
         onOpenBulkRackCreate={() => setShowBulkRackModal(true)}
         onOpenSlottingPlanner={() => setShowSlottingPlannerModal(true)}
         onWarehouseChange={(warehouseId) => {
-          void handleWarehouseChange(warehouseId);
+          handleWarehouseChange(warehouseId);
         }}
       />
+      {isRefreshingLayout && (
+        <div className="alert alert-info py-2">
+          <span className="loading loading-spinner loading-xs"></span>
+          <span>Refreshing cached warehouse layout...</span>
+        </div>
+      )}
 
       <WarehouseStatsCards stats={stats} />
+
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
       {layoutHasRealData ? (
         <>
           {layoutViewMode === "detailed" && <WarehouseLegend />}
 
-          <div className="tabs tabs-boxed w-fit">
-            <button
-              className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
-              onClick={() => setLayoutViewMode("detailed")}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="tabs tabs-boxed w-fit">
+              <button
+                className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
+                onClick={() => setLayoutViewMode("detailed")}
+              >
+                Detailed Layout
+              </button>
+              <button
+                className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
+                onClick={() => setLayoutViewMode("simple")}
+              >
+                Simple Slotting
+              </button>
+            </div>
+            {/* Route control lives on its own page so there is a single place to operate it. */}
+            <Link
+              href={
+                selectedWarehouseId
+                  ? `/admin/pathfinding?warehouseId=${encodeURIComponent(selectedWarehouseId)}`
+                  : "/admin/pathfinding"
+              }
+              className="btn btn-sm btn-ghost gap-2"
             >
-              Detailed Layout
-            </button>
-            <button
-              className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
-              onClick={() => setLayoutViewMode("simple")}
-            >
-              Simple Slotting
-            </button>
+              <span className="material-symbols-outlined text-base">route</span>
+              Live Route Control
+            </Link>
           </div>
 
           {layoutViewMode === "detailed" ? (
@@ -370,7 +469,7 @@ export default function WarehousesPage() {
             // Optimistic UI update so color/status changes instantly
             handleRackUpdate(updatedRack);
             // Then sync from backend to keep all bins/rack metadata consistent
-            void loadWarehouseLayout(selectedWarehouseId);
+            void queryClient.invalidateQueries({ queryKey: warehouseLayoutQueryKey(selectedWarehouseId) });
           }}
         />
       )}
@@ -383,7 +482,7 @@ export default function WarehousesPage() {
           warehouseId={selectedWarehouseId}
           onSuccess={() => {
             if (selectedWarehouseId) {
-              loadWarehouseLayout(selectedWarehouseId);
+              void queryClient.invalidateQueries({ queryKey: warehouseLayoutQueryKey(selectedWarehouseId) });
             }
           }}
         />
@@ -400,7 +499,7 @@ export default function WarehousesPage() {
           location={editingLocation}
           onSuccess={() => {
             if (selectedWarehouseId) {
-              loadWarehouseLayout(selectedWarehouseId);
+              void queryClient.invalidateQueries({ queryKey: warehouseLayoutQueryKey(selectedWarehouseId) });
             }
           }}
         />
@@ -418,7 +517,7 @@ export default function WarehousesPage() {
         onClose={() => setShowSlottingPlannerModal(false)}
         onUpdated={() => {
           if (selectedWarehouseId) {
-            void loadWarehouseLayout(selectedWarehouseId);
+            void queryClient.invalidateQueries({ queryKey: warehouseLayoutQueryKey(selectedWarehouseId) });
           }
         }}
       />
@@ -434,6 +533,7 @@ function createEmptyLayout(warehouseId: string, warehouseName: string): Warehous
     width: 1200,
     height: 600,
     racks: [],
+    stations: [],
     aisles: [],
   };
 }

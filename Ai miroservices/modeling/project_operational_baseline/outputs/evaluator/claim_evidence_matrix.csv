@@ -1,0 +1,5 @@
+claim,evidence_required,synthetic_status,production_status
+The implementation is leakage-safe and reproducible.,"Feature invariance tests, train-only normalization, deterministic seeds.",SUPPORTED,UNVERIFIED
+Cyclic and spectral features recover temporal structure.,AR(1) spectral tests and feature-group ablations.,TESTABLE,UNVERIFIED
+The neural network is superior to simpler candidates.,"Locked selection ranking, HAC/DM test, block CI, calibration and decision utility.",RESULT_DEPENDENT,UNVERIFIED
+Forecasts are suitable for operational inventory decisions.,"Real costs, service targets, lead-time outcomes and shadow-mode approval.",PROHIBITED,UNVERIFIED

@@ -1,5 +1,18 @@
 import { apiClient } from './client';
 
+/**
+ * Line and quantity rollup for one order, computed server-side.
+ *
+ * Present on list responses only. Single-order reads omit it, since those callers already
+ * hold the items.
+ */
+export interface OrderLineProgress {
+  totalLines: number;
+  receivedLines: number;
+  totalQuantity: number;
+  receivedQuantity: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -13,6 +26,7 @@ export interface Order {
   expectedDate?: string;
   totalAmount?: string;
   notes?: string;
+  progress?: OrderLineProgress | null;
 }
 
 export interface PagedOrdersResponse {
@@ -21,6 +35,24 @@ export interface PagedOrdersResponse {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+export interface CanonicalOrderRepairItem {
+  orderId: string;
+  oldOrderNumber?: string;
+  newOrderNumber: string;
+  orderType: string;
+  orderDate?: string;
+  aliasStatus: "alias_created" | "alias_exists" | string;
+}
+
+export interface CanonicalOrderRepairResult {
+  dryRun: boolean;
+  candidates: number;
+  repaired: number;
+  aliasesCreated: number;
+  aliasesAlreadyPresent: number;
+  items: CanonicalOrderRepairItem[];
 }
 
 export const ordersApi = {
@@ -80,8 +112,12 @@ export const ordersApi = {
     return apiClient.get<Order>(`/orders/number/${orderNumber}`);
   },
 
-  create: async (order: Omit<Order, 'id'>): Promise<Order> => {
+  create: async (order: Omit<Order, 'id' | 'orderNumber'> & { orderNumber?: string }): Promise<Order> => {
     return apiClient.post<Order>('/orders', order);
+  },
+
+  repairCanonicalNumbers: async (dryRun = true): Promise<CanonicalOrderRepairResult> => {
+    return apiClient.post<CanonicalOrderRepairResult>('/orders/repair/canonical-numbers', { dryRun });
   },
 
   createTasksByOrderId: async (id: string): Promise<{ success: boolean; message: string; tasksCreated: number }> => {

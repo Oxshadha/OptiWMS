@@ -1,6 +1,7 @@
 "use client";
 
 import { RackUnit, LocationBin } from "@/lib/types/warehouse-layout";
+import { binPalletFillPercent, levelBeamLabel } from "@/lib/utils/bin-occupancy";
 import clsx from "clsx";
 
 interface RackElevationViewProps {
@@ -20,13 +21,16 @@ export function RackElevationView({
   onBinClick,
   onEdit,
 }: RackElevationViewProps) {
-  const POSITIONS: Array<"A" | "B"> = ["A", "B"];
-  const MAX_BIN_CAPACITY = 100;
+  const positions = Array.from(
+    new Set(
+      rack.bins
+        .map((bin) => (bin.id.split("-").pop() || "").toUpperCase())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  const visiblePositions = positions.length > 0 ? positions : ["A", "B"];
 
-  const getBinOccupancy = (bin: LocationBin): number => {
-    if (!bin.inventory) return 0;
-    return Math.min(((bin.inventory.quantity || 0) / MAX_BIN_CAPACITY) * 100, 100);
-  };
+  const getBinOccupancy = (bin: LocationBin): number => binPalletFillPercent(bin);
 
   // Map bin status to colors (matches WarehouseLayout.tsx level segments exactly)
   // If rack is in maintenance/out_of_service, ALL bins show rack status color (rack is empty)
@@ -35,7 +39,7 @@ export function RackElevationView({
   const getBinColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status color
     if (rack.status === "maintenance") {
-      return "#FEF3C7"; // Yellow/amber tint
+      return "#FFEDD5"; // Orange tint
     } else if (rack.status === "out_of_service") {
       return "#FEE2E2"; // Dull red tint
     }
@@ -50,20 +54,20 @@ export function RackElevationView({
       return "#9333EA";
     }
 
-    // Capacity-based fill colors
+    // Capacity-based fill colors (Slate Gray scale)
     const occupancy = getBinOccupancy(bin);
-    if (occupancy === 0) return "#F5F5F5";
-    if (occupancy < 50) return "#22C55E"; // Green
-    if (occupancy < 85) return "#F59E0B"; // Amber
-    return "#1E3A8A"; // Blue
+    if (occupancy === 0) return "#F8FAFC"; // Slate 50
+    if (occupancy < 50) return "#CBD5E1"; // Slate 300
+    if (occupancy < 85) return "#64748B"; // Slate 500
+    return "#1E293B"; // Slate 900
   };
 
   const getBinBorderColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status border
     if (rack.status === "maintenance") {
-      return "#D97706";
+      return "#F97316"; // Orange
     } else if (rack.status === "out_of_service") {
-      return "#DC2626";
+      return "#DC2626"; // Red
     }
 
     // Reserved bins use cyan border
@@ -76,10 +80,10 @@ export function RackElevationView({
     }
 
     const occupancy = getBinOccupancy(bin);
-    if (occupancy === 0) return "#D1D5DB";
-    if (occupancy < 50) return "#16A34A";
-    if (occupancy < 85) return "#D97706";
-    return "#1E40AF";
+    if (occupancy === 0) return "#CBD5E1"; // Slate 300
+    if (occupancy < 50) return "#94A3B8"; // Slate 400
+    if (occupancy < 85) return "#475569"; // Slate 600
+    return "#0F172A"; // Slate 950
   };
 
   const getBinOpacity = (bin: LocationBin): number => {
@@ -90,7 +94,7 @@ export function RackElevationView({
   const isDarkBin = (bin: LocationBin): boolean => {
     if (rack.status === "out_of_service" || rack.status === "maintenance") return false;
     const occupancy = getBinOccupancy(bin);
-    return occupancy >= 85 || bin.status === "quarantined";
+    return occupancy >= 50 || bin.status === "quarantined"; // Slate 500+ is dark
   };
 
   const hasRecentReceipt = (bin: LocationBin): boolean => {
@@ -101,7 +105,7 @@ export function RackElevationView({
   };
 
   const allLevels = Array.from({ length: rack.maxLevels }, (_, idx) => rack.maxLevels - idx);
-  const binForLevelPosition = (level: number, position: "A" | "B"): LocationBin => {
+  const binForLevelPosition = (level: number, position: string): LocationBin => {
     const found = rack.bins.find(
       (b) =>
         b.level === level &&
@@ -185,11 +189,39 @@ export function RackElevationView({
           )}
           <div className="flex flex-col gap-1.5">
             {allLevels.map((level) => {
+              const levelBins = rack.bins.filter((b) => b.level === level);
+              const beamBin = levelBins.find((b) => b.levelWeightCapacityKg != null) ?? levelBins[0];
+              const beamLabel = beamBin ? levelBeamLabel(beamBin) : null;
+              const beamPct = beamBin?.levelWeightCapacityKg
+                ? Math.min(
+                    ((beamBin.levelWeightUsedKg ?? 0) / beamBin.levelWeightCapacityKg) * 100,
+                    100
+                  )
+                : 0;
               return (
                 <div key={`${rack.id}-${level}`} className="rounded-lg border border-base-300 bg-base-100 p-3">
-                  <div className="text-xs font-bold mb-2">Level {level}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {POSITIONS.map((position) => {
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-xs font-bold">Level {level}</div>
+                    {beamLabel && (
+                      <div className="text-[10px] text-base-content/70">{beamLabel}</div>
+                    )}
+                  </div>
+                  {beamLabel && (
+                    <div className="mb-2 h-1.5 rounded-full bg-base-200 overflow-hidden">
+                      <div
+                        className={clsx(
+                          "h-full rounded-full",
+                          beamPct >= 90 ? "bg-error" : beamPct >= 70 ? "bg-warning" : "bg-primary"
+                        )}
+                        style={{ width: `${beamPct}%` }}
+                      />
+                    </div>
+                  )}
+                  <div
+                    className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(${visiblePositions.length}, minmax(0, 1fr))` }}
+                  >
+                    {visiblePositions.map((position) => {
                       const displayBin = binForLevelPosition(level, position);
                       const isSpecial =
                         !displayBin.inventory &&
@@ -241,8 +273,9 @@ export function RackElevationView({
                               <>
                                 <div className="font-semibold truncate">{displayBin.inventory.sku}</div>
                                 <div>Qty: {Math.ceil(displayBin.inventory.quantity || 0)}</div>
+                                <div>Pallets: {displayBin.palletCount ?? 1}/{displayBin.maxPalletCapacity ?? 1}</div>
                                 <div>Fill: {Math.round(getBinOccupancy(displayBin))}%</div>
-                                <div>Weight: {displayBin.inventory.weight} kg</div>
+                                <div>Weight: {Math.round(displayBin.inventory.weight || 0)} kg</div>
                                 {hasRecentReceipt(displayBin) && <span className="badge badge-warning badge-xs mt-1">New</span>}
                               </>
                             ) : (
@@ -278,7 +311,7 @@ export function RackElevationView({
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-base-content">
-              {Math.max(rack.maxLevels * 2 - rack.bins.filter((b) => b.status === "occupied" || b.inventory).length, 0)}
+              {Math.max(rack.maxLevels * visiblePositions.length - rack.bins.filter((b) => b.status === "occupied" || b.inventory).length, 0)}
             </div>
             <div className="text-xs text-base-content/70">Empty</div>
           </div>

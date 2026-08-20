@@ -7,6 +7,9 @@ import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
+import com.optiwms.infra.orders.OrderItemRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -18,7 +21,10 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeParseException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -26,22 +32,27 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/orders")
 public class OrderController {
 
+    private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
+
     private final OrderService orderService;
     private final OrderStatusService orderStatusService;
     private final OutboundOrderWorkflowService outboundWorkflowService;
     private final InboundOrderWorkflowService inboundWorkflowService;
     private final NotificationService notificationService;
+    private final OrderItemRepository orderItemRepository;
 
     public OrderController(OrderService orderService,
                           OrderStatusService orderStatusService,
                           OutboundOrderWorkflowService outboundWorkflowService,
                           InboundOrderWorkflowService inboundWorkflowService,
-                          NotificationService notificationService) {
+                          NotificationService notificationService,
+                          OrderItemRepository orderItemRepository) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.outboundWorkflowService = outboundWorkflowService;
         this.inboundWorkflowService = inboundWorkflowService;
         this.notificationService = notificationService;
+        this.orderItemRepository = orderItemRepository;
     }
 
     @GetMapping
@@ -50,7 +61,9 @@ public class OrderController {
             @RequestParam(required = false) String status
     ) {
         List<Order> orders;
-        if (orderType != null) {
+        if (orderType != null && status != null) {
+            orders = orderService.findByTypeAndStatus(orderType, status);
+        } else if (orderType != null) {
             orders = orderService.findByType(orderType);
         } else if (status != null) {
             orders = orderService.findByStatus(status);
@@ -94,8 +107,9 @@ public class OrderController {
                 PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
         );
 
+        Map<UUID, LineProgress> progress = lineProgressFor(orderPage.getContent());
         List<OrderDto> data = orderPage.getContent().stream()
-                .map(this::toDto)
+                .map(order -> toDto(order, progress.get(order.getId())))
                 .toList();
 
         return ResponseEntity.ok(new PagedOrderResponse(
@@ -172,10 +186,30 @@ public class OrderController {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse("Expected delivery date cannot be before order date."));
         }
+        if (orderDate.isBefore(LocalDate.now())) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse("Order date cannot be in the past."));
+        }
+        String orderType = request.orderType() == null ? "" : request.orderType().trim().toLowerCase();
+        if ("inbound".equals(orderType) && (request.supplierId() == null || request.supplierId().isBlank())) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Inbound orders require a supplier."));
+        }
+        if ("inbound".equals(orderType) && expectedDate == null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Inbound orders require an expected delivery date."));
+        }
+        if ("outbound".equals(orderType) && (request.customerId() == null || request.customerId().isBlank())) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Outbound orders require a customer."));
+        }
+        if ("outbound".equals(orderType) && expectedDate == null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Outbound orders require a required delivery date."));
+        }
+        if (!"inbound".equals(orderType) && !"outbound".equals(orderType)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Order type must be inbound or outbound."));
+        }
 
         Order order = new Order();
         order.setOrderNumber(request.orderNumber());
-        order.setOrderType(request.orderType());
+        order.setOrderType(orderType);
         order.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
         order.setSupplierId(request.supplierId() != null ? UUID.fromString(request.supplierId()) : null);
         order.setWarehouseId(UUID.fromString(request.warehouseId()));
@@ -190,16 +224,22 @@ public class OrderController {
 
         Order created = orderService.create(order);
 
-        // Do not fail order creation if task auto-generation fails.
+        // Do not fail order creation if task auto-generation fails, but never swallow it
+        // silently: an order left with no tasks is invisible to workers until someone
+        // notices the empty queue.
         if ("outbound".equals(created.getOrderType())) {
             try {
                 outboundWorkflowService.createPickingTasksForOrder(created.getId());
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException taskCreationFailure) {
+                logger.error("Order {} created but picking task generation failed; order has no tasks",
+                        created.getOrderNumber(), taskCreationFailure);
             }
         } else if ("inbound".equals(created.getOrderType())) {
             try {
                 inboundWorkflowService.createReceivingTasksForOrder(created.getId());
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException taskCreationFailure) {
+                logger.error("Order {} created but receiving task generation failed; order has no tasks",
+                        created.getOrderNumber(), taskCreationFailure);
             }
         }
 
@@ -211,6 +251,14 @@ public class OrderController {
         );
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+    }
+
+    @PostMapping("/repair/canonical-numbers")
+    public ResponseEntity<OrderService.CanonicalOrderRepairResult> repairCanonicalOrderNumbers(
+            @RequestBody(required = false) CanonicalOrderRepairRequest request
+    ) {
+        boolean dryRun = request == null || request.dryRun();
+        return ResponseEntity.ok(orderService.repairCanonicalOrderNumbers(dryRun));
     }
 
     @PutMapping("/{id}/status")
@@ -337,6 +385,10 @@ public class OrderController {
     }
 
     private OrderDto toDto(Order order) {
+        return toDto(order, null);
+    }
+
+    private OrderDto toDto(Order order, LineProgress progress) {
         return new OrderDto(
                 order.getId().toString(),
                 order.getOrderNumber(),
@@ -349,8 +401,26 @@ public class OrderController {
                 order.getOrderDate() != null ? order.getOrderDate().toString() : null,
                 order.getExpectedDate() != null ? order.getExpectedDate().toString() : null,
                 order.getTotalAmount() != null ? order.getTotalAmount().toString() : null,
-                order.getNotes()
+                order.getNotes(),
+                progress
         );
+    }
+
+    /** One rollup query for the whole page, keyed by order id. */
+    private Map<UUID, LineProgress> lineProgressFor(List<Order> orders) {
+        List<UUID> ids = orders.stream().map(Order::getId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, LineProgress> byOrder = new HashMap<>();
+        for (Object[] row : orderItemRepository.summariseByOrderIds(ids)) {
+            byOrder.put((UUID) row[0], new LineProgress(
+                    ((Number) row[1]).intValue(),
+                    ((Number) row[4]).intValue(),
+                    ((Number) row[2]).longValue(),
+                    ((Number) row[3]).longValue()));
+        }
+        return byOrder;
     }
 
     public record CreateOrderRequest(
@@ -368,6 +438,8 @@ public class OrderController {
     ) {}
 
     public record UpdateStatusRequest(String status) {}
+
+    public record CanonicalOrderRepairRequest(boolean dryRun) {}
 
     public record UpdateOrderRequest(
             String expectedDate,
@@ -390,7 +462,19 @@ public class OrderController {
             String orderDate,
             String expectedDate,
             String totalAmount,
-            String notes
+            String notes,
+            LineProgress progress
+    ) {}
+
+    /**
+     * Line and quantity rollup for one order. Null on single-order reads, which have the items
+     * to hand; populated on list responses so the client does not fetch them per row.
+     */
+    public record LineProgress(
+            int totalLines,
+            int receivedLines,
+            long totalQuantity,
+            long receivedQuantity
     ) {}
 
     public record PagedOrderResponse(

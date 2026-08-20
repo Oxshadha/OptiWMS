@@ -5,13 +5,32 @@ import { Modal, StepIndicator } from "@/components/Modal";
 import { ordersApi } from "@/lib/api/orders";
 import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
-import { materialsApi } from "@/lib/api/materials";
+import { materialsApi, type Material } from "@/lib/api/materials";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { inventoryApi } from "@/lib/api/inventory";
 import { showToast } from "@/lib/utils/toast";
 import { SORTED_COUNTRIES, getCountryByName } from "@/lib/utils/countries";
 import { validateEmail, validateRequired } from "@/lib/utils/form-validation";
 import { OutboundOrderDisplay } from "../types";
 import { logger } from "@/lib/utils/logger";
+
+const positive = (value?: number | null): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+
+const unitsPerHandlingUnit = (material?: Material): number =>
+  positive(material?.unitsPerHandlingUnit) || positive(material?.palletSpaces) || 1;
+
+const roundOutboundQuantity = (
+  material: Material | undefined,
+  mode: "units" | "handling",
+  requestedQuantity: number,
+  handlingUnitCount: number
+): number => {
+  const unitsPer = unitsPerHandlingUnit(material);
+  const raw = mode === "handling" ? handlingUnitCount * unitsPer : requestedQuantity;
+  const multiple = positive(material?.orderMultiple) || unitsPer;
+  return raw > 0 ? Math.ceil(raw / multiple) * multiple : 0;
+};
 
 // Multi-step Create Outbound Order Modal
 export function CreateOutboundOrderModal({ 
@@ -45,6 +64,9 @@ export function CreateOutboundOrderModal({
       productId: string;
       availableQuantity: number;
       orderQuantity: number;
+      quantityMode: "units" | "handling";
+      handlingUnitCount: number;
+      requestedQuantity: number;
     }>,
   });
   
@@ -56,8 +78,10 @@ export function CreateOutboundOrderModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
-  const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; code?: string }>>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [inventoryTotalsByMaterialId, setInventoryTotalsByMaterialId] = useState<Map<string, number>>(new Map());
+  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -76,6 +100,14 @@ export function CreateOutboundOrderModal({
       })
       .slice(0, 20);
   }, [customers, customerSearch]);
+
+  const selectableMaterials = useMemo(() => {
+    if (!formData.warehouseId) return materials;
+    if (isInventoryLoading) return [];
+    if (inventoryTotalsByMaterialId.size === 0) return [];
+    return materials.filter((m) => inventoryTotalsByMaterialId.has(m.id));
+  }, [formData.warehouseId, inventoryTotalsByMaterialId, isInventoryLoading, materials]);
+  const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
 
   const applyCustomerToForm = (customer: Customer) => {
     const addressParts = (customer.address || "").split("\n");
@@ -103,7 +135,7 @@ export function CreateOutboundOrderModal({
       try {
         const [customersData, warehousesData, materialsData] = await Promise.all([
           customersApi.getAll(),
-          warehousesApi.getAll(),
+          warehousesApi.getReceivable(),
           materialsApi.getAll(),
         ]);
         setCustomers(customersData);
@@ -118,6 +150,46 @@ export function CreateOutboundOrderModal({
     };
     loadData();
   }, []);
+
+  // When a warehouse is selected, load inventory for that warehouse so the item dropdown can be filtered.
+  useEffect(() => {
+    const warehouseId = formData.warehouseId;
+    if (!warehouseId) {
+      setInventoryTotalsByMaterialId(new Map());
+      setIsInventoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsInventoryLoading(true);
+
+    (async () => {
+      try {
+        const items = await inventoryApi.getByWarehouse(warehouseId);
+        const totals = new Map<string, number>();
+        for (const item of items) {
+          const current = totals.get(item.materialId) || 0;
+          const add = parseInt(item.availableQuantity) || 0;
+          totals.set(item.materialId, current + add);
+        }
+        if (!cancelled) setInventoryTotalsByMaterialId(totals);
+      } catch (err) {
+        if (process.env.NODE_ENV === "development") {
+          logger.error(
+            "[Outbound Order] Failed to load warehouse inventory:",
+            err instanceof Error ? err.message : "Unknown error"
+          );
+        }
+        if (!cancelled) setInventoryTotalsByMaterialId(new Map());
+      } finally {
+        if (!cancelled) setIsInventoryLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.warehouseId]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -201,6 +273,9 @@ export function CreateOutboundOrderModal({
                 productId: item.materialId,
                 availableQuantity,
                 orderQuantity: item.quantity,
+                quantityMode: "units" as const,
+                handlingUnitCount: 0,
+                requestedQuantity: item.quantity,
               };
             })
           );
@@ -343,14 +418,11 @@ export function CreateOutboundOrderModal({
         }
       }
 
-      // Generate order number with OUT- prefix (only for new orders)
-      let orderNumber: string;
       let orderId: string;
       
       if (editingOrder) {
         // Update existing order
         orderId = editingOrder.id;
-        orderNumber = editingOrder.orderNumber; // Keep existing order number
         
         await ordersApi.update(orderId, {
           customerId,
@@ -361,11 +433,7 @@ export function CreateOutboundOrderModal({
         });
       } else {
         // Create new order
-        const timestamp = Date.now();
-        orderNumber = `OUT-${String(timestamp).padStart(15, '0')}`;
-        
         const createdOrder = await ordersApi.create({
-          orderNumber,
           orderType: "outbound",
           customerId,
           warehouseId: formData.warehouseId,
@@ -871,9 +939,11 @@ export function CreateOutboundOrderModal({
                 required
               >
                 <option value="">Select warehouse</option>
+                {/* Two warehouses can share a display name (a live site and its archived
+                    predecessor). Without the code they are indistinguishable here. */}
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.name}
+                    {w.code ? `${w.code} - ${w.name}` : w.name}
                   </option>
                 ))}
               </select>
@@ -886,7 +956,14 @@ export function CreateOutboundOrderModal({
               type="date"
               className="input input-bordered w-full"
               value={formData.requiredDeliveryDate}
-              onChange={(e) => setFormData({ ...formData, requiredDeliveryDate: e.target.value })}
+              onInput={(e) => {
+                const value = (e.currentTarget as HTMLInputElement).value;
+                setFormData((current) => ({ ...current, requiredDeliveryDate: value }));
+              }}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData((current) => ({ ...current, requiredDeliveryDate: value }));
+              }}
               required
             />
           </div>
@@ -981,61 +1058,48 @@ export function CreateOutboundOrderModal({
                     <label className="label">
                       <span className="label-text text-xs">Product *</span>
                     </label>
-                    <select
-                      className="select select-bordered select-sm"
+                    <SearchableSelect
+                      required
                       value={item.productId}
-                      onChange={async (e) => {
+                      loading={!!formData.warehouseId && isInventoryLoading}
+                      placeholder="Search by code or description..."
+                      emptyLabel={
+                        formData.warehouseId
+                          ? "No stock in this warehouse matches"
+                          : "Select a warehouse first"
+                      }
+                      options={(formData.warehouseId ? selectableMaterials : materials).map((m) => ({
+                        value: m.id,
+                        label: m.materialCode || m.id,
+                        description: m.description,
+                        meta: formData.warehouseId
+                          ? `${(inventoryTotalsByMaterialId.get(m.id) ?? 0).toLocaleString()} avail`
+                          : undefined,
+                        keywords: m.materialType || undefined,
+                      }))}
+                      onChange={async (selectedValue) => {
+                        const e = { target: { value: selectedValue } };
                         const newItems = [...formData.items];
                         newItems[idx].productId = e.target.value;
                         newItems[idx].orderQuantity = 0; // Reset quantity when product changes
+                        newItems[idx].requestedQuantity = 0;
+                        newItems[idx].handlingUnitCount = 0;
                         
-                        // Fetch available quantity from inventory API
+                        // Fetch available quantity from preloaded warehouse totals.
                         if (e.target.value && formData.warehouseId) {
-                          try {
-                            const isDev = process.env.NODE_ENV === 'development';
-                            
-                            // Use combined endpoint to get inventory for material + warehouse
-                            const inventoryItem = await inventoryApi.getByMaterialAndWarehouse(
-                              e.target.value,
-                              formData.warehouseId
-                            );
-                            
-                            if (inventoryItem) {
-                              const availableQty = parseInt(inventoryItem.availableQuantity) || 0;
-                              newItems[idx].availableQuantity = availableQty;
-                              
-                              if (availableQty === 0) {
-                                try {
-                                  showToast.warning(`No available stock for this product in selected warehouse`);
-                                } catch (toastErr) {
-                                  if (isDev) logger.error("[Outbound Order] Toast error");
-                                }
-                              }
-                            } else {
-                              newItems[idx].availableQuantity = 0;
-                              try {
-                                showToast.warning(`No inventory found for this product in selected warehouse`);
-                              } catch (toastErr) {
-                                if (isDev) logger.error("[Outbound Order] Toast error");
-                              }
-                            }
-                          } catch (err: any) {
-                            const isDev = process.env.NODE_ENV === 'development';
-                            if (isDev) {
-                              logger.error("[Outbound Order] Failed to fetch available quantity:", err?.message || 'Unknown error');
-                            }
-                            newItems[idx].availableQuantity = 0;
+                          const availableQty = inventoryTotalsByMaterialId.get(e.target.value) ?? 0;
+                          newItems[idx].availableQuantity = availableQty;
+
+                          if (availableQty === 0) {
                             try {
-                              showToast.error(`Failed to fetch available quantity. Please try again.`);
-                            } catch (toastErr) {
-                              if (isDev) logger.error("[Outbound Order] Toast error");
-                            }
+                              showToast.warning(`No available stock for this product in selected warehouse`);
+                            } catch {}
                           }
-                        } else if (e.target.value && !formData.warehouseId) {
-                          // Warehouse not selected yet
-                          newItems[idx].availableQuantity = 0;
-                          try {
-                            showToast.warning("Please select a warehouse first to see available quantity");
+                        } else if (e.target.value && !formData.warehouseId) { 
+                          // Warehouse not selected yet 
+                          newItems[idx].availableQuantity = 0; 
+                          try { 
+                            showToast.warning("Please select a warehouse first to see available quantity"); 
                           } catch (toastErr) {
                             const isDev = process.env.NODE_ENV === 'development';
                             if (isDev) logger.error("[Outbound Order] Toast error");
@@ -1046,15 +1110,7 @@ export function CreateOutboundOrderModal({
                         
                         setFormData({ ...formData, items: newItems });
                       }}
-                      required
-                    >
-                      <option value="">Select material</option>
-                      {materials.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.description}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                   <div className="form-control">
                     <label className="label">
@@ -1067,43 +1123,85 @@ export function CreateOutboundOrderModal({
                       disabled
                     />
                   </div>
-                  <div className="form-control col-span-2">
+                  <div className="form-control">
                     <label className="label">
-                      <span className="label-text text-xs">Order Quantity *</span>
+                      <span className="label-text text-xs">Quantity Mode</span>
+                    </label>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={item.quantityMode}
+                      onChange={(e) => {
+                        const newItems = [...formData.items];
+                        newItems[idx].quantityMode = e.target.value as "units" | "handling";
+                        const material = materialById.get(item.productId);
+                        newItems[idx].orderQuantity = roundOutboundQuantity(
+                          material,
+                          newItems[idx].quantityMode,
+                          newItems[idx].requestedQuantity,
+                          newItems[idx].handlingUnitCount
+                        );
+                        setFormData({ ...formData, items: newItems });
+                      }}
+                    >
+                      <option value="units">Units</option>
+                      <option value="handling">{materialById.get(item.productId)?.handlingUnitType || materialById.get(item.productId)?.unitType || "Handling unit"}</option>
+                    </select>
+                  </div>
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text text-xs">
+                        {item.quantityMode === "handling"
+                          ? `${materialById.get(item.productId)?.handlingUnitType || materialById.get(item.productId)?.unitType || "Handling unit"} count`
+                          : "Requested units"}
+                      </span>
                     </label>
                     <input
                       type="number"
-                      className={`input input-bordered input-sm ${
-                        item.orderQuantity > item.availableQuantity ? 'input-error' : ''
-                      }`}
-                      value={item.orderQuantity}
+                      className="input input-bordered input-sm"
+                      value={item.quantityMode === "handling" ? item.handlingUnitCount : item.requestedQuantity}
                       onChange={(e) => {
                         const newItems = [...formData.items];
                         const qty = parseInt(e.target.value) || 0;
-                        
-                        // Block if quantity exceeds available stock
-                        if (qty > item.availableQuantity) {
-                          showToast.error(`Cannot order more than available stock (${item.availableQuantity})`);
-                          newItems[idx].orderQuantity = item.availableQuantity;
+                        const material = materialById.get(item.productId);
+                        if (item.quantityMode === "handling") {
+                          newItems[idx].handlingUnitCount = qty;
                         } else {
-                          newItems[idx].orderQuantity = qty;
+                          newItems[idx].requestedQuantity = qty;
                         }
+                        const rounded = roundOutboundQuantity(
+                          material,
+                          newItems[idx].quantityMode,
+                          newItems[idx].requestedQuantity,
+                          newItems[idx].handlingUnitCount
+                        );
+                        if (rounded > item.availableQuantity) {
+                          showToast.error(`Cannot order more than available stock (${item.availableQuantity})`);
+                        }
+                        newItems[idx].orderQuantity = Math.min(rounded, item.availableQuantity);
                         
                         setFormData({ ...formData, items: newItems });
                       }}
-                      onBlur={(e) => {
-                        const newItems = [...formData.items];
-                        const qty = parseInt(e.target.value) || 0;
-                        if (qty > item.availableQuantity) {
-                          showToast.error(`Cannot order more than available stock (${item.availableQuantity})`);
-                          newItems[idx].orderQuantity = item.availableQuantity;
-                          setFormData({ ...formData, items: newItems });
-                        }
-                      }}
                       required
                       min="1"
-                      max={item.availableQuantity}
                     />
+                  </div>
+                  <div className="form-control col-span-2">
+                    <label className="label">
+                      <span className="label-text text-xs">Issued Base Quantity</span>
+                    </label>
+                    <input
+                      type="number"
+                      className={`input input-bordered input-sm ${item.orderQuantity > item.availableQuantity ? 'input-error' : ''}`}
+                      value={item.orderQuantity}
+                      disabled
+                    />
+                    {item.productId && (
+                      <label className="label">
+                        <span className="label-text-alt">
+                          Units/handling unit: {unitsPerHandlingUnit(materialById.get(item.productId))}. Remaining after order: {Math.max(item.availableQuantity - item.orderQuantity, 0)}
+                        </span>
+                      </label>
+                    )}
                     {item.orderQuantity > item.availableQuantity && (
                       <label className="label">
                         <span className="label-text-alt text-error">
@@ -1126,6 +1224,9 @@ export function CreateOutboundOrderModal({
                       productId: "",
                       availableQuantity: 0,
                       orderQuantity: 0,
+                      quantityMode: "units",
+                      handlingUnitCount: 0,
+                      requestedQuantity: 0,
                     },
                   ],
                 });
@@ -1206,8 +1307,12 @@ export function CreateOutboundOrderModal({
             <h4 className="font-semibold">Items:</h4>
             {formData.items.map((item, idx) => (
               <div key={idx} className="flex justify-between text-sm">
-                <span>Item {idx + 1}</span>
-                <span>Qty: {item.orderQuantity}</span>
+                <span>{materialById.get(item.productId)?.materialCode || `Item ${idx + 1}`}</span>
+                <span>
+                  {item.quantityMode === "handling"
+                    ? `${item.handlingUnitCount} ${materialById.get(item.productId)?.handlingUnitType || "units"}`
+                    : `${item.requestedQuantity} requested`} / {item.orderQuantity} base units
+                </span>
               </div>
             ))}
           </div>

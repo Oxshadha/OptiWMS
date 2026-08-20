@@ -51,15 +51,6 @@ export function validateLocationCode(locationCode: string): {
 
   const [, area, row, bay, level, position] = match;
 
-  // Validate area (A, B, C, D, R, ST, RC, PK, PA, SH, RM, FG)
-  const validAreas = ["A", "B", "C", "D", "R", "ST", "RC", "PK", "PA", "SH", "RM", "FG"];
-  if (!validAreas.includes(area)) {
-    return {
-      valid: false,
-      error: `Invalid area. Must be one of: ${validAreas.join(", ")}`,
-    };
-  }
-
   // Validate level (1-10)
   const levelNum = parseInt(level, 10);
   if (levelNum < 1 || levelNum > 10) {
@@ -136,4 +127,3 @@ export function parseLocationCode(locationCode: string): {
   const validation = validateLocationCode(locationCode);
   return validation.parsed || null;
 }
-

@@ -7,9 +7,12 @@ import com.optiwms.infra.master.LocationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.UUID;
@@ -48,31 +51,30 @@ public class LocationService {
      * Get only storage locations (exclude staging, receiving, shipment, packing areas)
      * For warehouse map visualization - only show racks, not staging areas
      *
-     * Include inactive storage locations as well so non-active racks remain visible
-     * and can be re-activated from the UI.
      * Material type categorization (raw materials, finished goods) is handled by inventory,
      * not by location type.
      */
     public List<Location> findStorageLocationsByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseId(warehouseId).stream()
-                .filter(entity -> {
-                    // Only STORAGE zone type - exclude RECEIVING, SHIPMENT, PACKING, STAGING
-                    String zoneType = entity.getZoneType();
-                    return "STORAGE".equals(zoneType);
-                })
+                .filter(entity -> entity.getIsActive() == null || entity.getIsActive())
+                .filter(entity -> isOperationalStorageLocation(entity.getLocationType(), entity.getZoneType()))
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
 
     public List<Location> findAvailableByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseIdAndIsActive(warehouseId, true).stream()
-                .filter(entity -> {
-                    String zoneType = entity.getZoneType();
-                    return "STORAGE".equals(zoneType) || "storage".equals(entity.getLocationType());
-                })
+                .filter(entity -> isOperationalStorageLocation(entity.getLocationType(), entity.getZoneType()))
                 .filter(entity -> "active".equals(normalizeRackStatus(entity.getRackStatus())))
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public static boolean isOperationalStorageLocation(String locationType, String zoneType) {
+        String type = locationType == null ? "" : locationType.trim().toUpperCase(java.util.Locale.ROOT);
+        String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(java.util.Locale.ROOT);
+        return java.util.Set.of("STORAGE", "PICKING", "BULK").contains(type)
+                || java.util.Set.of("STORAGE", "PICK_FACE", "RESERVE").contains(zone);
     }
 
     public Location findByLocationCode(String locationCode) {
@@ -144,12 +146,21 @@ public class LocationService {
         Integer levelNumber = normalizeLevelNumber(location.getLevelNumber() != null ? location.getLevelNumber() : entity.getLevelNumber());
         String binPosition = normalizeBinPosition(location.getBinPosition() != null ? location.getBinPosition() : entity.getBinPosition());
 
-        entity.setArea(area);
-        entity.setRowNumber(rowNumber);
-        entity.setBayNumber(bayNumber);
-        entity.setLevelNumber(levelNumber);
-        entity.setBinPosition(binPosition);
-        entity.setLocationCode(buildCanonicalLocationCode(area, rowNumber, bayNumber, levelNumber, binPosition));
+        // Only re-address the bin when the caller actually moved it. Legacy seeds store
+        // bays unpadded ("E-03-07-5-A"), so blindly re-canonicalising would rewrite
+        // location_code on every unrelated edit - and inventory/material_default_locations
+        // reference locations(location_code) without ON UPDATE CASCADE, so the rewrite
+        // fails with a raw foreign-key error. Addressing stays untouched unless it changed.
+        if (addressingMatches(entity, area, rowNumber, bayNumber, levelNumber, binPosition)) {
+            entity.setLevelNumber(levelNumber);
+        } else {
+            entity.setArea(area);
+            entity.setRowNumber(rowNumber);
+            entity.setBayNumber(bayNumber);
+            entity.setLevelNumber(levelNumber);
+            entity.setBinPosition(binPosition);
+            entity.setLocationCode(buildCanonicalLocationCode(area, rowNumber, bayNumber, levelNumber, binPosition));
+        }
         entity.setLocationType(location.getLocationType());
         if (location.getZoneType() != null) entity.setZoneType(location.getZoneType());
         entity.setCapacity(location.getCapacity());
@@ -172,6 +183,150 @@ public class LocationService {
 
         LocationEntity saved = repository.save(entity);
         return toDomain(saved);
+    }
+
+    /** Rack-level attributes shared by every bin of a rack. Null fields are left untouched. */
+    public record RackAttributes(
+            String rackStatus,
+            String amalgamatedClass,
+            String description,
+            String notes,
+            Integer accessibilityRating,
+            BigDecimal capacity,
+            Integer maxPalletCapacity,
+            BigDecimal maxWeightKg,
+            BigDecimal maxVolumeCm3,
+            Integer maxLpnCount) {}
+
+    public record RackUpdateResult(String rackId, int updatedLocations, List<Location> locations) {}
+
+    /**
+     * Apply rack attributes to every bin of a rack in a single transaction.
+     *
+     * Replaces the previous one-HTTP-request-per-bin flow, which ran the stock guard once
+     * per bin and could leave a rack half-updated when one bin failed.
+     */
+    @Transactional
+    public RackUpdateResult updateRack(UUID warehouseId, String rackId, RackAttributes attributes) {
+        RackKey key = parseRackKey(rackId);
+        List<LocationEntity> rackLocations =
+                findRackLocationEntities(warehouseId, key.area(), key.rowNumber(), key.bayNumber());
+
+        if (rackLocations.isEmpty()) {
+            throw new RuntimeException("No storage bins found for rack " + rackId + " in this warehouse.");
+        }
+
+        String requestedStatus = normalizeRackStatus(
+                attributes.rackStatus() != null ? attributes.rackStatus() : rackLocations.get(0).getRackStatus());
+        boolean statusChanged = rackLocations.stream()
+                .anyMatch(loc -> !normalizeRackStatus(loc.getRackStatus()).equals(requestedStatus));
+
+        if (statusChanged && isBlockedRackStatus(requestedStatus) && hasInventoryIn(rackLocations)) {
+            throw new RuntimeException("Cannot set rack " + rackId + " to '" + requestedStatus
+                    + "' because it still holds stock. Move the stock out first.");
+        }
+
+        for (LocationEntity entity : rackLocations) {
+            applyRackAttributes(entity, attributes);
+        }
+
+        List<Location> saved = repository.saveAll(rackLocations).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+        return new RackUpdateResult(rackId, saved.size(), saved);
+    }
+
+    /**
+     * Apply rack attributes to a single bin. Unlike {@link #update}, this never re-addresses
+     * the bin, so legacy location codes keep their inventory references intact.
+     */
+    @Transactional
+    public Location updateRackAttributes(UUID locationId, RackAttributes attributes) {
+        LocationEntity entity = repository.findById(locationId)
+                .orElseThrow(() -> new RuntimeException("Location not found: " + locationId));
+
+        if (attributes.rackStatus() != null) {
+            String requestedStatus = normalizeRackStatus(attributes.rackStatus());
+            if (!normalizeRackStatus(entity.getRackStatus()).equals(requestedStatus)
+                    && isBlockedRackStatus(requestedStatus)
+                    && hasInventoryInRack(entity)) {
+                throw new RuntimeException("Cannot set rack to '" + requestedStatus
+                        + "' because it still holds stock. Move the stock out first.");
+            }
+        }
+
+        applyRackAttributes(entity, attributes);
+        return toDomain(repository.save(entity));
+    }
+
+    /**
+     * Apply a capacity profile to every storage bin in a zone (or the whole warehouse).
+     *
+     * The per-level profile is keyed by level number; bins on levels outside the profile
+     * keep their current capacity. Runs as one statement batch instead of one HTTP request
+     * per bin, which previously meant tens of thousands of parallel requests.
+     */
+    @Transactional
+    public int applyCapacityProfile(
+            UUID warehouseId,
+            String zone,
+            Map<Integer, RackAttributes> levelProfile,
+            RackAttributes fallback) {
+        String normalizedZone = (zone == null || zone.isBlank() || "ALL".equalsIgnoreCase(zone.trim()))
+                ? null
+                : normalizeArea(zone);
+
+        List<LocationEntity> targets = repository.findByWarehouseId(warehouseId).stream()
+                .filter(entity -> isOperationalStorageLocation(entity.getLocationType(), entity.getZoneType()))
+                .filter(entity -> normalizedZone == null || normalizedZone.equals(normalizeArea(entity.getArea())))
+                .collect(Collectors.toList());
+
+        if (targets.isEmpty()) {
+            return 0;
+        }
+
+        for (LocationEntity entity : targets) {
+            int level = entity.getLevelNumber() == null ? 1 : entity.getLevelNumber();
+            RackAttributes profile = levelProfile.getOrDefault(level, fallback);
+            if (profile != null) {
+                applyRackAttributes(entity, profile);
+            }
+        }
+
+        repository.saveAll(targets);
+        return targets.size();
+    }
+
+    private void applyRackAttributes(LocationEntity entity, RackAttributes attributes) {
+        if (attributes.rackStatus() != null) entity.setRackStatus(normalizeRackStatus(attributes.rackStatus()));
+        if (attributes.amalgamatedClass() != null) {
+            entity.setAmalgamatedClass(normalizeAmalgamatedClass(attributes.amalgamatedClass()));
+        }
+        if (attributes.description() != null) entity.setDescription(attributes.description());
+        if (attributes.notes() != null) entity.setNotes(attributes.notes());
+        if (attributes.accessibilityRating() != null) entity.setAccessibilityRating(attributes.accessibilityRating());
+        if (attributes.capacity() != null) entity.setCapacity(attributes.capacity());
+        if (attributes.maxPalletCapacity() != null) entity.setMaxPalletCapacity(attributes.maxPalletCapacity());
+        if (attributes.maxWeightKg() != null) entity.setMaxWeightKg(attributes.maxWeightKg());
+        if (attributes.maxVolumeCm3() != null) entity.setMaxVolumeCm3(attributes.maxVolumeCm3());
+        if (attributes.maxLpnCount() != null) entity.setMaxLpnCount(attributes.maxLpnCount());
+    }
+
+    private record RackKey(String area, String rowNumber, String bayNumber) {}
+
+    /** Parse the UI rack identifier {@code AREA-ROW-BAY} (e.g. {@code E-03-007}). */
+    private RackKey parseRackKey(String rackId) {
+        if (rackId == null || rackId.isBlank()) {
+            throw new RuntimeException("rackId is required");
+        }
+        String[] parts = rackId.trim().split("-");
+        if (parts.length < 3) {
+            throw new RuntimeException("Invalid rack id '" + rackId + "'. Expected AREA-ROW-BAY, e.g. E-03-007.");
+        }
+        String bay = parts[parts.length - 1];
+        String row = parts[parts.length - 2];
+        String area = String.join("-", java.util.Arrays.copyOfRange(parts, 0, parts.length - 2));
+        return new RackKey(normalizeArea(area), normalizeRowNumber(row), normalizeBayNumber(bay));
     }
 
     @Transactional
@@ -386,11 +541,13 @@ public class LocationService {
     }
 
     private boolean hasInventoryInRack(LocationEntity location) {
-        List<String> rackLocationCodes = repository.findByWarehouseId(location.getWarehouseId()).stream()
-                .filter(loc -> loc.getArea().equals(location.getArea())
-                        && loc.getRowNumber().equals(location.getRowNumber())
-                        && loc.getBayNumber().equals(location.getBayNumber()))
+        return hasInventoryIn(findRackSiblings(location));
+    }
+
+    private boolean hasInventoryIn(List<LocationEntity> rackLocations) {
+        List<String> rackLocationCodes = rackLocations.stream()
                 .map(LocationEntity::getLocationCode)
+                .filter(code -> code != null && !code.isBlank())
                 .collect(Collectors.toList());
 
         if (rackLocationCodes.isEmpty()) {
@@ -398,6 +555,69 @@ public class LocationService {
         }
 
         return inventoryItemRepository.existsByLocationCodeInAndQuantityGreaterThan(rackLocationCodes, 0);
+    }
+
+    /**
+     * All bins that belong to the same physical rack as {@code location}.
+     *
+     * Matches the rack identity the UI derives (area + zero-padded row/bay), so a rack
+     * whose bins were seeded with mixed bay padding is still treated as one rack. Backed
+     * by an indexed query instead of a full warehouse scan - warehouses here hold ~200k
+     * bins and this runs on every rack status change.
+     */
+    private List<LocationEntity> findRackSiblings(LocationEntity location) {
+        return findRackLocationEntities(
+                location.getWarehouseId(),
+                location.getArea(),
+                location.getRowNumber(),
+                location.getBayNumber());
+    }
+
+    private List<LocationEntity> findRackLocationEntities(UUID warehouseId, String area, String rowNumber, String bayNumber) {
+        return repository.findRackLocations(
+                warehouseId,
+                normalizeArea(area),
+                paddingVariants(rowNumber, 2),
+                paddingVariants(bayNumber, 3));
+    }
+
+    /** Every zero-padded spelling of a numeric segment, e.g. "7" -> ["7", "07", "007"]. */
+    private Set<String> paddingVariants(String value, int canonicalWidth) {
+        int parsed = safeParseInt(value);
+        if (parsed < 0) {
+            return Set.of(value == null ? "" : value.trim());
+        }
+        Set<String> variants = new HashSet<>();
+        String digits = String.valueOf(parsed);
+        for (int width = digits.length(); width <= Math.max(canonicalWidth, digits.length()); width++) {
+            variants.add(String.format("%0" + width + "d", parsed));
+        }
+        return variants;
+    }
+
+    /** True when the requested address resolves to the bin the entity already occupies. */
+    private boolean addressingMatches(
+            LocationEntity entity,
+            String area,
+            String rowNumber,
+            String bayNumber,
+            Integer levelNumber,
+            String binPosition) {
+        return area.equals(normalizeArea(entity.getArea()))
+                && rowNumber.equals(safeNormalizeRow(entity.getRowNumber()))
+                && bayNumber.equals(safeNormalizeBay(entity.getBayNumber()))
+                && levelNumber.equals(entity.getLevelNumber() == null ? 1 : entity.getLevelNumber())
+                && binPosition.equalsIgnoreCase(entity.getBinPosition() == null ? "" : entity.getBinPosition().trim());
+    }
+
+    private String safeNormalizeRow(String rowNumber) {
+        int parsed = safeParseInt(rowNumber);
+        return parsed < 0 ? String.valueOf(rowNumber) : String.format("%02d", parsed);
+    }
+
+    private String safeNormalizeBay(String bayNumber) {
+        int parsed = safeParseInt(bayNumber);
+        return parsed < 0 ? String.valueOf(bayNumber) : String.format("%03d", parsed);
     }
 
     private String normalizeArea(String area) {
@@ -471,6 +691,7 @@ public class LocationService {
         return String.format("%s-%s-%s-%d-%s", area, rowNumber, bayNumber, levelNumber, binPosition);
     }
 
+    /** Rack grouping key — matches frontend deriveRackId (area-row-bay, not location_code prefix). */
     private String rackKey(String area, String rowNumber, String bayNumber) {
         return (area == null ? "" : area.trim().toUpperCase(Locale.ROOT))
                 + "-"

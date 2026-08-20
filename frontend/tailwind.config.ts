@@ -8,7 +8,16 @@ const config: Config = {
     "./pages/**/*.{ts,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ['var(--font-inter)', 'sans-serif'],
+        mono: ['var(--font-jetbrains-mono)', 'monospace'],
+      },
+      boxShadow: {
+        'accent': '0 4px 14px rgba(207, 15, 71, 0.25)',
+        'accent-lg': '0 8px 24px rgba(207, 15, 71, 0.35)',
+      }
+    },
   },
   plugins: [daisyui],
   daisyui: {
@@ -31,7 +40,7 @@ const config: Config = {
           "status-badge": "#EEEEEE",
           info: "#4AA8FF",
           success: "#39BE7D",
-          warning: "#F4C542",
+          warning: "oklch(74% 0.183 55.128)",
           error: "#E34E4E",
           "--rounded-box": "1rem",
           "--rounded-btn": "0.75rem",
@@ -60,7 +69,7 @@ const config: Config = {
           "status-badge": "#1E293B",
           info: "#4AA8FF",
           success: "#39BE7D",
-          warning: "#F4C542",
+          warning: "oklch(74% 0.183 55.128)",
           error: "#E34E4E",
           "--rounded-box": "1rem",
           "--rounded-btn": "0.75rem",

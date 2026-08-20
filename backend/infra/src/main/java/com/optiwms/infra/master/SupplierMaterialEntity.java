@@ -6,6 +6,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Entity
 @Table(
@@ -30,6 +31,21 @@ public class SupplierMaterialEntity {
     @JdbcTypeCode(SqlTypes.UUID)
     @Column(name = "material_id", columnDefinition = "UUID", nullable = false)
     private UUID materialId;
+
+    @Column(name = "minimum_order_quantity", precision = 15, scale = 2)
+    private BigDecimal minimumOrderQuantity;
+
+    @Column(name = "order_multiple", precision = 15, scale = 2)
+    private BigDecimal orderMultiple;
+
+    @Column(name = "units_per_handling_unit", precision = 15, scale = 2)
+    private BigDecimal unitsPerHandlingUnit;
+
+    @Column(name = "lead_time_days")
+    private Integer leadTimeDays;
+
+    @Column(name = "preferred")
+    private Boolean preferred;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -70,6 +86,46 @@ public class SupplierMaterialEntity {
 
     public void setMaterialId(UUID materialId) {
         this.materialId = materialId;
+    }
+
+    public BigDecimal getMinimumOrderQuantity() {
+        return minimumOrderQuantity;
+    }
+
+    public void setMinimumOrderQuantity(BigDecimal minimumOrderQuantity) {
+        this.minimumOrderQuantity = minimumOrderQuantity;
+    }
+
+    public BigDecimal getOrderMultiple() {
+        return orderMultiple;
+    }
+
+    public void setOrderMultiple(BigDecimal orderMultiple) {
+        this.orderMultiple = orderMultiple;
+    }
+
+    public BigDecimal getUnitsPerHandlingUnit() {
+        return unitsPerHandlingUnit;
+    }
+
+    public void setUnitsPerHandlingUnit(BigDecimal unitsPerHandlingUnit) {
+        this.unitsPerHandlingUnit = unitsPerHandlingUnit;
+    }
+
+    public Integer getLeadTimeDays() {
+        return leadTimeDays;
+    }
+
+    public void setLeadTimeDays(Integer leadTimeDays) {
+        this.leadTimeDays = leadTimeDays;
+    }
+
+    public Boolean getPreferred() {
+        return preferred;
+    }
+
+    public void setPreferred(Boolean preferred) {
+        this.preferred = preferred;
     }
 
     public LocalDateTime getCreatedAt() {

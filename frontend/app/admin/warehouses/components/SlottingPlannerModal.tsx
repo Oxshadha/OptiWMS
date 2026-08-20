@@ -1,13 +1,23 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/Modal";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi } from "@/lib/api/materials";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { showToast } from "@/lib/utils/toast";
+import {
+  deriveRackIdFromLocation,
+  locationMatchesRack,
+  normalizeArea,
+  parseRackId,
+} from "@/lib/utils/location-identity";
 
 const CLASS_OPTIONS = ["AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"];
+
+const PLANNER_STALE_TIME_MS = 5 * 60 * 1000;
+const PLANNER_GC_TIME_MS = 30 * 60 * 1000;
 
 interface SlottingPlannerModalProps {
   isOpen: boolean;
@@ -19,7 +29,7 @@ interface SlottingPlannerModalProps {
 export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }: SlottingPlannerModalProps) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; materialCode: string; description: string }>>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [selectedLocationCode, setSelectedLocationCode] = useState("");
   const [savingRackId, setSavingRackId] = useState<string | null>(null);
@@ -33,6 +43,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   const [bulkMaxPalletCapacity, setBulkMaxPalletCapacity] = useState<number>(10);
   const [useLevelProfileForBulk, setUseLevelProfileForBulk] = useState<boolean>(false);
   const [expandedRackId, setExpandedRackId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
   const [bulkLevelProfile, setBulkLevelProfile] = useState<
     Array<{ level: number; capacity: number; maxWeightKg: number; maxVolumeCm3: number; maxLpnCount: number }>
   >([
@@ -43,23 +55,43 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
     { level: 5, capacity: 80, maxWeightKg: 600, maxVolumeCm3: 800000, maxLpnCount: 1 },
   ]);
 
+  // Cached through React Query so reopening the planner is instant instead of refetching
+  // every storage location again. Local edits still live in `locations` state.
+  const plannerQuery = useQuery({
+    queryKey: ["slotting-planner-locations", warehouseId ?? "none"],
+    queryFn: async () => {
+      const [locs, mats] = await Promise.all([
+        locationsApi.getStorageLocationsByWarehouse(warehouseId!),
+        materialsApi.getAll(),
+      ]);
+      return { locations: locs, materials: mats };
+    },
+    enabled: Boolean(isOpen && warehouseId),
+    staleTime: PLANNER_STALE_TIME_MS,
+    gcTime: PLANNER_GC_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
+
   useEffect(() => {
-    if (!isOpen || !warehouseId) return;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [locs, mats] = await Promise.all([
-          locationsApi.getStorageLocationsByWarehouse(warehouseId),
-          materialsApi.getAll(),
-        ]);
-        setLocations(locs);
-        setMaterials(mats.map((m) => ({ id: m.id, materialCode: m.materialCode, description: m.description })));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [isOpen, warehouseId]);
+    if (!plannerQuery.data) return;
+    setLocations(plannerQuery.data.locations);
+    setMaterials(
+      plannerQuery.data.materials.map((m) => ({
+        id: m.id,
+        materialCode: m.materialCode,
+        description: m.description,
+      }))
+    );
+  }, [plannerQuery.data]);
+
+  useEffect(() => {
+    if (plannerQuery.isError) {
+      showToast.error("Failed to load slotting data. Close and reopen the planner to retry.");
+    }
+  }, [plannerQuery.isError]);
+
+  const loading = plannerQuery.isPending && Boolean(isOpen && warehouseId);
 
   const rackRows = useMemo(() => {
     const map = new Map<string, {
@@ -74,10 +106,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
       maxPalletCapacity?: number;
     }>();
     for (const loc of locations) {
-      const zone = (loc.area || "C").toUpperCase();
-      const row = (loc.rowNumber || "01").padStart(2, "0");
-      const bay = (loc.bayNumber || "001").padStart(3, "0");
-      const rackId = `${zone}-${row}-${bay}`;
+      const rackId = deriveRackIdFromLocation(loc);
+      const zone = normalizeArea(loc.area);
       if (!map.has(rackId)) {
         map.set(rackId, {
           rackId,
@@ -172,6 +202,10 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   };
 
   const applyBulkCapacity = async () => {
+    if (!warehouseId) {
+      showToast.error("Select a warehouse first");
+      return;
+    }
     try {
       setBulkApplying(true);
       const targets = rackRows.filter((rack) => bulkTargetZone === "ALL" || rack.zone === bulkTargetZone);
@@ -180,29 +214,34 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
         return;
       }
 
-      await Promise.all(
-        targets.flatMap((rack) =>
-          rack.locationIds.map((id) => {
-            const loc = locations.find((item) => item.id === id);
-            const levelProfile = bulkLevelProfile.find((profile) => profile.level === (loc?.levelNumber ?? 0));
-            return locationsApi.updateRack(id, {
-              capacity: useLevelProfileForBulk
-                ? Number(levelProfile?.capacity ?? bulkCapacity)
-                : bulkCapacity,
-              maxWeightKg: useLevelProfileForBulk
-                ? Number(levelProfile?.maxWeightKg ?? bulkMaxWeightKg)
-                : bulkMaxWeightKg,
-              maxVolumeCm3: useLevelProfileForBulk
-                ? Number(levelProfile?.maxVolumeCm3 ?? bulkMaxVolumeCm3)
-                : bulkMaxVolumeCm3,
-              maxLpnCount: useLevelProfileForBulk
-                ? Number(levelProfile?.maxLpnCount ?? bulkMaxLpnCount)
-                : bulkMaxLpnCount,
-              maxPalletCapacity: bulkMaxPalletCapacity,
-            });
-          })
-        )
-      );
+      // One transactional request. This used to fire a PUT per bin, which on a
+      // warehouse-wide apply meant tens of thousands of parallel requests and left the
+      // page unresponsive until they all settled.
+      const defaults = {
+        capacity: bulkCapacity,
+        maxWeightKg: bulkMaxWeightKg,
+        maxVolumeCm3: bulkMaxVolumeCm3,
+        maxLpnCount: bulkMaxLpnCount,
+        maxPalletCapacity: bulkMaxPalletCapacity,
+      };
+
+      const result = await locationsApi.applyCapacityProfile({
+        warehouseId,
+        zone: bulkTargetZone,
+        defaults,
+        levels: useLevelProfileForBulk
+          ? bulkLevelProfile.map((profile) => ({
+              level: profile.level,
+              attributes: {
+                capacity: Number(profile.capacity ?? bulkCapacity),
+                maxWeightKg: Number(profile.maxWeightKg ?? bulkMaxWeightKg),
+                maxVolumeCm3: Number(profile.maxVolumeCm3 ?? bulkMaxVolumeCm3),
+                maxLpnCount: Number(profile.maxLpnCount ?? bulkMaxLpnCount),
+                maxPalletCapacity: bulkMaxPalletCapacity,
+              },
+            }))
+          : undefined,
+      });
 
       setLocations((prev) =>
         prev.map((loc) => {
@@ -228,7 +267,11 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
         })
       );
 
-      showToast.success(`Applied capacity profile to ${targets.length} rack(s)`);
+      showToast.success(
+        `Applied capacity profile to ${targets.length} rack(s) — ${result.updatedLocations} bin(s) updated.`
+      );
+      // Drop the cached snapshot so reopening the planner shows the applied profile.
+      void queryClient.invalidateQueries({ queryKey: ["slotting-planner-locations", warehouseId] });
       onUpdated?.();
     } catch (error) {
       showToast.error(error instanceof Error ? error.message : "Failed to apply bulk capacities");
@@ -258,18 +301,14 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
 
   const deleteRack = async (rackId: string) => {
     if (!warehouseId) return;
-    const [area, rowNumber, bayNumber] = rackId.split("-");
-    if (!area || !rowNumber || !bayNumber) return;
+    const parsed = parseRackId(rackId);
+    if (!parsed) return;
+    const { area, row: rowNumber, bay: bayNumber } = parsed;
     try {
       setDeletingRackId(rackId);
       const result = await locationsApi.deleteRack(warehouseId, area, rowNumber, bayNumber);
       setLocations((prev) =>
-        prev.filter((loc) => {
-          const zone = (loc.area || "C").toUpperCase();
-          const row = (loc.rowNumber || "01").padStart(2, "0");
-          const bay = (loc.bayNumber || "001").padStart(3, "0");
-          return `${zone}-${row}-${bay}` !== rackId;
-        })
+        prev.filter((loc) => !locationMatchesRack(loc, rackId))
       );
       showToast.success(result.message);
       onUpdated?.();
@@ -279,6 +318,11 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
       setDeletingRackId(null);
     }
   };
+
+  const totalPages = Math.ceil(rackRows.length / pageSize);
+  const paginatedRacks = useMemo(() => {
+    return rackRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [rackRows, currentPage]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Slotting Rules Planner" size="xl">
@@ -354,9 +398,9 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   <thead>
                     <tr>
                       <th>Level</th>
-                      <th>Units</th>
-                      <th>Weight kg</th>
-                      <th>Volume cm3</th>
+                      <th>Max units</th>
+                      <th>Max weight (kg)</th>
+                      <th>Max volume (cm³)</th>
                       <th>LPN</th>
                     </tr>
                   </thead>
@@ -437,7 +481,7 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   </tr>
                 </thead>
                 <tbody>
-                  {rackRows.map((rack) => (
+                  {paginatedRacks.map((rack) => (
                     <Fragment key={rack.rackId}>
                     <tr>
                       <td className="font-mono">{rack.rackId}</td>
@@ -666,6 +710,30 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center mt-3">
+                <div className="text-xs text-base-content/60">
+                  Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, rackRows.length)} of {rackRows.length} racks
+                </div>
+                <div className="join">
+                  <button
+                    className="join-item btn btn-sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    «
+                  </button>
+                  <button className="join-item btn btn-sm no-animation">Page {currentPage} of {totalPages}</button>
+                  <button
+                    className="join-item btn btn-sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-base-300 p-3">

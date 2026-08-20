@@ -4,6 +4,9 @@ import { logger } from "@/lib/utils/logger";
 export interface InventoryItem {
   id: string;
   materialId: string;
+  /** Label carried on the row itself, independent of the operational-tier reference list. */
+  materialCode?: string | null;
+  materialDescription?: string | null;
   warehouseId: string;
   locationCode?: string;
   lpnCode?: string; // License Plate Number
@@ -44,6 +47,13 @@ export interface PagedInventoryResponse {
   totalPages: number;
 }
 
+export interface InventorySummaryResponse {
+  totalItems: number;
+  inStockItems: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+}
+
 export const inventoryApi = {
   getAll: async (materialType?: string): Promise<InventoryItem[]> => {
     const params = materialType ? `?materialType=${materialType}` : '';
@@ -53,12 +63,13 @@ export const inventoryApi = {
   getPaged: async ({
     page = 0,
     size = 10,
-    sortBy = "createdAt",
-    sortDir = "desc",
+    sortBy = "sku",
+    sortDir = "asc",
     materialId,
     warehouseId,
     materialType,
     status,
+    stockState,
     q,
   }: {
     page?: number;
@@ -69,6 +80,7 @@ export const inventoryApi = {
     warehouseId?: string;
     materialType?: string;
     status?: string;
+    stockState?: "all" | "low" | "available";
     q?: string;
   }): Promise<PagedInventoryResponse> => {
     const params = new URLSearchParams();
@@ -80,8 +92,23 @@ export const inventoryApi = {
     if (warehouseId) params.append("warehouseId", warehouseId);
     if (materialType) params.append("materialType", materialType);
     if (status) params.append("status", status);
+    if (stockState) params.append("stockState", stockState);
     if (q && q.trim()) params.append("q", q.trim());
     return apiClient.get<PagedInventoryResponse>(`/inventory/paged?${params.toString()}`);
+  },
+
+  getSummary: async ({
+    warehouseId,
+    materialType,
+  }: {
+    warehouseId?: string;
+    materialType?: string;
+  } = {}): Promise<InventorySummaryResponse> => {
+    const params = new URLSearchParams();
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (materialType) params.append("materialType", materialType);
+    const query = params.toString();
+    return apiClient.get<InventorySummaryResponse>(`/inventory/summary${query ? `?${query}` : ""}`);
   },
 
   getById: async (id: string): Promise<InventoryItem> => {

@@ -1,6 +1,10 @@
 package com.optiwms.coreapp.inventory;
 
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
+import com.optiwms.infra.master.LocationEntity;
+import com.optiwms.infra.master.LocationRepository;
+import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
@@ -24,14 +28,24 @@ public class InventoryService {
 
     private final InventoryItemRepository repository;
     private final MaterialRepository materialRepository;
+    private final LocationRepository locationRepository;
+    private final HandlingUnitCapacityService capacityService;
 
-    public InventoryService(InventoryItemRepository repository, MaterialRepository materialRepository) {
+    public InventoryService(
+            InventoryItemRepository repository,
+            MaterialRepository materialRepository,
+            LocationRepository locationRepository,
+            HandlingUnitCapacityService capacityService) {
         this.repository = repository;
         this.materialRepository = materialRepository;
+        this.locationRepository = locationRepository;
+        this.capacityService = capacityService;
     }
 
     public List<InventoryItem> listAll() {
-        return repository.findAll().stream()
+        return repository.findAll((root, cq, cb) -> root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
+                        "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -101,7 +115,21 @@ public class InventoryService {
             UUID warehouseId,
             String materialType,
             String status,
+            String stockState,
             String query,
+            Pageable pageable
+    ) {
+        return findPaged(materialId, warehouseId, materialType, status, stockState, query, true, pageable);
+    }
+
+    public Page<InventoryItem> findPaged(
+            UUID materialId,
+            UUID warehouseId,
+            String materialType,
+            String status,
+            String stockState,
+            String query,
+            boolean includeLegacy,
             Pageable pageable
     ) {
         Set<UUID> materialIdsForQuery = Collections.emptySet();
@@ -120,6 +148,13 @@ public class InventoryService {
         Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
+            if (!includeLegacy) {
+                predicates.add(root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
+                        "GENERATED_OPERATIONAL_BASELINE",
+                        "OPERATIONAL_ENTRY"));
+            }
+
             if (materialId != null) {
                 predicates.add(cb.equal(root.get("materialId"), materialId));
             }
@@ -131,6 +166,24 @@ public class InventoryService {
             }
             if (status != null && !status.isBlank()) {
                 predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (stockState != null && !stockState.isBlank() && !"all".equalsIgnoreCase(stockState)) {
+                var quantity = root.<Integer>get("quantity");
+                var available = root.<Integer>get("availableQuantity");
+                var quantityDecimal = quantity.as(java.math.BigDecimal.class);
+                Predicate low = cb.and(
+                        cb.greaterThan(quantity, 0),
+                        cb.or(
+                                cb.lessThan(available, 10),
+                                cb.lessThan(quantity, 10),
+                                cb.and(cb.isNotNull(root.get("reorderPoint")), cb.lessThanOrEqualTo(quantityDecimal, root.get("reorderPoint"))),
+                                cb.and(cb.isNotNull(root.get("bufferStock")), cb.lessThanOrEqualTo(quantityDecimal, root.get("bufferStock")))
+                        ));
+                if ("low".equalsIgnoreCase(stockState)) {
+                    predicates.add(low);
+                } else if ("available".equalsIgnoreCase(stockState)) {
+                    predicates.add(cb.and(cb.greaterThan(quantity, 0), cb.greaterThan(available, 0), cb.not(low)));
+                }
             }
             if (query != null && !query.isBlank()) {
                 String pattern = "%" + query.toLowerCase() + "%";
@@ -165,6 +218,26 @@ public class InventoryService {
         };
 
         return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    public InventorySummary summarize(UUID warehouseId, String materialType) {
+        var summary = repository.summarizeOperational(warehouseId, materialType);
+        return new InventorySummary(
+                value(summary.getTotalItems()),
+                value(summary.getInStockItems()),
+                value(summary.getLowStockItems()),
+                value(summary.getOutOfStockItems()));
+    }
+
+    private long value(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    public record InventorySummary(
+            long totalItems,
+            long inStockItems,
+            long lowStockItems,
+            long outOfStockItems) {
     }
 
     private String normalizeForSearch(String value) {
@@ -220,6 +293,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -263,6 +337,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -300,6 +375,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -373,5 +449,40 @@ public class InventoryService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void validateSingleBinAssignment(InventoryItemEntity entity) {
+        String locationCode = normalize(entity.getLocationCode());
+        if (locationCode == null || entity.getQuantity() == null || entity.getQuantity() <= 0) {
+            return;
+        }
+        MaterialEntity material = materialRepository.findById(entity.getMaterialId())
+                .orElseThrow(() -> new IllegalArgumentException("Material not found: " + entity.getMaterialId()));
+        LocationEntity location = locationRepository.findByLocationCode(locationCode)
+                .orElseThrow(() -> new IllegalArgumentException("Location not found: " + locationCode));
+        if (!entity.getWarehouseId().equals(location.getWarehouseId())) {
+            throw new IllegalArgumentException("Location " + locationCode + " does not belong to inventory warehouse");
+        }
+
+        int maxPallets = capacityService.resolveMaxPalletCapacity(location);
+        int requiredPallets = capacityService.computePalletCount(entity.getQuantity(), material);
+        if (maxPallets > 0 && requiredPallets > maxPallets) {
+            throw new IllegalArgumentException(
+                    "Quantity " + entity.getQuantity() + " requires " + requiredPallets
+                            + " pallet/bin positions, but " + locationCode + " supports only " + maxPallets
+                            + ". Use putaway split planning or inventory bin reconciliation.");
+        }
+
+        // Weigh what is actually going in, not a notional full pallet.
+        //
+        // Planning already sizes to the real quantity, so testing a full pallet here rejected
+        // putaways the planner had just approved: a worker was sent to a bin with the pallet in
+        // their hands and then told it would not fit, for a bin that had four times the headroom
+        // the move needed.
+        if (!capacityService.quantityFitsBin(material, location, entity.getQuantity())) {
+            throw new IllegalArgumentException(
+                    "Material " + material.getMaterialCode() + " does not fit bin " + locationCode
+                            + ": " + entity.getQuantity() + " units exceed the bin's weight or volume limit.");
+        }
     }
 }

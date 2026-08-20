@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/Modal";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { formatTaskNotes } from "@/lib/utils/task-notes";
 import { User } from "@/lib/api/users";
 import { useAdmin } from "@/contexts/AdminContext";
 import {
@@ -354,10 +355,10 @@ export default function TaskDetailPage() {
           )}
         </div>
 
-        {task.notes && (
+        {formatTaskNotes(task.notes) && (
           <div className="mt-6 pt-6 border-t border-base-300">
             <label className="text-sm text-base-content/60">Notes</label>
-            <p className="mt-2">{task.notes}</p>
+            <p className="mt-2 whitespace-pre-line">{formatTaskNotes(task.notes)}</p>
           </div>
         )}
       </div>
@@ -367,7 +368,7 @@ export default function TaskDetailPage() {
           <button className="btn btn-ghost">Back to Tasks</button>
         </Link>
         {canReassign && (
-          <button className="btn btn-primary" onClick={() => setShowAssignModal(true)}>
+          <button className="btn btn-outline" onClick={() => setShowAssignModal(true)}>
             <span className="material-symbols-outlined">person_add</span>
             Reassign Worker
           </button>

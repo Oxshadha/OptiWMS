@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -30,8 +29,7 @@ public class PackingController {
             @RequestParam(required = false) String orderId,
             @RequestParam(required = false) String orderNumber,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String packerId
-    ) {
+            @RequestParam(required = false) String packerId) {
         List<PackingRecord> records;
         if (orderId != null) {
             UUID orderUuid = parseOptionalUuid(orderId);
@@ -61,8 +59,7 @@ public class PackingController {
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String packerId,
-            @RequestParam(required = false) String q
-    ) {
+            @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -72,8 +69,7 @@ public class PackingController {
                 status,
                 parseOptionalUuid(packerId),
                 q,
-                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
-        );
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
 
         List<PackingRecordDto> data = recordPage.getContent().stream().map(this::toDto).toList();
         return ResponseEntity.ok(new PagedPackingResponse(
@@ -81,8 +77,7 @@ public class PackingController {
                 recordPage.getNumber(),
                 recordPage.getSize(),
                 recordPage.getTotalElements(),
-                recordPage.getTotalPages()
-        ));
+                recordPage.getTotalPages()));
     }
 
     @GetMapping("/{id}")
@@ -117,19 +112,31 @@ public class PackingController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<PackingRecordDto> update(@PathVariable UUID id, @RequestBody UpdatePackingRecordRequest request) {
+    public ResponseEntity<PackingRecordDto> update(@PathVariable UUID id,
+            @RequestBody UpdatePackingRecordRequest request) {
         PackingRecord record = service.findById(id);
-        if (request.boxType() != null) record.setBoxType(request.boxType());
-        if (request.boxDimensions() != null) record.setBoxDimensions(request.boxDimensions());
-        if (request.dunnageMaterials() != null) record.setDunnageMaterials(request.dunnageMaterials());
-        if (request.hasFragileItems() != null) record.setHasFragileItems(request.hasFragileItems());
-        if (request.actualWeightKg() != null) record.setActualWeightKg(parseOptionalBigDecimal(request.actualWeightKg()));
-        if (request.dimensionalWeightKg() != null) record.setDimensionalWeightKg(parseOptionalBigDecimal(request.dimensionalWeightKg()));
-        if (request.chargeableWeightKg() != null) record.setChargeableWeightKg(parseOptionalBigDecimal(request.chargeableWeightKg()));
-        if (request.trackingNumber() != null) record.setTrackingNumber(request.trackingNumber());
-        if (request.packingNotes() != null) record.setPackingNotes(request.packingNotes());
-        if (request.packerId() != null) record.setPackerId(parseOptionalUuid(request.packerId()));
-        if (request.status() != null) record.setStatus(request.status());
+        if (request.boxType() != null)
+            record.setBoxType(request.boxType());
+        if (request.boxDimensions() != null)
+            record.setBoxDimensions(request.boxDimensions());
+        if (request.dunnageMaterials() != null)
+            record.setDunnageMaterials(request.dunnageMaterials());
+        if (request.hasFragileItems() != null)
+            record.setHasFragileItems(request.hasFragileItems());
+        if (request.actualWeightKg() != null)
+            record.setActualWeightKg(parseOptionalBigDecimal(request.actualWeightKg()));
+        if (request.dimensionalWeightKg() != null)
+            record.setDimensionalWeightKg(parseOptionalBigDecimal(request.dimensionalWeightKg()));
+        if (request.chargeableWeightKg() != null)
+            record.setChargeableWeightKg(parseOptionalBigDecimal(request.chargeableWeightKg()));
+        if (request.trackingNumber() != null)
+            record.setTrackingNumber(request.trackingNumber());
+        if (request.packingNotes() != null)
+            record.setPackingNotes(request.packingNotes());
+        if (request.packerId() != null)
+            record.setPackerId(parseOptionalUuid(request.packerId()));
+        if (request.status() != null)
+            record.setStatus(request.status());
 
         PackingRecord updated = service.update(record);
         return ResponseEntity.ok(toDto(updated));
@@ -138,11 +145,25 @@ public class PackingController {
     @PutMapping("/{id}/status")
     public ResponseEntity<PackingRecordDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
-    ) {
+            @RequestBody UpdateStatusRequest request) {
         UUID workerId = parseOptionalUuid(request.workerId());
         PackingRecord updated = service.updateStatusWithWorker(id, request.status(), workerId);
         return ResponseEntity.ok(toDto(updated));
+    }
+
+    /**
+     * Manager sign-off releasing a packing job to the floor.
+     *
+     * <p>Separate from the generic status endpoint on purpose: approval raises the packer's task
+     * and is the one transition that must not be reachable by posting an arbitrary status.
+     */
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<PackingRecordDto> approve(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ApproveRequest request) {
+        UUID approvedBy = request != null ? parseOptionalUuid(request.approvedBy()) : null;
+        PackingRecord approved = service.approve(id, approvedBy);
+        return ResponseEntity.ok(toDto(approved));
     }
 
     @DeleteMapping("/{id}")
@@ -172,8 +193,7 @@ public class PackingController {
                 record.getPackerId() != null ? record.getPackerId().toString() : null,
                 record.getStatus(),
                 record.getStartedAt() != null ? record.getStartedAt().toString() : null,
-                record.getCompletedAt() != null ? record.getCompletedAt().toString() : null
-        );
+                record.getCompletedAt() != null ? record.getCompletedAt().toString() : null);
     }
 
     public record CreatePackingRecordRequest(
@@ -193,8 +213,8 @@ public class PackingController {
             String packingNotes,
             String packingPhotos,
             String packerId,
-            String status
-    ) {}
+            String status) {
+    }
 
     public record UpdatePackingRecordRequest(
             String boxType,
@@ -207,10 +227,13 @@ public class PackingController {
             String trackingNumber,
             String packingNotes,
             String packerId,
-            String status
-    ) {}
+            String status) {
+    }
 
-    public record UpdateStatusRequest(String status, String workerId) {}
+    public record ApproveRequest(String approvedBy) {}
+
+    public record UpdateStatusRequest(String status, String workerId) {
+    }
 
     public record PackingRecordDto(
             String id,
@@ -232,16 +255,16 @@ public class PackingController {
             String packerId,
             String status,
             String startedAt,
-            String completedAt
-    ) {}
+            String completedAt) {
+    }
 
     public record PagedPackingResponse(
             List<PackingRecordDto> data,
             int page,
             int size,
             long totalElements,
-            int totalPages
-    ) {}
+            int totalPages) {
+    }
 
     private UUID parseOptionalUuid(String value) {
         if (value == null || value.isBlank()) {
@@ -266,9 +289,12 @@ public class PackingController {
     }
 
     private String sanitizeSortBy(String sortBy) {
-        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        if (sortBy == null || sortBy.isBlank())
+            return "createdAt";
         return switch (sortBy) {
-            case "id", "orderNumber", "boxType", "trackingNumber", "status", "startedAt", "completedAt", "createdAt", "updatedAt" -> sortBy;
+            case "id", "orderNumber", "boxType", "trackingNumber", "status", "startedAt", "completedAt", "createdAt",
+                    "updatedAt" ->
+                sortBy;
             default -> "createdAt";
         };
     }

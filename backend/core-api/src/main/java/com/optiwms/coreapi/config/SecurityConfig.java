@@ -37,8 +37,8 @@ public class SecurityConfig {
     private String frontendUrl;
 
     public SecurityConfig(
-            CustomUserDetailsService userDetailsService, 
-            JwtAuthenticationFilter jwtAuthenticationFilter, 
+            CustomUserDetailsService userDetailsService,
+            JwtAuthenticationFilter jwtAuthenticationFilter,
             RateLimitingFilter rateLimitingFilter,
             SecurityHeadersFilter securityHeadersFilter) {
         this.userDetailsService = userDetailsService;
@@ -74,6 +74,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/refresh", "/api/auth/register").permitAll()
+                        // Routing graph regeneration changes the operational navigation
+                        // contract and is restricted to warehouse management.
+                        .requestMatchers(HttpMethod.POST, "/api/routing/graph/rebuild")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER")
                         // Allow authenticated users to access their own preferences
                         .requestMatchers("/api/auth/me/**").authenticated()
                         // Role-based access control
@@ -82,50 +86,63 @@ public class SecurityConfig {
                         .requestMatchers("/api/integration/locations/generate/**").hasRole("ADMIN")
                         // Allow workers to read materials by code (for SKU lookup in receiving)
                         .requestMatchers(HttpMethod.GET, "/api/master/materials/code/**").authenticated()
-                        // Allow all authenticated users to read warehouses (needed for worker warehouse assignment)
+                        // Read-only material list. Operational screens label a task by its material
+                        // -- stock transfer lines, putaway, picking -- and a worker role could not
+                        // read it, so the label lookup returned 403 and took the task list down with
+                        // it. GET only: creating or editing a material stays with the roles below.
+                        .requestMatchers(HttpMethod.GET, "/api/master/materials").authenticated()
+                        // Allow all authenticated users to read warehouses (needed for worker warehouse
+                        // assignment)
                         .requestMatchers(HttpMethod.GET, "/api/master/warehouses").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/master/warehouses/{id}").authenticated()
                         // Allow workers to read locations (needed for putaway location validation)
-                        // CRITICAL: These must come BEFORE the general /api/master/** rule to take precedence
+                        // CRITICAL: These must come BEFORE the general /api/master/** rule to take
+                        // precedence
                         // Support both route patterns for compatibility
                         .requestMatchers(HttpMethod.GET, "/api/master/locations/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/master/locations/code/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/locations/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/locations/code/**").authenticated()
                         // Other master data operations require admin/manager roles
-                        .requestMatchers("/api/master/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "INBOUND_COORDINATOR")
+                        .requestMatchers("/api/master/**")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "INBOUND_COORDINATOR")
                         .requestMatchers("/api/**").authenticated()
-                        .anyRequest().permitAll()
-                )
+                        .anyRequest().permitAll())
                 .authenticationProvider(authenticationProvider())
                 // Order matters: Security Headers → Rate Limiting → JWT Auth
                 .addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
-        
+
         return http.build();
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        
-        // Use environment variable for production, fallback to localhost for development
-        String allowedOrigin = frontendUrl;
-        if (allowedOrigin == null || allowedOrigin.isEmpty()) {
-            allowedOrigin = "http://localhost:3000";
+
+        // Use environment variable for production, fallback to localhost ports for
+        // development
+        List<String> allowedOrigins = Arrays.stream((frontendUrl == null || frontendUrl.isBlank()
+                ? "http://localhost:3000"
+                : frontendUrl)
+                .split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList();
+
+        if (allowedOrigins.isEmpty()) {
+            allowedOrigins = List.of("http://localhost:3000");
         }
-        
-        configuration.setAllowedOrigins(List.of(allowedOrigin));
+
+        configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
-        
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
     }
 }
-
-

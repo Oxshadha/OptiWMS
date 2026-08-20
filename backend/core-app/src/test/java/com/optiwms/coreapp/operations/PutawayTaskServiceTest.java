@@ -1,0 +1,321 @@
+package com.optiwms.coreapp.operations;
+
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
+import com.optiwms.coreapp.master.MaterialService;
+import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.tasks.TaskService;
+import com.optiwms.domain.master.Material;
+import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.tasks.Task;
+import com.optiwms.infra.orders.OrderItemEntity;
+import com.optiwms.infra.orders.OrderItemRepository;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class PutawayTaskServiceTest {
+
+    @Test
+    void prevalidatedDestinationAnchorsThePlanForThatLine() {
+        Fixture fixture = fixture("A-01-01-1-A", 10, 10);
+        stubPlan(fixture, allocation("A-01-01-1-A", 10));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        // The prevalidated bin is honoured rather than replaced by a free search.
+        verify(fixture.locationSuggestionService)
+                .suggestPutawayPlan(any(), any(), any(), any(), eq("A-01-01-1-A"));
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService).create(created.capture());
+        assertEquals("A-01-01-1-A", created.getValue().getLocationCode());
+    }
+
+    @Test
+    void missingDestinationFailureIsRetriedInsteadOfCreatingUnsafeTask() {
+        Fixture fixture = fixture(null, 10, 10);
+        when(fixture.locationSuggestionService.suggestPutawayPlan(any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("capacity planner unavailable"));
+
+        assertThrows(RuntimeException.class,
+                () -> fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId));
+
+        verify(fixture.taskService, never()).create(any(Task.class));
+    }
+
+    @Test
+    void emptyPlanFailsInsteadOfCreatingTaskWithoutDestination() {
+        Fixture fixture = fixture(null, 10, 10);
+        stubPlan(fixture);
+
+        assertThrows(IllegalStateException.class,
+                () -> fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId));
+
+        verify(fixture.taskService, never()).create(any(Task.class));
+    }
+
+    /** The reported scenario: 243 units of a material that palletises at 10 units per pallet. */
+    @Test
+    void multiPalletLineCreatesOneTaskPerPallet() {
+        Fixture fixture = fixture(null, 243, 10);
+        // The planner spread the receipt over three bins; 243 units is 25 pallets in total.
+        stubPlan(fixture,
+                allocation("A-01-01-1-A", 100),
+                allocation("A-01-02-1-A", 100),
+                allocation("A-01-03-1-A", 43));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService, times(25)).create(created.capture());
+
+        List<Task> tasks = created.getAllValues();
+        // Every pallet is its own job, numbered 1..25 with no gaps or repeats.
+        assertEquals(
+                java.util.stream.IntStream.rangeClosed(1, 25).boxed().collect(Collectors.toList()),
+                tasks.stream().map(Task::getHandlingUnitSeq).collect(Collectors.toList()));
+        // Whole receipt is accounted for, and no pallet exceeds the units-per-pallet limit.
+        assertEquals(243, tasks.stream().mapToInt(PutawayTaskServiceTest::palletQuantity).sum());
+        assertTrue(tasks.stream().allMatch(task -> palletQuantity(task) <= 10));
+        // Task numbers stay unique so the idempotency index cannot collide.
+        assertEquals(25, tasks.stream().map(Task::getTaskNumber).distinct().count());
+        assertEquals(10, tasks.stream().filter(t -> "A-01-01-1-A".equals(t.getLocationCode())).count());
+        assertEquals(5, tasks.stream().filter(t -> "A-01-03-1-A".equals(t.getLocationCode())).count());
+    }
+
+    @Test
+    void rerunOnlyCreatesPalletsThatAreMissing() {
+        Fixture fixture = fixture(null, 30, 10);
+        stubPlan(fixture, allocation("A-01-01-1-A", 30));
+
+        // Pallets 1 and 2 already exist from an earlier partial run.
+        when(fixture.taskService.findByTaskTypeAndReference("putaway", "order_item", fixture.itemId))
+                .thenReturn(List.of(existingTask(1), existingTask(2)));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService, times(1)).create(created.capture());
+        assertEquals(3, created.getValue().getHandlingUnitSeq());
+    }
+
+    /**
+     * A receipt the warehouse cannot fully accept. The pallets that fit are still released as work,
+     * but the shortfall is recorded on the order rather than passing silently -- previously the
+     * unplaceable pallets simply got no task and the order closed as put_away regardless.
+     */
+    @Test
+    void partiallyPlaceableReceiptReleasesWhatFitsAndRecordsTheShortfall() {
+        Fixture fixture = fixture(null, 250, 10);
+        // Only 18 of the 25 required pallets could be placed.
+        stubInfeasiblePlan(fixture, 250, 180, allocation("A-01-01-1-A", 180));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService, times(18)).create(created.capture());
+        assertEquals(180, created.getAllValues().stream().mapToInt(PutawayTaskServiceTest::palletQuantity).sum());
+
+        ArgumentCaptor<String> notes = ArgumentCaptor.forClass(String.class);
+        verify(fixture.orderService).updateNotes(eq(fixture.orderId), notes.capture());
+        assertTrue(notes.getValue().contains("PUTAWAY_SHORTFALL"), notes.getValue());
+        assertTrue(notes.getValue().contains("unplanned=70"), notes.getValue());
+    }
+
+    /**
+     * The claim was staked from the ordered quantity; a short receipt must not leave bins held for
+     * stock that never arrived. The line is replanned against what actually turned up.
+     */
+    @Test
+    void shortReceiptIsReplannedAgainstWhatActuallyArrived() {
+        Fixture fixture = fixture(null, 150, 10); // ordered 600, only 150 received
+        stubPlan(fixture, allocation("A-01-01-1-A", 150));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        // Planned for the received quantity, not the ordered one.
+        verify(fixture.locationSuggestionService)
+                .suggestPutawayPlan(any(), any(), eq(150), any(), any());
+
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService, times(15)).create(created.capture());
+        assertEquals(150, created.getAllValues().stream().mapToInt(PutawayTaskServiceTest::palletQuantity).sum());
+    }
+
+    /** An over receipt must get destinations for the surplus, not just for what was ordered. */
+    @Test
+    void overReceiptPlansTheSurplusToo() {
+        Fixture fixture = fixture(null, 80, 10); // 80 arrived against a smaller order
+        stubPlan(fixture, allocation("A-01-01-1-A", 50), allocation("A-01-02-1-A", 30));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        verify(fixture.locationSuggestionService)
+                .suggestPutawayPlan(any(), any(), eq(80), any(), any());
+
+        ArgumentCaptor<Task> created = ArgumentCaptor.forClass(Task.class);
+        verify(fixture.taskService, times(8)).create(created.capture());
+        assertEquals(80, created.getAllValues().stream().mapToInt(PutawayTaskServiceTest::palletQuantity).sum());
+    }
+
+    /**
+     * A line must not be pushed out of the bins it already holds. Its own claim is handed over
+     * before replanning, otherwise the reservation it made at order time reads as occupied space
+     * and the planner routes the line somewhere else -- or fails outright in a full warehouse.
+     */
+    @Test
+    void lineReleasesItsOwnClaimBeforeBeingReplanned() {
+        Fixture fixture = fixture(null, 100, 10);
+        stubPlan(fixture, allocation("A-01-01-1-A", 100));
+
+        fixture.service.createPutawayTasksForReceivedOrder(fixture.orderId, fixture.warehouseId);
+
+        InOrder ordered = inOrder(fixture.reservationService, fixture.locationSuggestionService);
+        ordered.verify(fixture.reservationService).markTasked(fixture.itemId);
+        ordered.verify(fixture.locationSuggestionService)
+                .suggestPutawayPlan(any(), any(), any(), any(), any());
+    }
+
+    private void stubInfeasiblePlan(
+            Fixture fixture,
+            int requested,
+            int planned,
+            PutawayCapacityPlanningService.SplitPlanLine... allocations) {
+        when(fixture.locationSuggestionService.suggestPutawayPlan(any(), any(), any(), any(), any()))
+                .thenReturn(new PutawayCapacityPlanningService.SplitPlanResult(
+                        false, requested, planned, requested - planned,
+                        null, null, null, List.of(allocations), List.of()));
+    }
+
+    private static int palletQuantity(Task task) {
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("PUTAWAY_HU_QTY=(\\d+)").matcher(task.getNotes());
+        assertTrue(matcher.find(), "task notes must scope the quantity to this pallet: " + task.getNotes());
+        return Integer.parseInt(matcher.group(1));
+    }
+
+    @Test
+    void taskNumberNamesTheOrderInsteadOfCarryingTheItemUuid() {
+        UUID itemId = UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea192a32");
+
+        String number = PutawayTaskService.putawayTaskNumber("PO-20260815-000001", itemId, 3);
+
+        assertEquals("PUT-PO-20260815-000001-192A32-3", number);
+        assertTrue(number.length() <= 50);
+    }
+
+    @Test
+    void taskNumberStaysWithinTheColumnForLongOrderNumbers() {
+        String number = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001-EXTREMELY-LONG-SUPPLIER-REFERENCE", UUID.randomUUID(), 12);
+
+        assertTrue(number.length() <= 50, number);
+        assertTrue(number.endsWith("-12"), number);
+    }
+
+    @Test
+    void taskNumbersDifferPerLineOfTheSameOrder() {
+        String first = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001", UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea192a32"), 1);
+        String second = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001", UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea1aaaaa"), 1);
+
+        assertTrue(!first.equals(second), first + " vs " + second);
+    }
+
+    private static Task existingTask(int sequence) {
+        Task task = new Task();
+        task.setHandlingUnitSeq(sequence);
+        return task;
+    }
+
+    private static PutawayCapacityPlanningService.SplitPlanLine allocation(String locationCode, int quantity) {
+        return new PutawayCapacityPlanningService.SplitPlanLine(locationCode, quantity, "test", null);
+    }
+
+    private void stubPlan(Fixture fixture, PutawayCapacityPlanningService.SplitPlanLine... allocations) {
+        List<PutawayCapacityPlanningService.SplitPlanLine> lines = List.of(allocations);
+        int planned = lines.stream()
+                .mapToInt(PutawayCapacityPlanningService.SplitPlanLine::allocatedQuantity)
+                .sum();
+        when(fixture.locationSuggestionService.suggestPutawayPlan(any(), any(), any(), any(), any()))
+                .thenReturn(new PutawayCapacityPlanningService.SplitPlanResult(
+                        true, planned, planned, 0, null, null, null, lines, List.of()));
+    }
+
+    private Fixture fixture(String locationCode, int receivedQuantity, int unitsPerPallet) {
+        UUID orderId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        UUID materialId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+
+        TaskService taskService = mock(TaskService.class);
+        OrderService orderService = mock(OrderService.class);
+        OrderItemRepository orderItemRepository = mock(OrderItemRepository.class);
+        MaterialService materialService = mock(MaterialService.class);
+        LocationSuggestionService suggestionService = mock(LocationSuggestionService.class);
+        PutawayReservationService reservationService = mock(PutawayReservationService.class);
+
+        Order order = new Order();
+        order.setId(orderId);
+        order.setOrderNumber("PO-20260810-000001");
+        order.setOrderType("inbound");
+        order.setWarehouseId(warehouseId);
+        order.setPriority("normal");
+        when(orderService.findById(orderId)).thenReturn(order);
+
+        OrderItemEntity item = new OrderItemEntity();
+        item.setId(itemId);
+        item.setOrderId(orderId);
+        item.setMaterialId(materialId);
+        item.setPickedQuantity(receivedQuantity);
+        item.setLocationCode(locationCode);
+        when(orderItemRepository.findByOrderId(orderId)).thenReturn(List.of(item));
+        when(taskService.findByTaskTypeAndReference("putaway", "order_item", itemId))
+                .thenReturn(List.of());
+
+        Material material = new Material();
+        material.setId(materialId);
+        material.setMaterialCode("RM-TEST");
+        material.setMaterialType("raw_material");
+        material.setUnitsPerPallet(unitsPerPallet);
+        when(materialService.findById(materialId)).thenReturn(material);
+
+        PutawayTaskService service = new PutawayTaskService(
+                taskService,
+                orderService,
+                orderItemRepository,
+                materialService,
+                suggestionService,
+                new HandlingUnitCapacityService(),
+                reservationService);
+        return new Fixture(
+                service, taskService, orderService, suggestionService, reservationService,
+                orderId, warehouseId, itemId);
+    }
+
+    private record Fixture(
+            PutawayTaskService service,
+            TaskService taskService,
+            OrderService orderService,
+            LocationSuggestionService locationSuggestionService,
+            PutawayReservationService reservationService,
+            UUID orderId,
+            UUID warehouseId,
+            UUID itemId) {}
+}

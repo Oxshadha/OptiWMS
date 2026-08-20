@@ -8,6 +8,7 @@ import {
   LocationBin,
 } from "@/lib/types/warehouse-layout";
 import { analyticsApi, LocationVelocity } from "@/lib/api/analytics";
+import { binPalletFillPercent } from "@/lib/utils/bin-occupancy";
 import { logger } from "@/lib/utils/logger";
 
 interface WarehouseLayoutProps {
@@ -109,10 +110,10 @@ export function WarehouseLayoutVisualization({
 
   // Get color based on velocity (for heat map mode)
   const getVelocityColor = (velocity?: number): string => {
-    if (velocity === undefined || velocity === null) return "#F5F5F5"; // Default gray for no data
-    if (velocity < 20) return "#22C55E"; // Green - Low velocity (0-20%)
-    if (velocity < 50) return "#F59E0B"; // Yellow - Medium velocity (20-50%)
-    return "#DC2626"; // Red - High velocity (50-100%)
+    if (velocity === undefined || velocity === null) return "#F8FAFC"; // Slate 50 for no data
+    if (velocity < 20) return "#38BDF8"; // Sky 400 - Low velocity (0-20%)
+    if (velocity < 50) return "#FBBF24"; // Amber 400 - Medium velocity (20-50%)
+    return "#F43F5E"; // Rose 500 - High velocity (50-100%)
   };
 
   // Get color based on occupancy and status
@@ -120,8 +121,8 @@ export function WarehouseLayoutVisualization({
   const getRackColor = (rack: RackUnit): string => {
     // Special status colors use muted fills with clearer borders/patterns.
     if (rack.status === "out_of_service") return "#FEE2E2"; // Dull red tint
-    if (rack.status === "maintenance") return "#FEF3C7"; // Yellow/amber tint
-    if (rack.status === "reserved") return "#E0F2FE"; // Soft cyan tint
+    if (rack.status === "maintenance") return "oklch(96% 0.05 66.442)"; // Light tint of maintenance oklch
+    if (rack.status === "reserved") return "#EFF6FF"; // Soft blue tint
 
     // If velocity mode is enabled, use velocity colors
     if (showVelocity && rack.velocity !== undefined) {
@@ -130,10 +131,10 @@ export function WarehouseLayoutVisualization({
 
     // Occupancy-based colors for active racks (light-to-dark progression, color-blind friendly)
     const occupancy = getRackOccupancy(rack);
-    if (occupancy === 0) return "#F5F5F5"; // White/Very Light Gray - Empty/available
-    if (occupancy < 50) return "#22C55E"; // Green - Go/high availability
-    if (occupancy < 85) return "#F59E0B"; // Yellow/Amber - Cautionary/transitional
-    return "#1E3A8A"; // Dark Blue/Indigo - Heavy/high density (receding color)
+    if (occupancy === 0) return "#F8FAFC"; // Slate 50 - Empty/available
+    if (occupancy < 50) return "#CBD5E1"; // Slate 300 - Low fill
+    if (occupancy < 85) return "#64748B"; // Slate 500 - Medium fill
+    return "#1E293B"; // Slate 900 - Heavy/high density
   };
 
   // Check if rack has recently received items (for pulsing animation)
@@ -151,9 +152,8 @@ export function WarehouseLayoutVisualization({
   // Calculate bin occupancy percentage (based on quantity vs max capacity)
   // Assuming max capacity of 100 units per bin (can be made configurable)
   const getBinOccupancy = (bin: LocationBin | undefined): number => {
-    if (!bin || !bin.inventory) return 0;
-    const maxCapacity = 100; // Default max capacity per bin
-    return Math.min((bin.inventory.quantity / maxCapacity) * 100, 100);
+    if (!bin) return 0;
+    return binPalletFillPercent(bin);
   };
 
   // Get color based on occupancy percentage (matches legend)
@@ -161,15 +161,15 @@ export function WarehouseLayoutVisualization({
     occupancy: number
   ): { color: string; stroke: string } => {
     if (occupancy === 0) {
-      return { color: "#F5F5F5", stroke: "#D1D5DB" }; // White/Very Light Gray - Empty
+      return { color: "#F8FAFC", stroke: "#CBD5E1" }; // Slate 50/300 - Empty
     }
     if (occupancy < 50) {
-      return { color: "#22C55E", stroke: "#16A34A" }; // Green - Low (<50%)
+      return { color: "#CBD5E1", stroke: "#94A3B8" }; // Slate 300/400 - Low (<50%)
     }
     if (occupancy < 85) {
-      return { color: "#F59E0B", stroke: "#D97706" }; // Yellow/Amber - Medium (50-85%)
+      return { color: "#64748B", stroke: "#475569" }; // Slate 500/600 - Medium (50-85%)
     }
-    return { color: "#1E3A8A", stroke: "#1E40AF" }; // Dark Blue/Indigo - High (>85%)
+    return { color: "#1E293B", stroke: "#0F172A" }; // Slate 900/950 - High (>85%)
   };
 
   // Get level segments for visual representation
@@ -178,23 +178,25 @@ export function WarehouseLayoutVisualization({
     const segmentHeight = rack.height / rack.maxLevels;
 
     for (let level = 1; level <= rack.maxLevels; level++) {
-      const bin = rack.bins.find((b) => b.level === level);
-      // Check actual bin status - if no inventory, it's empty regardless of status field
-      const hasInventory = bin?.inventory !== undefined;
-      const isReserved = bin?.status === "reserved";
-      const isEmpty = !hasInventory || bin?.status === "empty";
-
-      // Calculate occupancy percentage for occupied bins
-      const occupancy = getBinOccupancy(bin);
+      const levelBins = rack.bins.filter((b) => b.level === level);
+      const occupiedBins = levelBins.filter((b) => b.status === "occupied" || !!b.inventory);
+      const reservedBins = levelBins.filter((b) => b.status === "reserved");
+      const quarantinedBins = levelBins.filter((b) => b.status === "quarantined");
+      const displayBin = occupiedBins[0] ?? reservedBins[0] ?? quarantinedBins[0] ?? levelBins[0];
+      const occupancy = levelBins.length > 0
+        ? Math.max(...levelBins.map((b) => getBinOccupancy(b)))
+        : 0;
 
       segments.push({
         level,
-        y: rack.y + (level - 1) * segmentHeight,
+        y: rack.y + (rack.maxLevels - level) * segmentHeight,
         height: segmentHeight,
-        isOccupied: hasInventory && bin?.status === "occupied",
-        isReserved,
-        isEmpty,
-        bin,
+        isOccupied: occupiedBins.length > 0,
+        isReserved: reservedBins.length > 0,
+        isQuarantined: quarantinedBins.length > 0,
+        isEmpty: occupiedBins.length === 0 && reservedBins.length === 0 && quarantinedBins.length === 0,
+        bin: displayBin,
+        bins: levelBins,
         occupancy,
       });
     }
@@ -203,12 +205,19 @@ export function WarehouseLayoutVisualization({
   };
 
   return (
-    <div className="w-full h-full relative">
+    <div
+      className="h-full relative"
+      style={{
+        width: `${layout.width}px`,
+        minWidth: `${layout.width}px`,
+        height: `${layout.height}px`,
+        minHeight: `${layout.height}px`,
+      }}
+    >
       <svg
         viewBox={`0 0 ${layout.width} ${layout.height}`}
-        className="w-full h-full border border-base-300 rounded-lg bg-base-200"
-        preserveAspectRatio="none"
-        style={{ minWidth: `${layout.width}px`, minHeight: `${layout.height}px` }}
+        className="block w-full h-full bg-base-100"
+        preserveAspectRatio="xMidYMin meet"
       >
         {/* Define patterns for maintenance status */}
         <defs>
@@ -226,9 +235,9 @@ export function WarehouseLayoutVisualization({
               y1="0"
               x2="0"
               y2="8"
-              stroke="#B45309"
+              stroke="oklch(55% 0.135 66.442)"
               strokeWidth="1.5"
-              opacity="0.4"
+              opacity="0.5"
             />
           </pattern>
           <pattern
@@ -269,6 +278,32 @@ export function WarehouseLayoutVisualization({
           />
         ))}
 
+        {layout.stations.map((station) => (
+          <g key={station.id}>
+            <rect
+              x={station.x}
+              y={station.y}
+              width={station.width}
+              height={station.height}
+              rx="4"
+              fill={station.kind === 'DOOR' ? '#FEE2E2' : '#DCFCE7'}
+              stroke={station.kind === 'DOOR' ? '#DC2626' : '#16A34A'}
+              strokeWidth="2"
+            />
+            <text
+              x={station.x + station.width / 2}
+              y={station.y + station.height / 2}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="11"
+              fontWeight="700"
+              fill="#1F2937"
+            >
+              {station.label}
+            </text>
+          </g>
+        ))}
+
         {/* Render racks */}
         {racksWithVelocity.map((rack) => {
           const isSelected = selectedRackId === rack.id;
@@ -303,17 +338,20 @@ export function WarehouseLayoutVisualization({
                     : rack.status === "out_of_service"
                     ? "#DC2626" // Red border for out-of-service
                     : rack.status === "maintenance"
-                    ? "#D97706" // Amber border for maintenance
+                    ? "oklch(55% 0.135 66.442)" // Custom oklch border for maintenance
                     : rack.status === "reserved"
-                    ? "#0369A1" // Cyan border for reserved
+                    ? "#3B82F6" // Blue border for reserved
                     : showVelocity &&
                       rack.velocity !== undefined &&
                       rack.velocity >= 50
-                    ? "#991B1B" // Darker red border for high velocity
+                    ? "#E11D48" // Rose 600 border for high velocity
                     : showVelocity &&
                       rack.velocity !== undefined &&
                       rack.velocity >= 20
-                    ? "#D97706" // Darker yellow border for medium velocity
+                    ? "#D97706" // Amber 600 border for medium velocity
+                    : showVelocity &&
+                      rack.velocity !== undefined
+                    ? "#0284C7" // Sky 600 border for low velocity
                     : "#9CA3AF"
                 }
                 strokeWidth={isSelected ? 3 : isHovered ? 2 : 1}
@@ -371,44 +409,45 @@ export function WarehouseLayoutVisualization({
                 // If rack is in maintenance or out_of_service, ALL levels show rack status color (rack is empty)
                 const isRackInSpecialStatus =
                   rack.status === "maintenance" ||
-                  rack.status === "out_of_service";
+                  rack.status === "out_of_service" ||
+                  rack.status === "reserved";
 
                 // Priority 1: Special rack statuses (maintenance/out_of_service)
                 if (isRackInSpecialStatus) {
-                  // All levels in maintenance/out_of_service racks show rack status color
                   if (rack.status === "maintenance") {
-                    segmentColor = "#FEF3C7";
-                    segmentStroke = "#D97706";
+                    segmentColor = "oklch(96% 0.05 66.442)";
+                    segmentStroke = "oklch(55% 0.135 66.442)";
                   } else if (rack.status === "out_of_service") {
                     segmentColor = "#FEE2E2";
                     segmentStroke = "#DC2626";
+                  } else if (rack.status === "reserved") {
+                    segmentColor = "#EFF6FF";
+                    segmentStroke = "#3B82F6";
                   }
                 }
                 // Priority 2: Quarantined bins (safety critical)
-                else if (segment.bin?.status === "quarantined") {
+                else if (segment.isQuarantined) {
                   // Quarantined bins use Purple (highest priority for safety)
                   segmentColor = "#9333EA"; // Purple - Quarantined
                   segmentStroke = "#7C3AED"; // Dark purple border
                 }
-                // Priority 3: Velocity mode (when enabled, overrides occupancy)
-                else if (showVelocity && rack.velocity !== undefined) {
-                  // Use velocity color for all segments in this rack
+                else if (segment.isReserved) {
+                  segmentColor = "#EFF6FF";
+                  segmentStroke = "#3B82F6";
+                }
+                // Priority 4: Velocity mode (when enabled, overrides normal occupancy colors for OCCUPIED bins)
+                else if (showVelocity && rack.velocity !== undefined && !segment.isEmpty) {
+                  // Use velocity color ONLY for occupied segments
                   const velocityColor = getVelocityColor(rack.velocity);
                   segmentColor = velocityColor;
                   // Use darker version for stroke
                   if (rack.velocity < 20) {
-                    segmentStroke = "#16A34A"; // Darker green
+                    segmentStroke = "#0284C7"; // Sky 600
                   } else if (rack.velocity < 50) {
-                    segmentStroke = "#D97706"; // Darker yellow
+                    segmentStroke = "#D97706"; // Amber 600
                   } else {
-                    segmentStroke = "#991B1B"; // Darker red
+                    segmentStroke = "#E11D48"; // Rose 600
                   }
-                }
-                // Priority 4: Reserved bins
-                else if (segment.isReserved) {
-                  // Reserved bins use cyan (distinct from high occupancy dark blue)
-                  segmentColor = "#E0F2FE";
-                  segmentStroke = "#0284C7";
                 }
                 // Priority 5: Occupied bins (occupancy-based colors)
                 else if (segment.isOccupied && segment.bin) {
@@ -422,7 +461,7 @@ export function WarehouseLayoutVisualization({
                 // Determine text color based on background - use theme-aware colors
                 const isDarkBackground =
                   segment.occupancy >= 85 ||
-                  segment.bin?.status === "quarantined" ||
+                  segment.isQuarantined ||
                   (showVelocity &&
                     rack.velocity !== undefined &&
                     rack.velocity >= 50);
@@ -525,6 +564,30 @@ export function WarehouseLayoutVisualization({
                         >
                           ({percentageText})
                         </text>
+                      )}
+                      {(rack.pendingMoveCount ?? 0) > 0 && (
+                        <>
+                          <rect
+                            x={rack.x + rack.width - 8}
+                            y={rack.y - 32}
+                            width={52}
+                            height={14}
+                            fill="#F59E0B"
+                            rx="3"
+                          />
+                          <text
+                            x={rack.x + rack.width + 18}
+                            y={rack.y - 24}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fill="#1F2937"
+                            fontSize="8"
+                            fontWeight="600"
+                            className="pointer-events-none"
+                          >
+                            {rack.pendingMoveCount} moves
+                          </text>
+                        </>
                       )}
                     </>
                   );

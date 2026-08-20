@@ -214,11 +214,29 @@ export default function PackingPage() {
 
       try {
         setLoading(true);
-        const [pickedOrders, packingOrders, packingRecords] = await Promise.all([
-          ordersApi.getAll("outbound", "picked"),
-          ordersApi.getAll("outbound", "packing"),
+        const [pickedPage, packingPage, packingRecords] = await Promise.all([
+          ordersApi.getPaged({
+            page: 0,
+            size: 50,
+            orderType: "outbound",
+            status: "picked",
+            warehouseId: effectiveWarehouseId,
+            sortBy: "createdAt",
+            sortDir: "desc",
+          }),
+          ordersApi.getPaged({
+            page: 0,
+            size: 50,
+            orderType: "outbound",
+            status: "packing",
+            warehouseId: effectiveWarehouseId,
+            sortBy: "createdAt",
+            sortDir: "desc",
+          }),
           packingApi.getAll(),
         ]);
+        const pickedOrders = pickedPage.data;
+        const packingOrders = packingPage.data;
         const allOutboundOrders = [...pickedOrders, ...packingOrders];
         const uniqueOrders = Array.from(new Map(allOutboundOrders.map((order) => [order.id, order])).values());
         const packedOrderIds = new Set(
@@ -230,8 +248,21 @@ export default function PackingPage() {
             .map((record) => record.orderId)
             .filter((id): id is string => !!id)
         );
+        // Packing now waits on a manager. An order that has finished picking is not yet work:
+        // its record sits at pending_approval until someone releases it, and an order with no
+        // record at all has not been raised as a packing job either. Showing those put the
+        // packer ahead of the approval they are meant to be waiting for.
+        const approvedOrderIds = new Set(
+          packingRecords
+            .filter((record) => (record.status || "").toLowerCase() !== "pending_approval")
+            .map((record) => record.orderId)
+            .filter((id): id is string => !!id)
+        );
         const warehouseOrders = uniqueOrders.filter(
-          (order) => order.warehouseId === effectiveWarehouseId && !packedOrderIds.has(order.id)
+          (order) =>
+            order.warehouseId === effectiveWarehouseId &&
+            !packedOrderIds.has(order.id) &&
+            approvedOrderIds.has(order.id)
         );
         const recordByOrderId = new Map(
           packingRecords
@@ -571,7 +602,13 @@ export default function PackingPage() {
         packingSaveFailed = true;
         packingSaveErrorMessage =
           packingError instanceof Error ? packingError.message : "Unknown packing persistence error";
-        logger.error("Packing record save failed, will continue with order status transition:", packingError);
+        logger.error("Packing record save failed:", packingError);
+      }
+
+      if (packingSaveFailed) {
+        showToast.error(`Packing record was not saved: ${packingSaveErrorMessage}. Retry before shipment.`);
+        setSavingPacking(false);
+        return;
       }
 
       try {
@@ -618,9 +655,6 @@ export default function PackingPage() {
         logger.warn("Packing completed but task status update failed:", taskError);
       }
 
-      if (packingSaveFailed) {
-        logger.warn("Packed and moved to shipment, but packing record save failed:", packingSaveErrorMessage);
-      }
     } else {
       await saveScanRecord({
         taskId: selectedOrder.id,

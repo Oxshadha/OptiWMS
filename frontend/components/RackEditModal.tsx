@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
 import { locationsApi } from "@/lib/api/locations";
 import { logger } from "@/lib/utils/logger";
+import { showToast } from "@/lib/utils/toast";
+import { parseRackId } from "@/lib/utils/location-identity";
 
 interface RackEditModalProps {
   isOpen: boolean;
@@ -24,7 +27,6 @@ export function RackEditModal({
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [amalgamatedClass, setAmalgamatedClass] = useState("CM");
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (rack) {
@@ -35,89 +37,53 @@ export function RackEditModal({
     }
   }, [rack]);
 
-  if (!isOpen || !rack) return null;
+  const rackId = rack?.id ?? null;
 
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      
-      logger.debug("Saving rack:", rack.id, "Status:", status);
-      
-      // Rack ID is in format "area-row-bay" (e.g., "A-01-01")
-      // We need to find all locations in this rack and update them
-      const parts = rack.id.split('-');
-      if (parts.length < 3) {
-        throw new Error(`Invalid rack ID format: ${rack.id}. Expected format: area-row-bay`);
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!rackId) throw new Error("No rack selected.");
+      if (!parseRackId(rackId)) {
+        throw new Error(`Invalid rack ID format: ${rackId}. Expected AREA-ROW-BAY, e.g. E-03-007.`);
       }
-      
-      const area = parts[0];
-      const row = parts[1];
-      const bay = parts[2];
-      
-      logger.debug("Parsed rack ID:", { area, row, bay });
-      
-      // Get all locations for this warehouse
-      const allLocations = await locationsApi.getByWarehouse(warehouseId);
-      logger.debug(`Found ${allLocations.length} total locations for warehouse`);
-      
-      // Find all locations that belong to this rack (same area, row, bay)
-      // Normalize row and bay numbers (handle leading zeros)
-      const rackLocations = allLocations.filter((loc) => {
-        const locRow = loc.rowNumber?.padStart(2, '0') || '';
-        const locBay = loc.bayNumber?.padStart(2, '0') || '';
-        const matchRow = locRow === row || locRow === row.padStart(2, '0');
-        const matchBay = locBay === bay || locBay === bay.padStart(2, '0');
-        return loc.area === area && matchRow && matchBay;
+      // One transactional call for the whole rack. The previous fan-out of one request
+      // per bin could half-apply a status change when a single bin failed.
+      return locationsApi.updateRackBulk({
+        warehouseId,
+        rackId,
+        attributes: {
+          rackStatus: status,
+          amalgamatedClass,
+          description: description.trim(),
+          notes: notes.trim(),
+        },
       });
-      
-      logger.debug(`Found ${rackLocations.length} locations for rack ${rack.id}`);
-      
-      if (rackLocations.length === 0) {
-        logger.error("No locations found. Available locations sample:", 
-          allLocations.slice(0, 5).map(l => `${l.area}-${l.rowNumber}-${l.bayNumber}`));
-        throw new Error(`No locations found for rack ${rack.id}. Please check the rack identifier.`);
-      }
-      
-      // Update all locations in this rack with the rack properties
-      const updatePromises = rackLocations.map(async (location) => {
-        try {
-          logger.debug(`Updating location ${location.id} (${location.locationCode})`);
-          const updateData: any = {};
-          updateData.rackStatus = status.toString();
-          updateData.amalgamatedClass = amalgamatedClass;
-          updateData.description = description.trim();
-          updateData.notes = notes.trim();
-          
-          logger.debug("Update data:", updateData);
-          return await locationsApi.updateRack(location.id, updateData);
-        } catch (err: any) {
-          logger.error(`Failed to update location ${location.id}:`, err);
-          logger.error("Error details:", err?.response?.data || err?.message);
-          throw err;
-        }
-      });
-      
-      await Promise.all(updatePromises);
-      logger.debug("Successfully updated all locations in rack");
-      
-      // Update local rack object
-      const updatedRack: RackUnit = {
-        ...rack,
+    },
+    onSuccess: (result) => {
+      showToast.success(
+        `Rack ${result.rackId} updated (${result.updatedLocations} bin${result.updatedLocations === 1 ? "" : "s"}).`
+      );
+      onUpdate({
+        ...rack!,
         status,
         amalgamatedClass,
         description: description.trim() || undefined,
         notes: notes.trim() || undefined,
-      };
-      onUpdate(updatedRack);
+      });
       onClose();
-    } catch (error: any) {
+    },
+    onError: (error: unknown) => {
       logger.error("Failed to update rack:", error);
-      const errorMessage = error?.message || "Failed to update rack. Please try again.";
-      alert(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      showToast.error(
+        error instanceof Error ? error.message : "Failed to update rack. Please try again."
+      );
+    },
+  });
+
+  const isSaving = saveMutation.isPending;
+
+  if (!isOpen || !rack) return null;
+
+  const handleSave = () => saveMutation.mutate();
 
   const statusOptions: {
     value: RackStatus;
@@ -266,6 +232,7 @@ export function RackEditModal({
               ))}
             </select>
           </div>
+
 
           {/* Description */}
           <div className="form-control">

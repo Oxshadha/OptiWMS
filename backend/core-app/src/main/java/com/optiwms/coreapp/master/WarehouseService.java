@@ -2,24 +2,62 @@ package com.optiwms.coreapp.master;
 
 import com.optiwms.domain.master.Warehouse;
 import com.optiwms.infra.master.WarehouseEntity;
+import com.optiwms.infra.master.LocationRepository;
 import com.optiwms.infra.master.WarehouseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 public class WarehouseService {
 
-    private final WarehouseRepository repository;
+    private static final String CURRENT_OPERATIONAL_DATASET = "PROJECT_OPERATIONAL_SIMULATION_V8";
+    private static final List<String> OPERATIONAL_DATASETS = List.of(
+            CURRENT_OPERATIONAL_DATASET,
+            "PROJECT_OPERATIONAL_BASELINE_V3",
+            "OPERATIONAL_ENTRY"
+    );
 
-    public WarehouseService(WarehouseRepository repository) {
+    private final WarehouseRepository repository;
+    private final LocationRepository locationRepository;
+
+    public WarehouseService(WarehouseRepository repository, LocationRepository locationRepository) {
         this.repository = repository;
+        this.locationRepository = locationRepository;
     }
 
     public List<Warehouse> listAll() {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public List<Warehouse> listOperational() {
+        return repository.findByDatasetVersionIn(OPERATIONAL_DATASETS).stream()
+                .filter(entity -> "active".equalsIgnoreCase(entity.getStatus()))
+                .sorted(Comparator
+                        .comparingInt((WarehouseEntity entity) ->
+                                CURRENT_OPERATIONAL_DATASET.equals(entity.getDatasetVersion()) ? 0 : 1)
+                        .thenComparing(WarehouseEntity::getCode))
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Operational warehouses that can actually take a receipt.
+     *
+     * {@link #listOperational()} intentionally spans several dataset versions so historical
+     * orders still resolve their warehouse. Order creation needs the narrower set: a legacy
+     * warehouse whose racks are all archived owns no active bin, so every capacity check
+     * against it fails and any order placed there is dead on arrival.
+     */
+    public List<Warehouse> listReceivable() {
+        java.util.Set<java.util.UUID> receivable =
+                new java.util.HashSet<>(locationRepository.findWarehouseIdsWithReceivableStorage());
+        return listOperational().stream()
+                .filter(warehouse -> receivable.contains(warehouse.getId()))
+                .collect(Collectors.toList());
     }
 
     public Warehouse findById(java.util.UUID id) {
@@ -98,5 +136,3 @@ public class WarehouseService {
         return w;
     }
 }
-
-

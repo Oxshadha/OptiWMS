@@ -1,6 +1,11 @@
 "use client";
 
 import { isUUID } from "@/lib/utils/material-display";
+import {
+  QUANTITY_INPUT_PROPS,
+  parseQuantityInput,
+  quantityInputValue,
+} from "@/lib/utils/quantity-input";
 
 type ReceivingItem = {
   id: string;
@@ -65,16 +70,13 @@ export function ReceivingItemCard({
           </button>
           <div className="flex-1 text-center">
             <input
-              type="number"
+              {...QUANTITY_INPUT_PROPS}
               className={`input input-bordered w-full text-center text-2xl font-bold ${
                 !blindMode && item.received > item.expected ? "input-warning" : ""
               }`}
-              value={item.received}
-              onChange={(e) => {
-                const qty = Math.max(0, parseInt(e.target.value) || 0);
-                onChangeQty(index, qty);
-              }}
-              min="0"
+              value={quantityInputValue(item.received)}
+              onChange={(e) => onChangeQty(index, parseQuantityInput(e.target.value))}
+              placeholder="0"
               required
             />
           </div>

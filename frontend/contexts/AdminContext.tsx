@@ -45,6 +45,25 @@ const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
 const ADMIN_DATA_KEY = "current_admin";
 
+const normalizeAdminRole = (role: string | null | undefined): AdminRole | null => {
+  if (!role) {
+    return null;
+  }
+
+  let normalized = role.trim().toLowerCase();
+  if (normalized.startsWith("role_")) {
+    normalized = normalized.substring(5);
+  }
+
+  if (normalized === "administrator") {
+    normalized = "admin";
+  }
+
+  return (["admin", "warehouse_manager", "inbound_coordinator"].includes(normalized)
+    ? normalized
+    : null) as AdminRole | null;
+};
+
 export function AdminProvider({ children }: { children: ReactNode }) {
   const [admin, setAdminState] = useState<AdminData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -180,14 +199,16 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             // Fetch full user details
             const fullUser = await usersApi.getById(userInfo.userId);
             
-            const adminData: AdminData = {
-              id: fullUser.id,
-              name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
-              email: fullUser.email || userInfo.email,
-              role: fullUser.role as AdminRole,
-              warehouseId: fullUser.warehouseId,
-              avatar: fullUser.avatarUrl,
-            };
+          const normalizedRole = normalizeAdminRole(fullUser.role) ?? normalizeAdminRole(userInfo.role);
+
+          const adminData: AdminData = {
+            id: fullUser.id,
+            name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
+            email: fullUser.email || userInfo.email,
+            role: normalizedRole,
+            warehouseId: fullUser.warehouseId,
+            avatar: fullUser.avatarUrl,
+          };
             
             // If warehouse manager, get warehouse name
             if (adminData.warehouseId) {
@@ -220,10 +241,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           }
         } catch (apiError) {
           logger.error("[AdminContext] Error fetching user from API:", apiError);
-          // Token might be invalid - clear it
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
+          // Only clear tokens for explicit auth/session failures.
+          const errorMessage =
+            apiError instanceof Error ? apiError.message.toLowerCase() : "";
+          const isAuthFailure =
+            errorMessage.includes("401") ||
+            errorMessage.includes("not authenticated") ||
+            errorMessage.includes("session expired") ||
+            errorMessage.includes("invalid refresh token");
+          if (isAuthFailure && typeof window !== "undefined") {
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
           }
           setAdminState(null);
         }

@@ -3,27 +3,100 @@ import { packingStatusTone, type PackingRecord } from "../types";
 
 interface PackingViewsProps {
   viewMode: "queue" | "monitor" | "history";
+  awaitingApprovalOrders: PackingRecord[];
   pendingOrders: PackingRecord[];
   inProgressOrders: PackingRecord[];
   historyOrders: PackingRecord[];
   onViewDetails: (record: PackingRecord) => void;
   onAssignPacker: (record: PackingRecord) => void;
+  onApprove: (record: PackingRecord) => void;
+  approvingId?: string | null;
   onPrintLabel: (record: PackingRecord) => void;
   onPrintSlip: (record: PackingRecord) => void;
 }
 
 export function PackingViews({
   viewMode,
+  awaitingApprovalOrders,
   pendingOrders,
   inProgressOrders,
   historyOrders,
   onViewDetails,
   onAssignPacker,
+  onApprove,
+  approvingId,
   onPrintLabel,
   onPrintSlip,
 }: PackingViewsProps) {
   if (viewMode === "queue") {
     return (
+      <div className="space-y-4">
+      {/* Approval gate. An order that has finished picking waits here until a manager has
+          looked at the job; only then does it reach a packer. */}
+      <div className="card bg-base-100 border border-warning/40">
+        <div className="p-4 border-b border-base-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-base-content">Awaiting Your Approval</h2>
+            <p className="text-sm text-base-content/60">
+              Picked and waiting to be released for packing. Edit the job first if it needs it.
+            </p>
+          </div>
+          <span className="badge badge-warning badge-lg">{awaitingApprovalOrders.length}</span>
+        </div>
+        {awaitingApprovalOrders.length === 0 ? (
+          <div className="p-8 text-center text-sm text-base-content/60">
+            Nothing waiting for approval.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead className="[&_th]:bg-base-200">
+                <tr>
+                  <th>Order #</th>
+                  <th>Customer</th>
+                  <th>Priority</th>
+                  <th>Picked</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {awaitingApprovalOrders.map((record) => (
+                  <tr key={record.id}>
+                    <td>
+                      <span className="font-semibold text-base-content">{record.orderNumber}</span>
+                    </td>
+                    <td className="text-base-content/70">{record.customer}</td>
+                    <td>
+                      <StatusChip
+                        label={record.priority === "express" ? "Express" : "Normal"}
+                        tone={record.priority === "express" ? "danger" : "neutral"}
+                      />
+                    </td>
+                    <td className="text-base-content/70">
+                      {new Date(record.createdAt).toLocaleString()}
+                    </td>
+                    <td>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onApprove(record)}
+                          disabled={approvingId === record.id}
+                          className="btn btn-primary btn-xs"
+                        >
+                          {approvingId === record.id ? "Approving..." : "Approve"}
+                        </button>
+                        <button onClick={() => onViewDetails(record)} className="btn btn-ghost btn-xs">
+                          Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="card bg-base-100 border border-base-300">
         <div className="p-4 border-b border-base-200">
           <h2 className="text-lg font-semibold text-base-content">Orders Ready to Pack</h2>
@@ -83,6 +156,7 @@ export function PackingViews({
             <p className="text-sm text-base-content/60">All orders have been assigned or packed</p>
           </div>
         )}
+      </div>
       </div>
     );
   }

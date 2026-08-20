@@ -3,6 +3,7 @@ package com.optiwms.coreapp.operations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -37,7 +38,7 @@ public class AIServiceAdapter {
     
     private final RestTemplate restTemplate;
 
-    public AIServiceAdapter(RestTemplate restTemplate) {
+    public AIServiceAdapter(@Qualifier("putawayAiRestTemplate") RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
 
@@ -66,6 +67,7 @@ public class AIServiceAdapter {
         try {
             String url = String.format("%s/optimal-storage/suggest", aiServicesBaseUrl);
             
+            // Create a new OptimalStorageRequest with the required parameters
             OptimalStorageRequest request = new OptimalStorageRequest(
                 warehouseId.toString(),
                 materialId.toString(),
@@ -131,6 +133,5 @@ public class AIServiceAdapter {
         public boolean success;
         public String locationCode;
         public String reason;
-        public String algorithm; // e.g., "genetic_algorithm", "rule_based"
     }
 }

@@ -1,0 +1,16 @@
+{
+  "status": "PASSED",
+  "seed": 20260711,
+  "layout_version": "CMB_METRIC_AISLE_V8_EXPANSION",
+  "materials": 144,
+  "storage_locations": 4200,
+  "layout_rows": 4206,
+  "assignment_rows": 3257,
+  "inventory_rows": 2921,
+  "required_capacity_positions": 3257,
+  "unused_storage_positions": 943,
+  "checks_passed": 14,
+  "checks_total": 14,
+  "external_physical_survey": "UNVERIFIED",
+  "decision_scope": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE"
+}

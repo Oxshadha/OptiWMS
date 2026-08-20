@@ -17,6 +17,7 @@ public class Material extends BaseEntity {
     private BigDecimal weightKg;
     private BigDecimal volumeCm3;
     private BigDecimal palletSpaces;
+    private Integer unitsPerPallet;
     private Boolean stackable;
     private Integer maxStackHeight;
     private Boolean temperatureControlled;
@@ -26,6 +27,9 @@ public class Material extends BaseEntity {
     // Weight limits (SOP enforcement)
     private BigDecimal maxPalletWeightKg;
     private BigDecimal minOrderQuantity;
+    private String handlingUnitType;
+    private BigDecimal unitsPerHandlingUnit;
+    private BigDecimal orderMultiple;
     private BigDecimal safetyStockLevel;
 
     // ABC/FMS Classification for storage zone assignment
@@ -121,6 +125,14 @@ public class Material extends BaseEntity {
         this.palletSpaces = palletSpaces;
     }
 
+    public Integer getUnitsPerPallet() {
+        return unitsPerPallet;
+    }
+
+    public void setUnitsPerPallet(Integer unitsPerPallet) {
+        this.unitsPerPallet = unitsPerPallet;
+    }
+
     public Boolean getStackable() {
         return stackable;
     }
@@ -175,6 +187,30 @@ public class Material extends BaseEntity {
 
     public void setMinOrderQuantity(BigDecimal minOrderQuantity) {
         this.minOrderQuantity = minOrderQuantity;
+    }
+
+    public String getHandlingUnitType() {
+        return handlingUnitType;
+    }
+
+    public void setHandlingUnitType(String handlingUnitType) {
+        this.handlingUnitType = handlingUnitType;
+    }
+
+    public BigDecimal getUnitsPerHandlingUnit() {
+        return unitsPerHandlingUnit;
+    }
+
+    public void setUnitsPerHandlingUnit(BigDecimal unitsPerHandlingUnit) {
+        this.unitsPerHandlingUnit = unitsPerHandlingUnit;
+    }
+
+    public BigDecimal getOrderMultiple() {
+        return orderMultiple;
+    }
+
+    public void setOrderMultiple(BigDecimal orderMultiple) {
+        this.orderMultiple = orderMultiple;
     }
 
     public BigDecimal getSafetyStockLevel() {

@@ -2,13 +2,19 @@ package com.optiwms.coreapi.quality;
 
 import com.optiwms.coreapp.quality.QualityCheckService;
 import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.infra.master.MaterialEntity;
+import com.optiwms.infra.master.MaterialRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -17,9 +23,11 @@ import java.util.stream.Collectors;
 public class QualityCheckController {
 
     private final QualityCheckService service;
+    private final MaterialRepository materialRepository;
 
-    public QualityCheckController(QualityCheckService service) {
+    public QualityCheckController(QualityCheckService service, MaterialRepository materialRepository) {
         this.service = service;
+        this.materialRepository = materialRepository;
     }
 
     @GetMapping
@@ -39,8 +47,9 @@ public class QualityCheckController {
             checks = service.listAll();
         }
 
+        Map<UUID, MaterialEntity> materials = loadMaterials(checks);
         List<QualityCheckDto> dtos = checks.stream()
-                .map(this::toDto)
+                .map(check -> toDto(check, materials.get(check.getMaterialId())))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(dtos);
     }
@@ -134,7 +143,32 @@ public class QualityCheckController {
         }
     }
 
+    /**
+     * Bulk-loads the referenced materials so a list response stays a single extra query.
+     * Uses the repository directly rather than the operational material list: a check can
+     * legitimately point at an archived or untiered material, and it still needs a name.
+     */
+    private Map<UUID, MaterialEntity> loadMaterials(List<QualityCheck> checks) {
+        Set<UUID> ids = checks.stream()
+                .map(QualityCheck::getMaterialId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, MaterialEntity> byId = new HashMap<>();
+        materialRepository.findAllById(ids).forEach(material -> byId.put(material.getId(), material));
+        return byId;
+    }
+
     private QualityCheckDto toDto(QualityCheck check) {
+        MaterialEntity material = check.getMaterialId() != null
+                ? materialRepository.findById(check.getMaterialId()).orElse(null)
+                : null;
+        return toDto(check, material);
+    }
+
+    private QualityCheckDto toDto(QualityCheck check, MaterialEntity material) {
         return new QualityCheckDto(
                 check.getId().toString(),
                 check.getGrnId() != null ? check.getGrnId().toString() : null,
@@ -147,7 +181,9 @@ public class QualityCheckController {
                 check.getApprovedBy() != null ? check.getApprovedBy().toString() : null,
                 check.getApprovedAt() != null ? check.getApprovedAt().toString() : null,
                 check.getCheckedBy() != null ? check.getCheckedBy().toString() : null,
-                check.getCheckDate() != null ? check.getCheckDate().toString() : null
+                check.getCheckDate() != null ? check.getCheckDate().toString() : null,
+                material != null ? material.getMaterialCode() : null,
+                material != null ? material.getDescription() : null
         );
     }
 
@@ -192,6 +228,8 @@ public class QualityCheckController {
             String approvedBy,
             String approvedAt,
             String checkedBy,
-            String checkDate
+            String checkDate,
+            String materialCode,
+            String materialDescription
     ) {}
 }

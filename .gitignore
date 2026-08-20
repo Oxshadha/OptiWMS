@@ -22,6 +22,11 @@ out/
 .env.production.local
 .env.*.local
 
+# Python virtual environments
+.venv/
+venv/
+ENV/
+
 # IDE
 .vscode/
 .idea/
@@ -33,6 +38,7 @@ out/
 # Build artifacts
 *.class
 *.jar
+!backend/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 bin/
@@ -41,13 +47,41 @@ build/
 target/
 *.iml
 
-# Backend specific
-backend/core-api/logs/
+# AI Service specific
+ai-services/forecast-service/forecast_service.db
+ai-services/forecast-service/artifacts/evidence/*.db
+forecast_service.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Model artifacts (large files - stored in MLflow / local artifact dir, not git)
+Ai miroservices/modeling/outputs/artifacts/**/model.pkl
+Ai miroservices/modeling/outputs/artifacts/**/model.txt
+Ai miroservices/modeling/outputs/artifacts/**/model_q*.pkl
+Ai miroservices/modeling/v6_academic_final/mlruns/
+Ai miroservices/modeling/v6_academic_final/pipeline/runs/
+Ai miroservices/modeling/v6_academic_final/data/bootstrap_fg_monthly.csv
+
+# Logs and temporary files
+logs/
+*.log
+backend_log.txt
+shadow_forecast.log
+collect_feedback.log
+
+# Build artifacts
 backend/core-api/build/
+backend/core-api/target/
 backend/*/build/
-backend/*/bin/
 backend/*/target/
-backend/.gradle/
+
+# Test coverage
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
 
 # Frontend specific
 frontend/.next/
@@ -82,10 +116,14 @@ docs/SRS_OptiWMS_Industry_v2.md
 *.tmp
 *.temp
 .cache/
+tmp/
 
 # OS files
 Thumbs.db
 .DS_Store
+
+# README and gallery screenshots are tracked documentation, not build output.
+!docs/screenshots/**/*.png
 
 # Database
 *.db
@@ -106,7 +144,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
 venv/
+.venv-evaluator/
 env/
 ENV/
 
@@ -127,6 +167,7 @@ application-local.yml
 *.key
 *.p12
 *.jks
+ai_services/ai-agent/.env.bak-groqmodel
 secrets/
 .secrets/
 
@@ -155,20 +196,98 @@ Desktop.ini
 
 #LOCAL GRADLE CACHE
 backend/.gradle-local/
+.gradle-local/
 
 *.puml
 
 *.xlsx
 
+# Reference PDFs are local working documents, except the three graded
+# deliverables, which ship with the repository.
 *.pdf
+!docs/deliverables/*.pdf
+
 # Local viva notes
 VIVA_FOLDER_MAP_AND_GRADLE.md
-*.md
-!README.md
+
+# Keep markdown and shell scripts trackable; ignore only specific local notes.
 
 *.csv
 
-*.sh
+# Local disaster-recovery exports
+recovery_backups/
+
+# Evaluator-grade evidence is a versioned notebook/artifact contract.
+!Ai miroservices/modeling/project_operational_baseline/outputs/evaluator/*.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/evaluator/*.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/physical_materials.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/physical_classifications.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/storage_capacity_requirements.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/storage_slotting_validation.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/solver_evidence/ga_stochasticity.csv
+# Operational forecast release bundle required by clean-clone training,
+# container startup, WMS loading, and planner verification.
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_forecasts.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_backtest_metrics.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/champion_prediction_intervals.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/inventory_policy_simulation.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/selection_backtest_rows.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data/*.csv
 
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
+Ai miroservices/modeling/catboost_info/
+catboost_info/
+
+# Local external benchmark data and notebook outputs
+Ai miroservices/external-data/
+ai-services/m5-forecasting-accuracy/
+# Modeling generated outputs
+Ai miroservices/modeling/outputs/artifacts/
+Ai miroservices/modeling/outputs/reports/
+Ai miroservices/modeling/outputs/audit/
+Ai miroservices/modeling/outputs/cleaned/
+Ai miroservices/modeling/outputs/m5_prepared/
+Ai miroservices/modeling/logs/
+Ai miroservices/modeling/v1_legacy/scripts/__pycache__/
+Ai miroservices/modeling/v1_legacy/notebooks/__pycache__/
+Ai miroservices/modeling/v1_legacy/notebooks/catboost_info/
+Ai miroservices/modeling/v1_legacy/scripts/catboost_info/
+Ai miroservices/modeling/outputs/artifacts/**/*.pkl
+Ai miroservices/modeling/outputs/artifacts/**/*.cbm
+Ai miroservices/modeling/outputs/artifacts/**/*.json
+Ai miroservices/modeling/v4_m5_proper/champion_model
+Ai miroservices/modeling/v4_m5_proper/plots/
+Ai miroservices/outputs/artifacts/P/
+
+# Jupyter / notebook runtime junk
+**/.ipynb_checkpoints/
+**/._*.ipynb
+Ai miroservices/modeling/v1_legacy/notebooks/.jupyter_cache/
+
+# v2 clean pipeline runtime
+Ai miroservices/modeling/v2_m5_clean/__pycache__/
+
+# Forecast service generated runtime artifacts (backfill exports, dq reports, lineage dumps)
+ai-services/forecast-service/artifacts/
+
+Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
+
+# Legacy root docs and scripts
+archive_scripts_and_docs/
+
+# Local dev database dump: too large for git and contains password hashes.
+# Distribute out of band or via Git LFS.
+scripts/optiwms_local_seed.sql.gz
+
+# Local reference document, not project code
+User manual/
+
+# Dissertation LaTeX chapters and build artifacts — writing drafts, not code.
+# Kept locally, deliberately excluded from commits.
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch6_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch7_housestyle/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch8_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/ch9_10_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/main_fixed/
+Ai miroservices/modeling/v8_controlled_synthetic_validation/report_chapter7/

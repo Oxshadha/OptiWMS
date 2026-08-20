@@ -1,0 +1,101 @@
+{
+  "model_id": "V8_CONTROLLED_EXTRA_TREES_CAUSAL",
+  "display_name": "Controlled RM/PM Causal Extra Trees",
+  "model_family": "ExtraTreesRegressor",
+  "role": "project_operational_baseline_champion",
+  "training_data_tier": "CONTROLLED_SYNTHETIC_GROUND_TRUTH",
+  "training_source": "generated_fg_plan_bom_rm_pm_history",
+  "synthetic_ratio": 1.0,
+  "decision_scope": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE",
+  "decision_eligible": true,
+  "external_population_validity": "UNVERIFIED",
+  "external_business_decision_eligible": false,
+  "simulation_decision_eligible": true,
+  "locked_before_test": true,
+  "test_protocol": "6 tuning origins + 6 champion-selection origins + 12 untouched rolling origins",
+  "test_metrics": {
+    "model": "extra_trees_causal",
+    "rows": 1440,
+    "materials": 120,
+    "WAPE": 0.08335697840628727,
+    "MAE": 736.7584634403185,
+    "RMSE": 1408.4608905558036,
+    "Bias": -0.0015093530870204453,
+    "under_forecast_rate": 0.4826388888888889,
+    "shock_WAPE": 0.08567139890507648
+  },
+  "recursive_serving_test_metrics": {
+    "split": "recursive_untouched_test",
+    "horizon": 0,
+    "rows": 1440,
+    "WAPE": 0.0874515762488261,
+    "MAE": 772.9489500984512,
+    "RMSE": 1559.6373346441085,
+    "Bias": -0.0048769890156058,
+    "under_forecast_rate": 0.4770833333333333
+  },
+  "neural_challenger_comparison": {
+    "champion": "PROJECT_OPS_EXTRA_TREES_CAUSAL",
+    "challenger": "CONV1D_ATTENTION_GLOBAL",
+    "paired_rows": 1440,
+    "months": 12,
+    "champion_WAPE": 0.0874515762488261,
+    "challenger_WAPE": 0.0989962115107359,
+    "relative_WAPE_improvement": 0.1166169400397486,
+    "mean_monthly_absolute_error_difference": -102.03834039049124,
+    "circular_block_bootstrap_ci_low": -178.7208471496093,
+    "circular_block_bootstrap_ci_high": -16.073915757599373,
+    "HAC_t_statistic": -2.331765344556307,
+    "HAC_p_value": 0.0197130390900466,
+    "Holm_adjusted_p_value": 0.0197130390900466,
+    "decision": "RETAIN_EXTRA_TREES"
+  },
+  "interval_coverage": {
+    "model": "extra_trees_causal",
+    "nominal_coverage": 0.9,
+    "empirical_coverage": 0.9208333333333332,
+    "normalized_error_quantile": 0.1916289242724866,
+    "average_interval_width": 3382.3475283500206,
+    "calibration_rows": 720,
+    "test_rows": 1440
+  },
+  "approved_uses": [
+    "forecast microservice batch serving",
+    "project WMS forecast_results publication",
+    "project inventory min/max and reorder recommendations",
+    "project inventory-policy and quantity-optimization inputs",
+    "project physical storage and OR-Tools slotting optimization",
+    "offline statistical validation",
+    "schema and API contract testing"
+  ],
+  "prohibited_uses": [
+    "claiming results were measured on externally observed history",
+    "claiming measured production accuracy",
+    "unlabelled use outside the project synthetic population",
+    "claiming generated coordinates were confirmed by a physical warehouse survey"
+  ],
+  "external_population_promotion_requirements": [
+    "real material-issue history with source lineage",
+    "validated effective-dated FG-to-RM/PM BOM coverage",
+    "production plans known at forecast creation time",
+    "same nested rolling-origin protocol on real data",
+    "calibrated intervals and inventory service/cost validation",
+    "shadow-mode approval before decision eligibility"
+  ],
+  "physical_population": {
+    "status": "PASSED",
+    "seed": 20260711,
+    "layout_version": "CMB_METRIC_AISLE_V8_EXPANSION",
+    "materials": 144,
+    "storage_locations": 4200,
+    "layout_rows": 4206,
+    "assignment_rows": 3257,
+    "inventory_rows": 2921,
+    "required_capacity_positions": 3257,
+    "unused_storage_positions": 943,
+    "checks_passed": 14,
+    "checks_total": 14,
+    "external_physical_survey": "UNVERIFIED",
+    "decision_scope": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE"
+  }
+}

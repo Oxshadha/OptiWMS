@@ -1,4 +1,9 @@
 import type { PackingData } from "../types";
+import {
+  DECIMAL_INPUT_PROPS,
+  decimalInputValue,
+  parseDecimalInput,
+} from "@/lib/utils/quantity-input";
 
 interface WeightStepProps {
   packingData: Partial<PackingData>;
@@ -40,12 +45,11 @@ export function WeightStep({
           <span className="label-text font-medium">Actual Weight (kg) *</span>
         </label>
         <input
-          type="number"
-          step="0.001"
-          min="0"
+          {...DECIMAL_INPUT_PROPS}
           className="input input-bordered w-full"
-          value={packingData.actualWeight || ""}
-          onChange={(e) => onWeightChange(parseFloat(e.target.value) || 0)}
+          value={decimalInputValue(packingData.actualWeight || 0)}
+          onChange={(e) => onWeightChange(parseDecimalInput(e.target.value))}
+          placeholder="0"
         />
       </div>
 

@@ -10,6 +10,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.WebRequest;
 
@@ -31,7 +32,7 @@ public class SupplierController {
     }
 
     @GetMapping
-    public ResponseEntity<List<SupplierDto>> list(WebRequest webRequest) {
+    public ResponseEntity<List<SupplierDto>> list(@NonNull WebRequest webRequest) {
         var data = service.listAll().stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
@@ -45,8 +46,7 @@ public class SupplierController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String q
-    ) {
+            @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -55,8 +55,7 @@ public class SupplierController {
         Page<Supplier> supplierPage = service.findPaged(
                 status,
                 q,
-                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
-        );
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
 
         List<SupplierDto> data = supplierPage.getContent().stream().map(this::toDto).toList();
         return ResponseEntity.ok(new PagedSupplierResponse(
@@ -64,8 +63,7 @@ public class SupplierController {
                 supplierPage.getNumber(),
                 supplierPage.getSize(),
                 supplierPage.getTotalElements(),
-                supplierPage.getTotalPages()
-        ));
+                supplierPage.getTotalPages()));
     }
 
     @GetMapping("/{id}")
@@ -100,11 +98,10 @@ public class SupplierController {
     @GetMapping("/{id}/materials")
     public ResponseEntity<List<SupplierMaterialDto>> listSupplierMaterials(
             @PathVariable UUID id,
-            @RequestParam(required = false) String materialType
-    ) {
+            @RequestParam(required = false) String materialType) {
         List<Material> materials = supplierMaterialService.getMaterialsForSupplier(id, materialType);
         List<SupplierMaterialDto> data = materials.stream()
-                .map(this::toSupplierMaterialDto)
+                .map(material -> toSupplierMaterialDto(id, material))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(data);
     }
@@ -112,17 +109,29 @@ public class SupplierController {
     @PutMapping("/{id}/materials")
     public ResponseEntity<Void> replaceSupplierMaterials(
             @PathVariable UUID id,
-            @RequestBody ReplaceSupplierMaterialsRequest request
-    ) {
-        supplierMaterialService.replaceMaterials(id, request.materialIds());
+            @RequestBody ReplaceSupplierMaterialsRequest request) {
+        if (request.materialRules() != null) {
+            supplierMaterialService.replaceMaterialRules(
+                    id,
+                    request.materialRules().stream()
+                            .map(rule -> new SupplierMaterialService.SupplierMaterialRuleUpdate(
+                                    rule.materialId(),
+                                    rule.minimumOrderQuantity(),
+                                    rule.orderMultiple(),
+                                    rule.unitsPerHandlingUnit(),
+                                    rule.leadTimeDays(),
+                                    rule.preferred()))
+                            .toList());
+        } else {
+            supplierMaterialService.replaceMaterials(id, request.materialIds());
+        }
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/materials/{materialId}")
     public ResponseEntity<Void> linkSupplierMaterial(
             @PathVariable UUID id,
-            @PathVariable UUID materialId
-    ) {
+            @PathVariable UUID materialId) {
         supplierMaterialService.linkMaterial(id, materialId);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
@@ -130,8 +139,7 @@ public class SupplierController {
     @DeleteMapping("/{id}/materials/{materialId}")
     public ResponseEntity<Void> unlinkSupplierMaterial(
             @PathVariable UUID id,
-            @PathVariable UUID materialId
-    ) {
+            @PathVariable UUID materialId) {
         supplierMaterialService.unlinkMaterial(id, materialId);
         return ResponseEntity.noContent().build();
     }
@@ -164,17 +172,21 @@ public class SupplierController {
                 domain.getCountry(),
                 domain.getLeadTimeDays(),
                 domain.getRating() != null ? domain.getRating().toString() : null,
-                domain.getStatus()
-        );
+                domain.getStatus());
     }
 
-    private SupplierMaterialDto toSupplierMaterialDto(Material material) {
+    private SupplierMaterialDto toSupplierMaterialDto(UUID supplierId, Material material) {
+        var rule = supplierMaterialService.findRule(supplierId, material.getId()).orElse(null);
         return new SupplierMaterialDto(
                 material.getId(),
                 material.getMaterialCode(),
                 material.getDescription(),
-                material.getMaterialType()
-        );
+                material.getMaterialType(),
+                rule != null ? rule.minimumOrderQuantity() : null,
+                rule != null ? rule.orderMultiple() : null,
+                rule != null ? rule.unitsPerHandlingUnit() : null,
+                rule != null ? rule.leadTimeDays() : null,
+                rule != null && rule.preferred());
     }
 
     public record SupplierDto(
@@ -188,32 +200,50 @@ public class SupplierController {
             String country,
             Integer leadTimeDays,
             String rating,
-            String status
-    ) {}
+            String status) {
+    }
 
     public record SupplierMaterialDto(
             UUID id,
             String materialCode,
             String description,
-            String materialType
-    ) {}
+            String materialType,
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            Boolean preferred) {
+    }
 
     public record PagedSupplierResponse(
             List<SupplierDto> data,
             int page,
             int size,
             long totalElements,
-            int totalPages
-    ) {}
+            int totalPages) {
+    }
 
     public record ReplaceSupplierMaterialsRequest(
-            List<UUID> materialIds
-    ) {}
+            List<UUID> materialIds,
+            List<SupplierMaterialRuleRequest> materialRules) {
+    }
+
+    public record SupplierMaterialRuleRequest(
+            UUID materialId,
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            Boolean preferred) {
+    }
 
     private String sanitizeSortBy(String sortBy) {
-        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        if (sortBy == null || sortBy.isBlank())
+            return "createdAt";
         return switch (sortBy) {
-            case "id", "code", "name", "contactPerson", "email", "phone", "country", "leadTimeDays", "rating", "status", "createdAt" -> sortBy;
+            case "id", "code", "name", "contactPerson", "email", "phone", "country", "leadTimeDays", "rating", "status",
+                    "createdAt" ->
+                sortBy;
             default -> "createdAt";
         };
     }

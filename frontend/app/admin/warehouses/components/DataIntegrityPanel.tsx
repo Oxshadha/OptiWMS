@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { inventoryApi } from "@/lib/api/inventory";
 import { locationsApi } from "@/lib/api/locations";
-import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
-import { materialsApi } from "@/lib/api/materials";
 import { logger } from "@/lib/utils/logger";
 
 interface DataIntegrityPanelProps {
@@ -45,6 +42,7 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
   const [metrics, setMetrics] = useState<IntegrityMetrics>(emptyMetrics);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const loadMetrics = async () => {
     if (!warehouseId) return;
@@ -52,103 +50,7 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
       setLoading(true);
       setError(null);
 
-      const [materials, inventory, locations, defaults] = await Promise.all([
-        materialsApi.getAll(),
-        inventoryApi.getByWarehouse(warehouseId),
-        locationsApi.getStorageLocationsByWarehouse(warehouseId),
-        materialDefaultLocationsApi.getMaterialsWithLocations(warehouseId),
-      ]);
-
-      const storageTypeByMaterialId = new Map(
-        materials.map((material) => [material.id, (material.storageType || "pallet").toLowerCase()])
-      );
-      const locationTypeByCode = new Map(
-        locations.map((location) => [location.locationCode, (location.locationType || "storage").toLowerCase()])
-      );
-      const locationStatusByCode = new Map(
-        locations.map((location) => [
-          location.locationCode,
-          {
-            isActive: !!location.isActive,
-            rackStatus: (location.rackStatus || "active").toLowerCase(),
-          },
-        ])
-      );
-
-      const assignedMaterialIds = new Set(defaults.map((item) => item.materialId));
-      const materialsWithoutDefault = materials.filter((material) => !assignedMaterialIds.has(material.id)).length;
-
-      let inventoryRowsNullLocation = 0;
-      let wrongTypeNonBulkInBulk = 0;
-      let wrongTypeBulkInNonBulk = 0;
-      let inventoryQtySum = 0;
-
-      const grouped = new Map<string, { qty: number; reorderPoint: number; bufferStock: number }>();
-      inventory.forEach((row) => {
-        const qty = Math.ceil(parseFloat(row.quantity) || 0);
-        inventoryQtySum += qty;
-        if (!row.locationCode) {
-          inventoryRowsNullLocation++;
-        }
-
-        const storageType = storageTypeByMaterialId.get(row.materialId) || "pallet";
-        const locType = row.locationCode ? locationTypeByCode.get(row.locationCode) || "storage" : "storage";
-        if (storageType !== "bulk" && locType === "bulk") {
-          wrongTypeNonBulkInBulk++;
-        }
-        if (storageType === "bulk" && locType !== "bulk") {
-          wrongTypeBulkInNonBulk++;
-        }
-
-        const current = grouped.get(row.materialId) || { qty: 0, reorderPoint: 0, bufferStock: 0 };
-        current.qty += qty;
-        current.reorderPoint = Math.max(current.reorderPoint, parseFloat(row.reorderPoint || "0") || 0);
-        current.bufferStock = Math.max(current.bufferStock, parseFloat(row.bufferStock || "0") || 0);
-        grouped.set(row.materialId, current);
-      });
-
-      let lowLike = 0;
-      let availableLike = 0;
-      grouped.forEach((value) => {
-        const isLow = value.qty <= value.reorderPoint || value.qty <= value.bufferStock || value.qty < 10;
-        if (isLow) lowLike += 1;
-        else availableLike += 1;
-      });
-
-      let defaultsToInactiveOrBlocked = 0;
-      const primaryCountByLocation = new Map<string, number>();
-      defaults.forEach((item) => {
-        const state = locationStatusByCode.get(item.locationCode);
-        if (!state) {
-          defaultsToInactiveOrBlocked += 1;
-          return;
-        }
-        if (item.priority === 1) {
-          const current = primaryCountByLocation.get(item.locationCode) || 0;
-          primaryCountByLocation.set(item.locationCode, current + 1);
-        }
-        const blocked = ["reserved", "maintenance", "out_of_service"].includes(state.rackStatus);
-        if (!state.isActive || blocked) {
-          defaultsToInactiveOrBlocked += 1;
-        }
-      });
-      const duplicatePrimaryLocationCount = Array.from(primaryCountByLocation.values()).filter((count) => count > 1)
-        .length;
-
-      setMetrics({
-        totalMaterials: materials.length,
-        defaultsAssigned: assignedMaterialIds.size,
-        materialsWithoutDefault,
-        inventoryRows: inventory.length,
-        inventoryQtySum,
-        inventoryRowsNullLocation,
-        wrongTypeNonBulkInBulk,
-        wrongTypeBulkInNonBulk,
-        defaultsToInactiveOrBlocked,
-        duplicatePrimaryLocationCount,
-        lowLike,
-        availableLike,
-      });
+      setMetrics(await locationsApi.getIntegritySummary(warehouseId));
     } catch (e) {
       logger.error("Failed to load integrity metrics", e);
       setError("Failed to load data integrity metrics.");
@@ -163,55 +65,82 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
   }, [warehouseId]);
 
   const health = useMemo(() => {
-    const criticalIssues =
-      metrics.materialsWithoutDefault +
+    const blockingIssues =
       metrics.inventoryRowsNullLocation +
-      metrics.wrongTypeBulkInNonBulk +
-      metrics.wrongTypeNonBulkInBulk +
       metrics.defaultsToInactiveOrBlocked +
       metrics.duplicatePrimaryLocationCount;
-    if (criticalIssues === 0) return { label: "Healthy", cls: "text-success" };
-    if (criticalIssues < 20) return { label: "Warning", cls: "text-warning" };
-    return { label: "Critical", cls: "text-error" };
+    const reviewIssues =
+      metrics.materialsWithoutDefault +
+      metrics.wrongTypeBulkInNonBulk +
+      metrics.wrongTypeNonBulkInBulk;
+    if (blockingIssues > 0) return { label: "Action Required", cls: "text-error" };
+    if (reviewIssues > 0) return { label: "Review Needed", cls: "text-warning" };
+    return { label: "Ready", cls: "text-success" };
   }, [metrics]);
 
   return (
-    <div className="card bg-base-100 border border-base-300 p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="card bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between gap-4 p-4 text-left hover:bg-base-200/50 transition-colors"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls="warehouse-data-integrity-details"
+      >
         <div>
-          <h3 className="font-semibold text-base-content">Data Integrity</h3>
-          <p className="text-xs text-base-content/60">Default location, type-match, and stock-health checks.</p>
+          <h3 className="font-semibold text-base-content flex items-center gap-2">
+            <span className="material-symbols-outlined text-lg">verified_user</span>
+            Data health
+          </h3>
+          <p className="text-xs text-base-content/60">
+            {health.label === "Ready"
+              ? "Warehouse master data and storage assignments are ready."
+              : "Exceptions need review; expand to see technical details."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-sm font-semibold ${health.cls}`}>{health.label}</span>
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => void loadMetrics()}
-            disabled={loading}
-            title="Refresh checks"
-          >
-            <span className="material-symbols-outlined">refresh</span>
-          </button>
+          <span className={`material-symbols-outlined transition-transform ${expanded ? "rotate-180" : ""}`}>
+            expand_more
+          </span>
         </div>
-      </div>
+      </button>
 
-      {error ? (
-        <div className="alert alert-warning">
-          <span>{error}</span>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          <Metric title="Materials" value={metrics.totalMaterials} />
-          <Metric title="Defaults Assigned" value={metrics.defaultsAssigned} />
-          <Metric title="Missing Defaults" value={metrics.materialsWithoutDefault} warn={metrics.materialsWithoutDefault > 0} />
-          <Metric title="Inventory Rows" value={metrics.inventoryRows} />
-          <Metric title="Total Qty" value={metrics.inventoryQtySum} />
-          <Metric title="Null Locations" value={metrics.inventoryRowsNullLocation} warn={metrics.inventoryRowsNullLocation > 0} />
-          <Metric title="Wrong Type (non-bulk in bulk)" value={metrics.wrongTypeNonBulkInBulk} warn={metrics.wrongTypeNonBulkInBulk > 0} />
-          <Metric title="Wrong Type (bulk in non-bulk)" value={metrics.wrongTypeBulkInNonBulk} warn={metrics.wrongTypeBulkInNonBulk > 0} />
-          <Metric title="Invalid Defaults" value={metrics.defaultsToInactiveOrBlocked} warn={metrics.defaultsToInactiveOrBlocked > 0} />
-          <Metric title="Duplicate Primary Bins" value={metrics.duplicatePrimaryLocationCount} warn={metrics.duplicatePrimaryLocationCount > 0} />
-          <Metric title="Stock: Available / Low" value={`${metrics.availableLike} / ${metrics.lowLike}`} />
+      {expanded && (
+        <div id="warehouse-data-integrity-details" className="border-t border-base-300 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-base-content/60">
+              Master-data coverage, storage compatibility, and stock-health diagnostics.
+            </p>
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => void loadMetrics()}
+              disabled={loading}
+              title="Refresh checks"
+            >
+              <span className={`material-symbols-outlined text-base ${loading ? "animate-spin" : ""}`}>refresh</span>
+              Refresh
+            </button>
+          </div>
+          {error ? (
+            <div className="alert alert-warning">
+              <span>{error}</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <Metric title="Materials" value={metrics.totalMaterials} />
+              <Metric title="Defaults Assigned" value={metrics.defaultsAssigned} />
+              <Metric title="Missing Defaults" value={metrics.materialsWithoutDefault} warn={metrics.materialsWithoutDefault > 0} />
+              <Metric title="Inventory Rows" value={metrics.inventoryRows} />
+              <Metric title="Total Qty" value={metrics.inventoryQtySum} />
+              <Metric title="Unassigned Stock Rows" value={metrics.inventoryRowsNullLocation} warn={metrics.inventoryRowsNullLocation > 0} />
+              <Metric title="Pallet Stock in Bulk Bins" value={metrics.wrongTypeNonBulkInBulk} warn={metrics.wrongTypeNonBulkInBulk > 0} />
+              <Metric title="Bulk Stock in Standard Bins" value={metrics.wrongTypeBulkInNonBulk} warn={metrics.wrongTypeBulkInNonBulk > 0} />
+              <Metric title="Invalid Defaults" value={metrics.defaultsToInactiveOrBlocked} warn={metrics.defaultsToInactiveOrBlocked > 0} />
+              <Metric title="Duplicate Primary Bins" value={metrics.duplicatePrimaryLocationCount} warn={metrics.duplicatePrimaryLocationCount > 0} />
+              <Metric title="Stock: Available / Low" value={`${metrics.availableLike} / ${metrics.lowLike}`} />
+            </div>
+          )}
         </div>
       )}
     </div>

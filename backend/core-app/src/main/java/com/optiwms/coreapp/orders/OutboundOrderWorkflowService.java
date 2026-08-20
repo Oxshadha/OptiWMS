@@ -1,6 +1,12 @@
 package com.optiwms.coreapp.orders;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.optiwms.coreapp.notifications.NotificationService;
+import com.optiwms.coreapp.operations.PackingService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.coreapp.tasks.TaskService;
+import com.optiwms.domain.operations.PackingRecord;
 import com.optiwms.coreapp.operations.TaskOperationService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
 import com.optiwms.coreapp.inventory.InventoryService;
@@ -32,6 +38,8 @@ import java.util.UUID;
 @Service
 public class OutboundOrderWorkflowService {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboundOrderWorkflowService.class);
+
     private final OrderService orderService;
     private final TaskService taskService;
     private final OrderItemRepository orderItemRepository;
@@ -39,6 +47,8 @@ public class OutboundOrderWorkflowService {
     private final InventoryService inventoryService;
     private final MaterialService materialService;
     private final TaskOperationService taskOperationService;
+    private final PackingService packingService;
+    private final NotificationService notificationService;
 
     public OutboundOrderWorkflowService(
             OrderService orderService,
@@ -47,7 +57,9 @@ public class OutboundOrderWorkflowService {
             MaterialLocationAssignmentService materialLocationService,
             InventoryService inventoryService,
             MaterialService materialService,
-            TaskOperationService taskOperationService) {
+            TaskOperationService taskOperationService,
+            PackingService packingService,
+            NotificationService notificationService) {
         this.orderService = orderService;
         this.taskService = taskService;
         this.orderItemRepository = orderItemRepository;
@@ -55,6 +67,8 @@ public class OutboundOrderWorkflowService {
         this.inventoryService = inventoryService;
         this.materialService = materialService;
         this.taskOperationService = taskOperationService;
+        this.packingService = packingService;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -72,16 +86,28 @@ public class OutboundOrderWorkflowService {
             throw new RuntimeException("Order must have a warehouse assigned to create picking tasks");
         }
 
-        List<Task> existingPickingTasks = taskService.findByTaskTypeAndReference("picking", "order", orderId);
-        if (!existingPickingTasks.isEmpty()) {
+        // Get all order items
+        List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(orderId);
+
+        if (orderItems.isEmpty()) {
+            // Orders are created before their lines are posted, so the first call lands on an
+            // empty order. Returning quietly lets a later call -- once the lines exist -- build
+            // the tasks, instead of leaving the order with none and invisible to every picker.
             return;
         }
 
-        // Get all order items
-        List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(orderId);
-        
-        if (orderItems.isEmpty()) {
-            return; // No items to pick
+        List<Task> existingPickingTasks = taskService.findByTaskTypeAndReference("picking", "order", orderId);
+        if (!existingPickingTasks.isEmpty()) {
+            // Never rebuild a plan somebody is already working. Anything assigned or past
+            // pending is live work, and regenerating it would strand the picker's task.
+            boolean anyStarted = existingPickingTasks.stream().anyMatch(task ->
+                    task.getAssignedTo() != null || !"pending".equalsIgnoreCase(task.getStatus()));
+            if (anyStarted || existingPickingTasks.size() >= orderItems.size()) {
+                return;
+            }
+            // Untouched tasks built from a partial order: replace them so the plan covers every
+            // line that has since been added.
+            existingPickingTasks.forEach(task -> taskService.deleteById(task.getId()));
         }
 
         boolean allItemsFullyAllocated = true;
@@ -241,6 +267,58 @@ public class OutboundOrderWorkflowService {
     /**
      * Check if all picking tasks for an order are completed
      */
+    /**
+     * Raise the packing job for a fully picked order and put it in front of a manager.
+     *
+     * Nothing created packing records except an admin doing it by hand, so an order that
+     * finished picking simply stopped: the packing queue stayed empty, and with no packing
+     * record there was nothing to ship either.
+     *
+     * The record opens at {@code pending_approval} rather than ready-to-work. Packing was the
+     * only stage with no sign-off, so whatever picking produced went straight to the floor;
+     * holding it here lets a manager correct the job while the order is still theirs to change.
+     */
+    private void openPackingRecord(Order order) {
+        try {
+            if (!packingService.findByOrderId(order.getId()).isEmpty()) {
+                return;
+            }
+            PackingRecord record = new PackingRecord();
+            record.setOrderId(order.getId());
+            record.setOrderNumber(order.getOrderNumber());
+            record.setStatus("pending_approval");
+            packingService.create(record);
+            notifyPackingAwaitingApproval(order);
+        } catch (RuntimeException failure) {
+            // The order is picked either way; a missing packing record is recoverable by hand,
+            // losing the pick confirmation is not.
+            logger.error("Order {} reached picked but no packing record could be opened",
+                    order.getOrderNumber(), failure);
+        }
+    }
+
+    /** Tell whoever can approve that an order is waiting on them. */
+    private void notifyPackingAwaitingApproval(Order order) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,supervisor");
+            notification.setWarehouseId(order.getWarehouseId());
+            notification.setTitle("Packing Approval Needed");
+            notification.setMessage("Order " + order.getOrderNumber()
+                    + " finished picking and is waiting for packing approval.");
+            notification.setNotificationType("packing");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/packing");
+            notification.setMetadata("{\"orderId\":\"" + order.getId()
+                    + "\",\"orderNumber\":\"" + order.getOrderNumber() + "\"}");
+            notification.setCreatedAt(java.time.OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (RuntimeException failure) {
+            logger.warn("Could not notify approvers for order {}", order.getOrderNumber(), failure);
+        }
+    }
+
     public boolean areAllPickingTasksCompleted(UUID orderId) {
         List<Task> pickingTasks = taskService.findByType("picking").stream()
                 .filter(task -> orderId.equals(task.getReferenceId()))
@@ -295,9 +373,18 @@ public class OutboundOrderWorkflowService {
         
         // Check if all items are picked
         if (areAllOrderItemsPicked(orderId) && areAllPickingTasksCompleted(orderId)) {
-            if (!"picked".equals(currentStatus) && !"packing".equals(currentStatus) && 
-                !"ready_to_ship".equals(currentStatus) && !"shipped".equals(currentStatus)) {
+            if ("pending".equals(currentStatus)
+                    || "allocated".equals(currentStatus)
+                    || "partially_allocated".equals(currentStatus)) {
+                // A picker may start a task through the mobile task endpoint, which assigns
+                // the task without advancing the order. Preserve the canonical outbound
+                // state machine instead of attempting the invalid allocated -> picked jump.
+                orderService.updateStatus(orderId, "picking");
+                currentStatus = "picking";
+            }
+            if ("picking".equals(currentStatus)) {
                 orderService.updateStatus(orderId, "picked");
+                openPackingRecord(order);
             }
         } else if ("pending".equals(currentStatus)
                 || "allocated".equals(currentStatus)

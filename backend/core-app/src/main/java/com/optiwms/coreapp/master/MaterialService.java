@@ -25,8 +25,11 @@ import java.util.stream.Collectors;
 
 @Service
 public class MaterialService {
+    private static final List<String> OPERATIONAL_TIERS = List.of(
+            "PROJECT_OPERATIONAL_SIMULATION", "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
     private static final List<String> ALLOWED_STORAGE_TYPES = List.of("pallet", "bulk", "loose", "rack", "cold");
-    private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs", "unit");
+    private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs",
+            "unit");
 
     private final MaterialRepository repository;
     private final MaterialDefaultLocationRepository materialDefaultLocationRepository;
@@ -47,15 +50,16 @@ public class MaterialService {
     /**
      * Normalize material type to ensure consistent values in database.
      * Handles variations like "packing_material" -> "packaging_material"
-     * Industry Best Practice: Centralized normalization prevents data inconsistencies
+     * Industry Best Practice: Centralized normalization prevents data
+     * inconsistencies
      */
     private String normalizeMaterialType(String materialType) {
         if (materialType == null || materialType.trim().isEmpty()) {
             return "raw_material"; // Default
         }
-        
+
         String normalized = materialType.toLowerCase().trim();
-        
+
         // Handle common variations
         if (normalized.equals("packing_material") || normalized.equals("packaging")) {
             return "packaging_material";
@@ -63,16 +67,17 @@ public class MaterialService {
         if (normalized.equals("raw") || normalized.equals("rawmaterial")) {
             return "raw_material";
         }
-        if (normalized.equals("finished_good") || normalized.equals("finished_goods") 
-            || normalized.equals("finished_product") || normalized.equals("products")) {
+        if (normalized.equals("finished_good") || normalized.equals("finished_goods")
+                || normalized.equals("finished_product") || normalized.equals("products")) {
             return "product";
         }
-        
+
         // Return valid values as-is, default invalid ones to raw_material
-        if (normalized.equals("raw_material") || normalized.equals("packaging_material") || normalized.equals("product")) {
+        if (normalized.equals("raw_material") || normalized.equals("packaging_material")
+                || normalized.equals("product")) {
             return normalized;
         }
-        
+
         // Invalid value - default to raw_material
         return "raw_material";
     }
@@ -89,6 +94,18 @@ public class MaterialService {
                 .collect(Collectors.toList());
     }
 
+    public List<Material> listOperational() {
+        return repository.findByDataQualityTierIn(OPERATIONAL_TIERS).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<Material> findOperationalByMaterialType(String materialType) {
+        return repository.findByMaterialTypeAndDataQualityTierIn(materialType, OPERATIONAL_TIERS).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Material findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -101,17 +118,21 @@ public class MaterialService {
         if (exactMatch.isPresent()) {
             return toDomain(exactMatch.get());
         }
-        
+
         // If not found, try case-insensitive lookup
         Optional<MaterialEntity> caseInsensitiveMatch = repository.findByMaterialCodeIgnoreCase(materialCode);
         if (caseInsensitiveMatch.isPresent()) {
             return toDomain(caseInsensitiveMatch.get());
         }
-        
+
         throw new RuntimeException("Material not found: " + materialCode);
     }
 
     public Page<Material> findPaged(String materialType, String query, Pageable pageable) {
+        return findPaged(materialType, query, true, pageable);
+    }
+
+    public Page<Material> findPaged(String materialType, String query, boolean includeLegacy, Pageable pageable) {
         Set<UUID> materialIdsForLocationQuery = Collections.emptySet();
         String normalizedQuery = null;
         if (query != null && !query.isBlank()) {
@@ -127,6 +148,12 @@ public class MaterialService {
         final String finalNormalizedQuery = normalizedQuery;
         Specification<MaterialEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            if (!includeLegacy) {
+                predicates.add(root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
+                        "GENERATED_OPERATIONAL_BASELINE",
+                        "OPERATIONAL_ENTRY"));
+            }
             if (materialType != null && !materialType.isBlank()) {
                 predicates.add(cb.equal(root.get("materialType"), materialType));
             }
@@ -137,32 +164,31 @@ public class MaterialService {
                         cb.like(cb.lower(root.get("description")), pattern),
                         cb.like(cb.lower(root.get("unitType")), pattern),
                         cb.like(cb.lower(root.get("storageType")), pattern),
-                        cb.like(cb.lower(root.get("materialType")), pattern)
-                );
+                        cb.like(cb.lower(root.get("materialType")), pattern));
                 if (!finalMaterialIdsForLocationQuery.isEmpty()) {
                     textMatch = cb.or(
                             textMatch,
-                            root.get("id").in(finalMaterialIdsForLocationQuery)
-                    );
+                            root.get("id").in(finalMaterialIdsForLocationQuery));
                 }
 
                 if (finalNormalizedQuery != null && !finalNormalizedQuery.isBlank()) {
                     var normalizedMaterialCode = cb.function("replace", String.class,
                             cb.function("replace", String.class,
-                                    cb.function("replace", String.class, cb.lower(root.get("materialCode")), cb.literal("-"), cb.literal("")),
+                                    cb.function("replace", String.class, cb.lower(root.get("materialCode")),
+                                            cb.literal("-"), cb.literal("")),
                                     cb.literal(" "), cb.literal("")),
                             cb.literal("_"), cb.literal(""));
                     var normalizedDescription = cb.function("replace", String.class,
                             cb.function("replace", String.class,
-                                    cb.function("replace", String.class, cb.lower(root.get("description")), cb.literal("-"), cb.literal("")),
+                                    cb.function("replace", String.class, cb.lower(root.get("description")),
+                                            cb.literal("-"), cb.literal("")),
                                     cb.literal(" "), cb.literal("")),
                             cb.literal("_"), cb.literal(""));
                     String normalizedPattern = "%" + finalNormalizedQuery + "%";
                     textMatch = cb.or(
                             textMatch,
                             cb.like(normalizedMaterialCode, normalizedPattern),
-                            cb.like(normalizedDescription, normalizedPattern)
-                    );
+                            cb.like(normalizedDescription, normalizedPattern));
                 }
                 predicates.add(textMatch);
             }
@@ -172,7 +198,8 @@ public class MaterialService {
     }
 
     private String normalizeForSearch(String value) {
-        if (value == null) return "";
+        if (value == null)
+            return "";
         return value.toLowerCase().replaceAll("[^a-z0-9]", "");
     }
 
@@ -209,7 +236,12 @@ public class MaterialService {
         entity.setWeightKg(material.getWeightKg());
         entity.setVolumeCm3(material.getVolumeCm3());
         entity.setPalletSpaces(material.getPalletSpaces());
+        entity.setUnitsPerPallet(material.getUnitsPerPallet());
         entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
+        entity.setMinOrderQuantity(material.getMinOrderQuantity());
+        entity.setHandlingUnitType(normalizeUnitType(material.getHandlingUnitType() != null ? material.getHandlingUnitType() : material.getUnitType()));
+        entity.setUnitsPerHandlingUnit(defaultPositive(material.getUnitsPerHandlingUnit(), material.getPalletSpaces(), BigDecimal.ONE));
+        entity.setOrderMultiple(defaultPositive(material.getOrderMultiple(), material.getPalletSpaces(), material.getMinOrderQuantity(), BigDecimal.ONE));
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -220,19 +252,21 @@ public class MaterialService {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Material not found");
         }
-        
+
         // Check if material is referenced in order items
         long orderItemCount = orderItemRepository.findByMaterialId(id).size();
         if (orderItemCount > 0) {
-            throw new RuntimeException("Cannot delete material: It is currently used in " + orderItemCount + " order item(s). Please remove it from all orders first.");
+            throw new RuntimeException("Cannot delete material: It is currently used in " + orderItemCount
+                    + " order item(s). Please remove it from all orders first.");
         }
-        
+
         // Check if material is referenced in inventory
         long inventoryCount = inventoryItemRepository.findByMaterialId(id).size();
         if (inventoryCount > 0) {
-            throw new RuntimeException("Cannot delete material: It has inventory records. Please remove all inventory first.");
+            throw new RuntimeException(
+                    "Cannot delete material: It has inventory records. Please remove all inventory first.");
         }
-        
+
         try {
             repository.deleteById(id);
         } catch (DataIntegrityViolationException e) {
@@ -240,11 +274,14 @@ public class MaterialService {
             String message = e.getMessage();
             if (message != null && message.contains("foreign key constraint")) {
                 if (message.contains("order_items")) {
-                    throw new RuntimeException("Cannot delete material: It is currently used in order items. Please remove it from all orders first.");
+                    throw new RuntimeException(
+                            "Cannot delete material: It is currently used in order items. Please remove it from all orders first.");
                 } else if (message.contains("inventory")) {
-                    throw new RuntimeException("Cannot delete material: It has inventory records. Please remove all inventory first.");
+                    throw new RuntimeException(
+                            "Cannot delete material: It has inventory records. Please remove all inventory first.");
                 } else {
-                    throw new RuntimeException("Cannot delete material: It is referenced by other records in the system.");
+                    throw new RuntimeException(
+                            "Cannot delete material: It is referenced by other records in the system.");
                 }
             }
             throw new RuntimeException("Cannot delete material: It is referenced by other records in the system.");
@@ -276,6 +313,12 @@ public class MaterialService {
         if (material.getMaxPalletWeightKg() != null) {
             entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
         }
+        if (material.getMinOrderQuantity() != null) {
+            entity.setMinOrderQuantity(material.getMinOrderQuantity());
+        }
+        entity.setHandlingUnitType(normalizeUnitType(material.getHandlingUnitType() != null ? material.getHandlingUnitType() : material.getUnitType()));
+        entity.setUnitsPerHandlingUnit(defaultPositive(material.getUnitsPerHandlingUnit(), material.getPalletSpaces(), entity.getPalletSpaces(), BigDecimal.ONE));
+        entity.setOrderMultiple(defaultPositive(material.getOrderMultiple(), material.getPalletSpaces(), material.getMinOrderQuantity(), entity.getMinOrderQuantity(), BigDecimal.ONE));
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -320,10 +363,18 @@ public class MaterialService {
         validatePositiveIfPresent("height_cm", material.getHeightCm());
         validatePositiveIfPresent("pallet_spaces", material.getPalletSpaces());
         validatePositiveIfPresent("max_pallet_weight_kg", material.getMaxPalletWeightKg());
+        validatePositiveIfPresent("min_order_quantity", material.getMinOrderQuantity());
+        validatePositiveIfPresent("units_per_handling_unit", material.getUnitsPerHandlingUnit());
+        validatePositiveIfPresent("order_multiple", material.getOrderMultiple());
+        material.setHandlingUnitType(normalizeUnitType(
+                !isBlank(material.getHandlingUnitType()) ? material.getHandlingUnitType() : unitType));
+        material.setUnitsPerHandlingUnit(defaultPositive(material.getUnitsPerHandlingUnit(), material.getPalletSpaces(), BigDecimal.ONE));
+        material.setOrderMultiple(defaultPositive(material.getOrderMultiple(), material.getPalletSpaces(), material.getMinOrderQuantity(), BigDecimal.ONE));
 
         if (material.getVolumeCm3() == null && material.getLengthCm() != null
                 && material.getWidthCm() != null && material.getHeightCm() != null) {
-            material.setVolumeCm3(material.getLengthCm().multiply(material.getWidthCm()).multiply(material.getHeightCm()));
+            material.setVolumeCm3(
+                    material.getLengthCm().multiply(material.getWidthCm()).multiply(material.getHeightCm()));
         }
 
         if (strictForCreate) {
@@ -396,6 +447,7 @@ public class MaterialService {
         m.setWeightKg(entity.getWeightKg());
         m.setVolumeCm3(entity.getVolumeCm3());
         m.setPalletSpaces(entity.getPalletSpaces());
+        m.setUnitsPerPallet(entity.getUnitsPerPallet());
         m.setStackable(entity.getStackable());
         m.setMaxStackHeight(entity.getMaxStackHeight());
         m.setTemperatureControlled(entity.getTemperatureControlled());
@@ -403,7 +455,19 @@ public class MaterialService {
         m.setFragile(entity.getFragile());
         m.setMaxPalletWeightKg(entity.getMaxPalletWeightKg());
         m.setMinOrderQuantity(entity.getMinOrderQuantity());
+        m.setHandlingUnitType(entity.getHandlingUnitType() != null ? entity.getHandlingUnitType() : entity.getUnitType());
+        m.setUnitsPerHandlingUnit(defaultPositive(entity.getUnitsPerHandlingUnit(), entity.getPalletSpaces(), BigDecimal.ONE));
+        m.setOrderMultiple(defaultPositive(entity.getOrderMultiple(), entity.getPalletSpaces(), entity.getMinOrderQuantity(), BigDecimal.ONE));
         m.setSafetyStockLevel(entity.getSafetyStockLevel());
         return m;
+    }
+
+    private BigDecimal defaultPositive(BigDecimal... values) {
+        for (BigDecimal value : values) {
+            if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                return value;
+            }
+        }
+        return BigDecimal.ONE;
     }
 }

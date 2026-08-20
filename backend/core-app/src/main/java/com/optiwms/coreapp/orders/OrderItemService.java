@@ -39,13 +39,18 @@ public class OrderItemService {
         entity.setQuantity(orderItem.getQuantity());
         entity.setUnitPrice(orderItem.getUnitPrice());
         entity.setPickedQuantity(orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0);
+        entity.setReceivedQuantity(orderItem.getReceivedQuantity() != null ? orderItem.getReceivedQuantity() : 0);
         entity.setPackedQuantity(orderItem.getPackedQuantity() != null ? orderItem.getPackedQuantity() : 0);
         entity.setLocationCode(orderItem.getLocationCode());
+        entity.setWeightKg(orderItem.getWeightKg());
+        entity.setHeightCm(orderItem.getHeightCm());
+        entity.setLengthCm(orderItem.getLengthCm());
+        entity.setWidthCm(orderItem.getWidthCm());
         entity.setBatchNumber(orderItem.getBatchNumber());
         entity.setManufactureDate(orderItem.getManufactureDate());
         entity.setExpiryDate(orderItem.getExpiryDate());
         entity.setStatus(orderItem.getStatus() != null ? orderItem.getStatus() : "pending");
-        
+
         OrderItemEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -69,6 +74,18 @@ public class OrderItemService {
         }
         if (updatedItem.getLocationCode() != null) {
             entity.setLocationCode(updatedItem.getLocationCode());
+        }
+        if (updatedItem.getWeightKg() != null) {
+            entity.setWeightKg(updatedItem.getWeightKg());
+        }
+        if (updatedItem.getHeightCm() != null) {
+            entity.setHeightCm(updatedItem.getHeightCm());
+        }
+        if (updatedItem.getLengthCm() != null) {
+            entity.setLengthCm(updatedItem.getLengthCm());
+        }
+        if (updatedItem.getWidthCm() != null) {
+            entity.setWidthCm(updatedItem.getWidthCm());
         }
         if (updatedItem.getBatchNumber() != null) {
             entity.setBatchNumber(updatedItem.getBatchNumber());
@@ -103,8 +120,13 @@ public class OrderItemService {
         domain.setQuantity(entity.getQuantity());
         domain.setUnitPrice(entity.getUnitPrice());
         domain.setPickedQuantity(entity.getPickedQuantity());
+        domain.setReceivedQuantity(entity.getReceivedQuantity());
         domain.setPackedQuantity(entity.getPackedQuantity());
         domain.setLocationCode(entity.getLocationCode());
+        domain.setWeightKg(entity.getWeightKg());
+        domain.setHeightCm(entity.getHeightCm());
+        domain.setLengthCm(entity.getLengthCm());
+        domain.setWidthCm(entity.getWidthCm());
         domain.setBatchNumber(entity.getBatchNumber());
         domain.setManufactureDate(entity.getManufactureDate());
         domain.setExpiryDate(entity.getExpiryDate());

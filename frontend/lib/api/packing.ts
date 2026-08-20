@@ -82,6 +82,16 @@ export const packingApi = {
     return apiClient.put<PackingRecord>(`/packing/${id}`, record);
   },
 
+  /**
+   * Manager sign-off releasing a packing job to the floor.
+   *
+   * Distinct from updateStatus: approval also raises the packer's task, and must not be
+   * reachable by posting an arbitrary status string.
+   */
+  approve: async (id: string, approvedBy?: string): Promise<PackingRecord> => {
+    return apiClient.post<PackingRecord>(`/packing/${id}/approve`, { approvedBy });
+  },
+
   updateStatus: async (id: string, status: string, workerId?: string): Promise<PackingRecord> => {
     const request: any = { status };
     if (workerId) {

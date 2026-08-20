@@ -10,8 +10,13 @@ public class OrderItem {
     private Integer quantity;
     private BigDecimal unitPrice;
     private Integer pickedQuantity;
+    private Integer receivedQuantity;
     private Integer packedQuantity;
     private String locationCode;
+    private java.math.BigDecimal weightKg;
+    private java.math.BigDecimal heightCm;
+    private java.math.BigDecimal lengthCm;
+    private java.math.BigDecimal widthCm;
     private String batchNumber;
     private java.time.LocalDate manufactureDate;
     private java.time.LocalDate expiryDate;
@@ -66,6 +71,14 @@ public class OrderItem {
         this.pickedQuantity = pickedQuantity;
     }
 
+    public Integer getReceivedQuantity() {
+        return receivedQuantity;
+    }
+
+    public void setReceivedQuantity(Integer receivedQuantity) {
+        this.receivedQuantity = receivedQuantity;
+    }
+
     public Integer getPackedQuantity() {
         return packedQuantity;
     }
@@ -80,6 +93,38 @@ public class OrderItem {
 
     public void setLocationCode(String locationCode) {
         this.locationCode = locationCode;
+    }
+
+    public java.math.BigDecimal getWeightKg() {
+        return weightKg;
+    }
+
+    public void setWeightKg(java.math.BigDecimal weightKg) {
+        this.weightKg = weightKg;
+    }
+
+    public java.math.BigDecimal getHeightCm() {
+        return heightCm;
+    }
+
+    public void setHeightCm(java.math.BigDecimal heightCm) {
+        this.heightCm = heightCm;
+    }
+
+    public java.math.BigDecimal getLengthCm() {
+        return lengthCm;
+    }
+
+    public void setLengthCm(java.math.BigDecimal lengthCm) {
+        this.lengthCm = lengthCm;
+    }
+
+    public java.math.BigDecimal getWidthCm() {
+        return widthCm;
+    }
+
+    public void setWidthCm(java.math.BigDecimal widthCm) {
+        this.widthCm = widthCm;
     }
 
     public String getStatus() {

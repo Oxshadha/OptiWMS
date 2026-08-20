@@ -67,23 +67,41 @@ export function useInventoryData({
       itemsPerPage,
       effectiveWarehouse || "all",
       materialTypeFilter || "all",
+      activeStock,
       searchQuery.trim() || "",
+      sortBy || "sku",
+      sortDirection,
     ],
     queryFn: () =>
       inventoryApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
-        sortBy: "id",
-        sortDir: "desc",
+        sortBy: sortBy || "sku",
+        sortDir: sortDirection,
         warehouseId: effectiveWarehouse,
         materialType: materialTypeFilter,
+        stockState: activeStock.toLowerCase() as "all" | "low" | "available",
         q: searchQuery.trim() || undefined,
+      }),
+  });
+
+  const summaryQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-inventory",
+      "summary",
+      effectiveWarehouse || "all",
+      materialTypeFilter || "all",
+    ],
+    queryFn: () =>
+      inventoryApi.getSummary({
+        warehouseId: effectiveWarehouse,
+        materialType: materialTypeFilter,
       }),
   });
 
   const materialsQuery = useReferenceMaterials();
   const warehousesQuery = useReferenceWarehouses();
-  const invalidateInventoryList = useInvalidateAdminList(["admin-inventory", "paged"]);
+  const invalidateInventoryList = useInvalidateAdminList(["admin-inventory"]);
 
   const warehouses = useMemo(() => {
     const warehousesMap = new Map<string, string>();
@@ -133,8 +151,11 @@ export function useInventoryData({
       const location = item.locationCode || "N/A";
       return {
         id: item.id,
-        sku: material?.materialCode || item.materialId,
-        name: material?.description || "Unknown Material",
+        // The row's own label wins. Falling back to the reference list first made every material
+        // outside the operational tiers render as a raw uuid and "Unknown Material", because that
+        // list is filtered for a reason unrelated to how a row should be named.
+        sku: item.materialCode || material?.materialCode || item.materialId,
+        name: item.materialDescription || material?.description || "Unknown Material",
         qty,
         availableQty,
         reservedQty: Math.ceil(parseFloat(item.reservedQuantity) || 0),
@@ -169,7 +190,7 @@ export function useInventoryData({
     });
   }, [inventoryQuery.data, materialsQuery.data, warehouses]);
 
-  const queryError = inventoryQuery.error || materialsQuery.error || warehousesQuery.error;
+  const queryError = inventoryQuery.error || summaryQuery.error || materialsQuery.error || warehousesQuery.error;
   const error = queryError ? "Failed to load inventory data. Please try again." : null;
   const isLoading =
     (inventoryQuery.isPending && !inventoryQuery.data) ||
@@ -177,6 +198,7 @@ export function useInventoryData({
     (warehousesQuery.isPending && !warehousesQuery.data);
   const isFetching =
     inventoryQuery.isFetching ||
+    summaryQuery.isFetching ||
     materialsQuery.isFetching ||
     warehousesQuery.isFetching;
 
@@ -184,48 +206,19 @@ export function useInventoryData({
     await invalidateInventoryList();
   };
 
-  const filteredInventory = useMemo(() => {
-    const inStockItems = inventoryItems.filter((item) => item.qty > 0);
-
-    let filtered = inStockItems.filter((item) => {
-      const matchesStock =
-        activeStock === "All" ||
-        (activeStock === "Low" && item.status === "Low") ||
-        (activeStock === "Available" && item.status === "Available");
-      return matchesStock;
-    });
-
-    if (sortBy) {
-      filtered = [...filtered].sort((a, b) => {
-        let aVal: string | number = a[sortBy];
-        let bVal: string | number = b[sortBy];
-        if (sortBy === "qty") {
-          aVal = Number(aVal);
-          bVal = Number(bVal);
-        } else {
-          aVal = String(aVal).toLowerCase();
-          bVal = String(bVal).toLowerCase();
-        }
-        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
-        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [inventoryItems, activeStock, sortBy, sortDirection]);
+  const filteredInventory = inventoryItems;
 
   const inStockItems = useMemo(
     () => inventoryItems.filter((item) => item.qty > 0),
     [inventoryItems]
   );
 
-  const totalItems = inventoryQuery.data?.totalElements ?? 0;
+  const totalItems = summaryQuery.data?.totalItems ?? inventoryQuery.data?.totalElements ?? 0;
   const totalPages = Math.max(inventoryQuery.data?.totalPages ?? 1, 1);
   const totalElements = inventoryQuery.data?.totalElements ?? 0;
 
-  const lowStockItems = inStockItems.filter((item) => item.status === "Low").length;
-  const availableItems = inStockItems.filter((item) => item.status === "Available").length;
+  const lowStockItems = summaryQuery.data?.lowStockItems ?? 0;
+  const availableItems = summaryQuery.data?.inStockItems ?? 0;
 
   return {
     warehouses,

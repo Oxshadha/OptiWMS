@@ -3,6 +3,7 @@ package com.optiwms.coreapi.config;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.context.request.WebRequest;
 
 import java.time.Duration;
@@ -18,7 +19,8 @@ public final class ReferenceDataCacheSupport {
     private ReferenceDataCacheSupport() {
     }
 
-    public static <T> ResponseEntity<T> ok(WebRequest request, T body, Object... cacheKeyParts) {
+    @SuppressWarnings("null")
+    public static <T> ResponseEntity<T> ok(@NonNull WebRequest request, T body, Object... cacheKeyParts) {
         String eTag = buildEtag(cacheKeyParts);
         if (request.checkNotModified(eTag)) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)

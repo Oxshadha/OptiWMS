@@ -1,5 +1,7 @@
 package com.optiwms.coreapp.orders;
 
+import com.optiwms.coreapp.tasks.TaskService;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
@@ -18,10 +20,17 @@ public class OrderStatusService {
 
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
+    private final TaskService taskService;
 
-    public OrderStatusService(OrderService orderService, OrderItemRepository orderItemRepository) {
+    /** Putaway task states that need no further work. */
+    private static final java.util.Set<String> CLOSED_TASK_STATUSES =
+            java.util.Set.of("completed", "cancelled", "skipped");
+
+    public OrderStatusService(OrderService orderService, OrderItemRepository orderItemRepository,
+            TaskService taskService) {
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
+        this.taskService = taskService;
     }
 
     /**
@@ -134,16 +143,34 @@ public class OrderStatusService {
                 .filter(order -> "quality_approved".equals(order.getStatus()) || "putaway_in_progress".equals(order.getStatus()))
                 .toList();
 
-        // Filter to only orders that have items needing putaway
-        // (items received but not yet assigned to locations)
+        // Only orders with work actually left to do.
+        //
+        // Having received stock is not the same as having putaway outstanding: an order whose
+        // pallets have all been put away kept matching on received quantity alone, so finished
+        // orders stayed in the worker's list forever and there was no way to tell what was still
+        // owed from what was already done.
         return receivedOrders.stream()
-                .filter(order -> {
-                    List<OrderItemEntity> items = orderItemRepository.findByOrderId(order.getId());
-                    return items.stream().anyMatch(item -> {
-                        Integer receivedQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : 0;
-                        return receivedQty > 0; // Has received items
-                    });
-                })
+                .filter(order -> hasOutstandingPutaway(order.getId()))
                 .toList();
+    }
+
+    /** True when some received line still has a putaway task open, or has no task at all yet. */
+    private boolean hasOutstandingPutaway(UUID orderId) {
+        List<OrderItemEntity> items = orderItemRepository.findByOrderId(orderId);
+        return items.stream().anyMatch(item -> {
+            Integer receivedQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : 0;
+            if (receivedQty <= 0) {
+                return false;
+            }
+            List<Task> tasks = taskService.findByTaskTypeAndReference("putaway", "order_item", item.getId());
+            if (tasks.isEmpty()) {
+                // Received but not yet planned: still the worker's problem.
+                return true;
+            }
+            // Cancelled work is finished work as far as the queue is concerned; leaving it
+            // outstanding kept abandoned tasks in the worker's list with no way to clear them.
+            return tasks.stream().anyMatch(task -> !CLOSED_TASK_STATUSES.contains(
+                    task.getStatus() == null ? "" : task.getStatus().toLowerCase(java.util.Locale.ROOT)));
+        });
     }
 }

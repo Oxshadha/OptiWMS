@@ -22,6 +22,7 @@ import java.util.UUID;
 @Service
 public class PutawayService {
     private static final Pattern PUTAWAY_PROGRESS_PATTERN = Pattern.compile("PUTAWAY_PROGRESS=(\\d+)/(\\d+)");
+    private static final Pattern PUTAWAY_HU_QTY_PATTERN = Pattern.compile("PUTAWAY_HU_QTY=(\\d+)");
     private static final Pattern PUTAWAY_SKIP_REASON_PATTERN = Pattern.compile("(?m)^PUTAWAY_SKIP_REASON=.*(?:\\R|$)");
 
     private final TaskService taskService;
@@ -66,11 +67,15 @@ public class PutawayService {
         Integer actualQuantity = quantity;
         UUID orderIdForStatusUpdate = null;
         Integer requiredQuantityForTask = null;
+        String receivedBatchNumber = null;
+        boolean requiresReceivedInventoryMove = false;
 
         if (task.getReferenceId() != null && "order_item".equals(task.getReferenceType())) {
             OrderItemEntity orderItem = orderItemRepository.findById(task.getReferenceId())
                     .orElseThrow(() -> new RuntimeException("Order item not found for putaway task"));
             orderIdForStatusUpdate = orderItem.getOrderId();
+            receivedBatchNumber = orderItem.getBatchNumber();
+            requiresReceivedInventoryMove = true;
             var order = orderService.findById(orderIdForStatusUpdate);
             if (!"quality_approved".equals(order.getStatus())
                     && !"putaway_in_progress".equals(order.getStatus())
@@ -84,10 +89,16 @@ public class PutawayService {
             if (actualMaterialId == null) {
                 actualMaterialId = orderItem.getMaterialId();
             }
+            // A putaway task is one pallet, so it owes only that pallet's quantity. Falling back
+            // to the whole line total would make each of N pallet tasks demand the full receipt.
+            Integer handlingUnitQuantity = extractHandlingUnitQuantity(task.getNotes());
+            Integer lineQuantity = orderItem.getPickedQuantity() != null
+                    ? orderItem.getPickedQuantity()
+                    : orderItem.getQuantity();
             if (actualQuantity == null || actualQuantity <= 0) {
-                actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+                actualQuantity = handlingUnitQuantity != null ? handlingUnitQuantity : lineQuantity;
             }
-            requiredQuantityForTask = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+            requiredQuantityForTask = handlingUnitQuantity != null ? handlingUnitQuantity : lineQuantity;
         }
 
         if (actualMaterialId == null && task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
@@ -128,6 +139,20 @@ public class PutawayService {
         final UUID finalWarehouseId = task.getWarehouseId();
         final String finalLocationCode = locationCode;
 
+        List<InventoryItem> receivedInventory = requiresReceivedInventoryMove
+                ? findUnlocatedReceivedInventory(finalMaterialId, finalWarehouseId, receivedBatchNumber)
+                : List.of();
+        if (requiresReceivedInventoryMove) {
+            int receivedUnits = receivedInventory.stream()
+                    .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
+                    .sum();
+            if (receivedUnits < finalQuantity) {
+                throw new RuntimeException(
+                        "Insufficient unlocated received inventory for putaway. Available: " + receivedUnits
+                                + ", requested: " + finalQuantity);
+            }
+        }
+
         // Assign material to location using MaterialLocationAssignmentService
         InventoryItem inventoryItem = materialLocationService.assignMaterialToLocation(
                 finalMaterialId,
@@ -135,8 +160,20 @@ public class PutawayService {
                 finalQuantity,
                 finalLocationCode
         );
-        
-        inventoryService.createOrUpdate(inventoryItem);
+        if (requiresReceivedInventoryMove) {
+            consumeUnlocatedReceivedInventory(receivedInventory, finalQuantity);
+            if (receivedBatchNumber != null && !receivedBatchNumber.isBlank()
+                    && (inventoryItem.getBatchNumber() == null || inventoryItem.getBatchNumber().isBlank())) {
+                inventoryItem.setBatchNumber(receivedBatchNumber);
+                inventoryService.update(inventoryItem.getId(), inventoryItem);
+            }
+        }
+
+        // Stamp the bin the pallet actually went into, for partial and full moves alike. Workers
+        // can and do override the planned destination; leaving the task pointing at the plan made
+        // the route guide release the wrong stop and keep steering them back to a bin they had
+        // already emptied their forks into.
+        taskService.updateLocationCode(taskId, finalLocationCode);
 
         Integer newCompletedQuantity = completedQuantity + actualQuantity;
         if (newCompletedQuantity < requiredQuantity) {
@@ -265,7 +302,18 @@ public class PutawayService {
                     return true; // Not received yet, skip
                 }
                 List<Task> tasks = taskService.findByTaskTypeAndReference("putaway", "order_item", item.getId());
-                return !tasks.isEmpty() && tasks.stream().allMatch(t -> "completed".equals(t.getStatus()));
+                if (tasks.isEmpty() || !tasks.stream().allMatch(t -> "completed".equals(t.getStatus()))) {
+                    return false;
+                }
+                // Completing every task is not the same as putting the receipt away. When the
+                // planner could not place every pallet it creates tasks only for the pallets that
+                // fit, and closing the order on task completion alone stranded the remainder as
+                // unlocated stock that picking could never see. Require the work to actually cover
+                // what was received.
+                int putAwayUnits = tasks.stream()
+                        .mapToInt(task -> extractCompletedQuantity(task.getNotes()))
+                        .sum();
+                return putAwayUnits >= receivedQty;
             });
         } else {
             // Backward compatibility: legacy data without item-level tasks.
@@ -320,19 +368,51 @@ public class PutawayService {
 
     public record PutawayResult(boolean success, String message, UUID taskId) {}
 
-    private Integer extractCompletedQuantity(String notes) {
-        if (notes == null || notes.isBlank()) {
-            return 0;
-        }
-        Matcher matcher = PUTAWAY_PROGRESS_PATTERN.matcher(notes);
-        if (matcher.find()) {
-            try {
-                return Integer.parseInt(matcher.group(1));
-            } catch (NumberFormatException ignored) {
-                return 0;
+    private List<InventoryItem> findUnlocatedReceivedInventory(
+            UUID materialId,
+            UUID warehouseId,
+            String batchNumber) {
+        return inventoryService.findByMaterialAndWarehouse(materialId, warehouseId).stream()
+                .filter(item -> item.getLocationCode() == null || item.getLocationCode().isBlank())
+                .filter(item -> item.getQuantity() != null && item.getQuantity() > 0)
+                .filter(item -> batchNumber == null || batchNumber.isBlank()
+                        || batchNumber.equals(item.getBatchNumber()))
+                .sorted(java.util.Comparator.comparing(
+                        InventoryItem::getCreatedAt,
+                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private void consumeUnlocatedReceivedInventory(List<InventoryItem> sourceInventory, int quantity) {
+        int remaining = quantity;
+        for (InventoryItem source : sourceInventory) {
+            if (remaining <= 0) break;
+            int sourceQuantity = source.getQuantity() != null ? source.getQuantity() : 0;
+            int moved = Math.min(sourceQuantity, remaining);
+            source.setQuantity(sourceQuantity - moved);
+            int sourceAvailable = source.getAvailableQuantity() != null ? source.getAvailableQuantity() : sourceQuantity;
+            source.setAvailableQuantity(Math.max(sourceAvailable - moved, 0));
+            if (source.getQuantity() == 0) {
+                source.setStatus("depleted");
             }
+            inventoryService.update(source.getId(), source);
+            remaining -= moved;
         }
-        return 0;
+        if (remaining > 0) {
+            throw new RuntimeException("Failed to move the complete received quantity into storage");
+        }
+    }
+
+    /**
+     * Reads the pallet quantity this task is responsible for, written by PutawayTaskService.
+     * Returns null for legacy line-scoped tasks created before per-pallet splitting.
+     */
+    private Integer extractHandlingUnitQuantity(String notes) {
+        return PutawayTaskNotes.handlingUnitQuantity(notes).orElse(null);
+    }
+
+    private Integer extractCompletedQuantity(String notes) {
+        return PutawayTaskNotes.completedQuantity(notes);
     }
 
     private String upsertPutawayProgressNote(String existingNotes, Integer completed, Integer required) {

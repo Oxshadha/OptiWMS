@@ -1,0 +1,1121 @@
+{
+  "acceptance_gate": {
+    "body": {
+      "checks": [
+        {
+          "comparator": "<=",
+          "name": "wape",
+          "pass": false,
+          "threshold": 0.135,
+          "value": 0.15214054545454544
+        },
+        {
+          "comparator": "<=",
+          "name": "bias_abs",
+          "pass": true,
+          "threshold": 0.1,
+          "value": 0.005821529064069788
+        },
+        {
+          "comparator": "<=",
+          "name": "under_forecast_rate",
+          "pass": true,
+          "threshold": 0.6,
+          "value": 0.4107091818181818
+        },
+        {
+          "comparator": "<=",
+          "name": "mase_mean",
+          "pass": true,
+          "threshold": 1.1,
+          "value": 0.5762745454545454
+        },
+        {
+          "comparator": ">=",
+          "name": "serving_window_count",
+          "pass": true,
+          "threshold": 1,
+          "value": 12
+        },
+        {
+          "comparator": "<=",
+          "name": "fallback_rate",
+          "pass": false,
+          "threshold": 0.05,
+          "value": 1.0
+        },
+        {
+          "comparator": "<=",
+          "name": "hard_error_rate",
+          "pass": false,
+          "threshold": 0.01,
+          "value": 1.0
+        },
+        {
+          "comparator": "<=",
+          "name": "p95_latency_ms",
+          "pass": true,
+          "threshold": 2500.0,
+          "value": 27.043
+        }
+      ],
+      "dataset": "P",
+      "inference_window": 500,
+      "model_name": "LIGHTGBM",
+      "quality_summary": {
+        "Bias_abs": 98.41187272727278,
+        "Bias_abs_pct": 0.005821529064069788,
+        "MASE_mean": 0.5762745454545454,
+        "WAPE": 0.15214054545454544,
+        "under_forecast_rate": 0.4107091818181818
+      },
+      "ready": false,
+      "serving_summary": {
+        "count": 12,
+        "fallback_rate": 1.0,
+        "hard_error_rate": 1.0,
+        "p95_latency_ms": 27.043
+      },
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/acceptance-gate?dataset=P&model_name=LIGHTGBM&split=test&inference_window=500"
+  },
+  "business_plausibility": {
+    "checks": {
+      "forecast_non_negative": true,
+      "forecast_rows_gt_0": true,
+      "inventory_rows_gt_0": true,
+      "quantile_order_valid": true,
+      "reorder_le_target_max": true,
+      "suggested_non_negative": true,
+      "suggested_zero_when_on_hand_above_target": true
+    },
+    "status": "ok",
+    "summary": {
+      "forecast_rows": 4080,
+      "inventory_rows": 190,
+      "top_suggested_order_qty": 1272232.06,
+      "violations": {
+        "negative_forecast_values": 0,
+        "negative_suggested_order_qty": 0,
+        "quantile_order": 0,
+        "reorder_gt_target_max": 0,
+        "suggested_nonzero_when_onhand_above_target": 0
+      }
+    }
+  },
+  "params": {
+    "dataset": "P",
+    "inference_window": 500,
+    "model_name": "LIGHTGBM",
+    "soak_hours": 24,
+    "split": "test",
+    "warehouse_id": null,
+    "warmup_mode": "online",
+    "warmup_online_runs": 0
+  },
+  "production_readiness": {
+    "body": {
+      "checks": [
+        {
+          "details": {
+            "missing_columns": {},
+            "missing_tables": [],
+            "mode": "wms_db",
+            "reason": "validated",
+            "schema": "public",
+            "status": "ok"
+          },
+          "name": "runtime_contract_ok",
+          "pass": true,
+          "value": "ok"
+        },
+        {
+          "name": "latest_published_run_exists",
+          "pass": true,
+          "value": 245
+        },
+        {
+          "details": {
+            "checks": [
+              {
+                "comparator": "<=",
+                "name": "wape",
+                "pass": false,
+                "threshold": 0.135,
+                "value": 0.15214054545454544
+              },
+              {
+                "comparator": "<=",
+                "name": "bias_abs",
+                "pass": true,
+                "threshold": 0.1,
+                "value": 0.005821529064069788
+              },
+              {
+                "comparator": "<=",
+                "name": "under_forecast_rate",
+                "pass": true,
+                "threshold": 0.6,
+                "value": 0.4107091818181818
+              },
+              {
+                "comparator": "<=",
+                "name": "mase_mean",
+                "pass": true,
+                "threshold": 1.1,
+                "value": 0.5762745454545454
+              },
+              {
+                "comparator": ">=",
+                "name": "serving_window_count",
+                "pass": true,
+                "threshold": 1,
+                "value": 12
+              },
+              {
+                "comparator": "<=",
+                "name": "fallback_rate",
+                "pass": false,
+                "threshold": 0.05,
+                "value": 1.0
+              },
+              {
+                "comparator": "<=",
+                "name": "hard_error_rate",
+                "pass": false,
+                "threshold": 0.01,
+                "value": 1.0
+              },
+              {
+                "comparator": "<=",
+                "name": "p95_latency_ms",
+                "pass": true,
+                "threshold": 2500.0,
+                "value": 27.043
+              }
+            ],
+            "dataset": "P",
+            "inference_window": 500,
+            "model_name": "LIGHTGBM",
+            "quality_summary": {
+              "Bias_abs": 98.41187272727278,
+              "Bias_abs_pct": 0.005821529064069788,
+              "MASE_mean": 0.5762745454545454,
+              "WAPE": 0.15214054545454544,
+              "under_forecast_rate": 0.4107091818181818
+            },
+            "ready": false,
+            "serving_summary": {
+              "count": 12,
+              "fallback_rate": 1.0,
+              "hard_error_rate": 1.0,
+              "p95_latency_ms": 27.043
+            },
+            "split": "test"
+          },
+          "name": "acceptance_gate_ready",
+          "pass": false,
+          "value": false
+        },
+        {
+          "details": {
+            "dataset": "P",
+            "model_name": "LIGHTGBM",
+            "rules_triggered": [
+              {
+                "message": "Fallback usage rate above threshold.",
+                "rule": "fallback_rate",
+                "status": "warn",
+                "threshold": 0.05,
+                "value": 1.0
+              },
+              {
+                "message": "Inference error count above threshold.",
+                "rule": "errors_count",
+                "status": "critical",
+                "threshold": 1,
+                "value": 12
+              }
+            ],
+            "status": "critical",
+            "summary": {
+              "avg_latency_ms": 18.093,
+              "count": 12,
+              "fallback_rate": 1.0,
+              "p95_latency_ms": 27.043,
+              "total_errors": 12
+            },
+            "window_size": 500
+          },
+          "name": "inference_not_critical",
+          "pass": false,
+          "value": "critical"
+        },
+        {
+          "name": "soak_window_no_critical",
+          "pass": true,
+          "threshold": 0,
+          "value": 0,
+          "window_hours": 24
+        }
+      ],
+      "dataset": "P",
+      "inference_window": 500,
+      "latest_operational_health": {
+        "created_at": "2026-05-24T12:00:20.195271",
+        "details": {
+          "drift": {
+            "baseline_run_id": 243,
+            "baseline_wape": 0.15305754545454545,
+            "current_run_id": 244,
+            "current_wape": 0.15305754545454545,
+            "increase_ratio": 0.0,
+            "reason": "stable",
+            "status": "ok",
+            "threshold_ratio": 0.25
+          },
+          "freshness": {
+            "age_minutes": 5710.5,
+            "latest_run_id": 244,
+            "reason": "stale_latest_run",
+            "status": "warn",
+            "threshold_minutes": 180.0
+          },
+          "inference": {
+            "dataset": null,
+            "model_name": null,
+            "rules_triggered": [],
+            "status": "ok",
+            "summary": {
+              "avg_latency_ms": 723.305,
+              "count": 36,
+              "fallback_rate": 0.0,
+              "p95_latency_ms": 953.698,
+              "total_errors": 0
+            },
+            "window_size": 200
+          }
+        },
+        "drift_status": "ok",
+        "freshness_status": "warn",
+        "id": 1672,
+        "inference_status": "ok",
+        "status": "warn"
+      },
+      "model_name": "LIGHTGBM",
+      "ready": false,
+      "soak_hours": 24,
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/production-readiness?dataset=P&model_name=LIGHTGBM&split=test&inference_window=500&soak_hours=24"
+  },
+  "release_evidence": {
+    "body": {
+      "acceptance_gate": {
+        "checks": [
+          {
+            "comparator": "<=",
+            "name": "wape",
+            "pass": false,
+            "threshold": 0.135,
+            "value": 0.15214054545454544
+          },
+          {
+            "comparator": "<=",
+            "name": "bias_abs",
+            "pass": true,
+            "threshold": 0.1,
+            "value": 0.005821529064069788
+          },
+          {
+            "comparator": "<=",
+            "name": "under_forecast_rate",
+            "pass": true,
+            "threshold": 0.6,
+            "value": 0.4107091818181818
+          },
+          {
+            "comparator": "<=",
+            "name": "mase_mean",
+            "pass": true,
+            "threshold": 1.1,
+            "value": 0.5762745454545454
+          },
+          {
+            "comparator": ">=",
+            "name": "serving_window_count",
+            "pass": true,
+            "threshold": 1,
+            "value": 12
+          },
+          {
+            "comparator": "<=",
+            "name": "fallback_rate",
+            "pass": false,
+            "threshold": 0.05,
+            "value": 1.0
+          },
+          {
+            "comparator": "<=",
+            "name": "hard_error_rate",
+            "pass": false,
+            "threshold": 0.01,
+            "value": 1.0
+          },
+          {
+            "comparator": "<=",
+            "name": "p95_latency_ms",
+            "pass": true,
+            "threshold": 2500.0,
+            "value": 27.043
+          }
+        ],
+        "dataset": "P",
+        "inference_window": 500,
+        "model_name": "LIGHTGBM",
+        "quality_summary": {
+          "Bias_abs": 98.41187272727278,
+          "Bias_abs_pct": 0.005821529064069788,
+          "MASE_mean": 0.5762745454545454,
+          "WAPE": 0.15214054545454544,
+          "under_forecast_rate": 0.4107091818181818
+        },
+        "ready": false,
+        "serving_summary": {
+          "count": 12,
+          "fallback_rate": 1.0,
+          "hard_error_rate": 1.0,
+          "p95_latency_ms": 27.043
+        },
+        "split": "test"
+      },
+      "dataset": "P",
+      "inference_alerts": {
+        "dataset": "P",
+        "model_name": "LIGHTGBM",
+        "rules_triggered": [
+          {
+            "message": "Fallback usage rate above threshold.",
+            "rule": "fallback_rate",
+            "status": "warn",
+            "threshold": 0.05,
+            "value": 1.0
+          },
+          {
+            "message": "Inference error count above threshold.",
+            "rule": "errors_count",
+            "status": "critical",
+            "threshold": 1,
+            "value": 12
+          }
+        ],
+        "status": "critical",
+        "summary": {
+          "avg_latency_ms": 18.093,
+          "count": 12,
+          "fallback_rate": 1.0,
+          "p95_latency_ms": 27.043,
+          "total_errors": 12
+        },
+        "window_size": 500
+      },
+      "inference_window": 500,
+      "latest_operational_health": {
+        "created_at": "2026-05-24T12:00:20.195271",
+        "details": {
+          "drift": {
+            "baseline_run_id": 243,
+            "baseline_wape": 0.15305754545454545,
+            "current_run_id": 244,
+            "current_wape": 0.15305754545454545,
+            "increase_ratio": 0.0,
+            "reason": "stable",
+            "status": "ok",
+            "threshold_ratio": 0.25
+          },
+          "freshness": {
+            "age_minutes": 5710.5,
+            "latest_run_id": 244,
+            "reason": "stale_latest_run",
+            "status": "warn",
+            "threshold_minutes": 180.0
+          },
+          "inference": {
+            "dataset": null,
+            "model_name": null,
+            "rules_triggered": [],
+            "status": "ok",
+            "summary": {
+              "avg_latency_ms": 723.305,
+              "count": 36,
+              "fallback_rate": 0.0,
+              "p95_latency_ms": 953.698,
+              "total_errors": 0
+            },
+            "window_size": 200
+          }
+        },
+        "drift_status": "ok",
+        "freshness_status": "warn",
+        "id": 1672,
+        "inference_status": "ok",
+        "status": "warn"
+      },
+      "latest_published_run": {
+        "created_at": "2026-05-24T12:00:48.804160",
+        "dataset": "P",
+        "id": 245,
+        "model_name": "LIGHTGBM",
+        "model_version": "v1",
+        "notes": null,
+        "status": "published",
+        "warehouse_id": null
+      },
+      "model_name": "LIGHTGBM",
+      "operational_health_history": {
+        "count": 43,
+        "items": [
+          {
+            "created_at": "2026-05-24T12:00:20.195271",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1672,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-05-24T11:58:20.180514",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1671,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-05-24T11:56:20.162486",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1670,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-05-24T11:54:20.095957",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1669,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-05-20T14:03:02.715402",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1668,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T14:01:02.696668",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1667,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:59:02.679717",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1666,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:57:02.668646",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1665,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:55:02.647314",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1664,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:53:02.629026",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1663,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:51:02.630757",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1662,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:49:02.609925",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1661,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:47:02.586751",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1660,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:45:02.567939",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1659,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:43:02.545986",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1658,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:41:02.523073",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1657,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:39:02.502854",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1656,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:37:02.491677",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1655,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:35:02.484129",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1654,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:33:02.465617",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1653,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:31:02.436276",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1652,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:29:02.412784",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1651,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:27:02.395015",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1650,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:25:02.373299",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1649,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:23:02.352233",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1648,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:21:02.359740",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1647,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:19:02.334891",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1646,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:17:02.308536",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1645,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:15:02.290654",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1644,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:13:02.262177",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1643,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:11:02.250410",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1642,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:09:02.231717",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1641,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:07:02.210248",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1640,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:05:02.221231",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1639,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:03:02.192302",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1638,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T13:01:02.180356",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1637,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:59:02.148391",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1636,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:57:02.117235",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1635,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:55:02.088633",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1634,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:53:02.061685",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1633,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:51:02.057274",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 1632,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-05-20T12:49:02.047721",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1631,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-05-20T12:47:02.022860",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 1630,
+            "inference_status": "ok",
+            "status": "warn"
+          }
+        ]
+      },
+      "production_readiness": {
+        "checks": [
+          {
+            "details": {
+              "missing_columns": {},
+              "missing_tables": [],
+              "mode": "wms_db",
+              "reason": "validated",
+              "schema": "public",
+              "status": "ok"
+            },
+            "name": "runtime_contract_ok",
+            "pass": true,
+            "value": "ok"
+          },
+          {
+            "name": "latest_published_run_exists",
+            "pass": true,
+            "value": 245
+          },
+          {
+            "details": {
+              "checks": [
+                {
+                  "comparator": "<=",
+                  "name": "wape",
+                  "pass": false,
+                  "threshold": 0.135,
+                  "value": 0.15214054545454544
+                },
+                {
+                  "comparator": "<=",
+                  "name": "bias_abs",
+                  "pass": true,
+                  "threshold": 0.1,
+                  "value": 0.005821529064069788
+                },
+                {
+                  "comparator": "<=",
+                  "name": "under_forecast_rate",
+                  "pass": true,
+                  "threshold": 0.6,
+                  "value": 0.4107091818181818
+                },
+                {
+                  "comparator": "<=",
+                  "name": "mase_mean",
+                  "pass": true,
+                  "threshold": 1.1,
+                  "value": 0.5762745454545454
+                },
+                {
+                  "comparator": ">=",
+                  "name": "serving_window_count",
+                  "pass": true,
+                  "threshold": 1,
+                  "value": 12
+                },
+                {
+                  "comparator": "<=",
+                  "name": "fallback_rate",
+                  "pass": false,
+                  "threshold": 0.05,
+                  "value": 1.0
+                },
+                {
+                  "comparator": "<=",
+                  "name": "hard_error_rate",
+                  "pass": false,
+                  "threshold": 0.01,
+                  "value": 1.0
+                },
+                {
+                  "comparator": "<=",
+                  "name": "p95_latency_ms",
+                  "pass": true,
+                  "threshold": 2500.0,
+                  "value": 27.043
+                }
+              ],
+              "dataset": "P",
+              "inference_window": 500,
+              "model_name": "LIGHTGBM",
+              "quality_summary": {
+                "Bias_abs": 98.41187272727278,
+                "Bias_abs_pct": 0.005821529064069788,
+                "MASE_mean": 0.5762745454545454,
+                "WAPE": 0.15214054545454544,
+                "under_forecast_rate": 0.4107091818181818
+              },
+              "ready": false,
+              "serving_summary": {
+                "count": 12,
+                "fallback_rate": 1.0,
+                "hard_error_rate": 1.0,
+                "p95_latency_ms": 27.043
+              },
+              "split": "test"
+            },
+            "name": "acceptance_gate_ready",
+            "pass": false,
+            "value": false
+          },
+          {
+            "details": {
+              "dataset": "P",
+              "model_name": "LIGHTGBM",
+              "rules_triggered": [
+                {
+                  "message": "Fallback usage rate above threshold.",
+                  "rule": "fallback_rate",
+                  "status": "warn",
+                  "threshold": 0.05,
+                  "value": 1.0
+                },
+                {
+                  "message": "Inference error count above threshold.",
+                  "rule": "errors_count",
+                  "status": "critical",
+                  "threshold": 1,
+                  "value": 12
+                }
+              ],
+              "status": "critical",
+              "summary": {
+                "avg_latency_ms": 18.093,
+                "count": 12,
+                "fallback_rate": 1.0,
+                "p95_latency_ms": 27.043,
+                "total_errors": 12
+              },
+              "window_size": 500
+            },
+            "name": "inference_not_critical",
+            "pass": false,
+            "value": "critical"
+          },
+          {
+            "name": "soak_window_no_critical",
+            "pass": true,
+            "threshold": 0,
+            "value": 0,
+            "window_hours": 24
+          }
+        ],
+        "dataset": "P",
+        "inference_window": 500,
+        "latest_operational_health": {
+          "created_at": "2026-05-24T12:00:20.195271",
+          "details": {
+            "drift": {
+              "baseline_run_id": 243,
+              "baseline_wape": 0.15305754545454545,
+              "current_run_id": 244,
+              "current_wape": 0.15305754545454545,
+              "increase_ratio": 0.0,
+              "reason": "stable",
+              "status": "ok",
+              "threshold_ratio": 0.25
+            },
+            "freshness": {
+              "age_minutes": 5710.5,
+              "latest_run_id": 244,
+              "reason": "stale_latest_run",
+              "status": "warn",
+              "threshold_minutes": 180.0
+            },
+            "inference": {
+              "dataset": null,
+              "model_name": null,
+              "rules_triggered": [],
+              "status": "ok",
+              "summary": {
+                "avg_latency_ms": 723.305,
+                "count": 36,
+                "fallback_rate": 0.0,
+                "p95_latency_ms": 953.698,
+                "total_errors": 0
+              },
+              "window_size": 200
+            }
+          },
+          "drift_status": "ok",
+          "freshness_status": "warn",
+          "id": 1672,
+          "inference_status": "ok",
+          "status": "warn"
+        },
+        "model_name": "LIGHTGBM",
+        "ready": false,
+        "soak_hours": 24,
+        "split": "test"
+      },
+      "registry_entries": [],
+      "runtime_contract": {
+        "missing_columns": {},
+        "missing_tables": [],
+        "mode": "wms_db",
+        "reason": "validated",
+        "schema": "public",
+        "status": "ok"
+      },
+      "soak_hours": 24,
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/release-evidence?dataset=P&model_name=LIGHTGBM&split=test&inference_window=500&soak_hours=24&history_limit=50"
+  },
+  "runtime_readiness": {
+    "checks": {
+      "history_rows": 6,
+      "inventory_distinct_warehouses": 1,
+      "inventory_nonzero_on_hand_skus": 190,
+      "inventory_rows_count": 361,
+      "inventory_skus": 190,
+      "order_items_count": 103,
+      "orders_count": 84,
+      "product_materials_count": 190
+    },
+    "missing_columns": {},
+    "missing_tables": [],
+    "outbound_statuses": [
+      "shipped",
+      "delivered",
+      "completed"
+    ],
+    "profiles": {
+      "material_types": [
+        {
+          "count": 190,
+          "material_type": "product"
+        },
+        {
+          "count": 179,
+          "material_type": "raw_material"
+        }
+      ],
+      "order_statuses": [
+        {
+          "count": 44,
+          "status": "pending"
+        },
+        {
+          "count": 10,
+          "status": "received"
+        },
+        {
+          "count": 8,
+          "status": "packed"
+        },
+        {
+          "count": 6,
+          "status": "picking"
+        },
+        {
+          "count": 6,
+          "status": "put_away"
+        },
+        {
+          "count": 4,
+          "status": "cancelled"
+        },
+        {
+          "count": 2,
+          "status": "delivered"
+        },
+        {
+          "count": 2,
+          "status": "quality_approved"
+        },
+        {
+          "count": 2,
+          "status": "return_initiated"
+        }
+      ]
+    },
+    "reason": "live_runtime_data_verified",
+    "schema": "public",
+    "status": "ok",
+    "warehouse_id": null
+  },
+  "summary": {
+    "acceptance_gate_ready": false,
+    "business_plausibility_ok": true,
+    "note": "overall_ok excludes 24h soak unless --strict is set",
+    "overall_ok": false,
+    "production_readiness_ready": false,
+    "runtime_ready": true
+  },
+  "timestamp_utc": "20260524T120216Z",
+  "warmup_results": []
+}

@@ -29,34 +29,24 @@ export function WarehouseLayoutCard({
 
   const getRackFill = (rack: RackUnit): number => {
     const occupied = rack.bins.filter((bin) => bin.status === "occupied" || !!bin.inventory).length;
-    const total = Math.max(rack.maxLevels * 2, 1);
+    const total = Math.max(rack.bins.length, 1);
     return Math.round((occupied / total) * 100);
   };
 
   return (
-    <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm relative">
-      <div className="absolute top-2 right-2 z-20">
-        <div className="bg-base-100 rounded-lg shadow-lg border border-base-300 p-2 min-w-[140px]">
-          <label className="label cursor-pointer gap-2 py-1">
-            <span className="label-text text-xs font-semibold whitespace-nowrap">Velocity Heat Map</span>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary toggle-sm"
-              checked={showVelocity}
-              onChange={(event) => onToggleVelocity(event.target.checked)}
-            />
-          </label>
-          {showVelocity && (
-            <div className="mt-2 text-xs text-base-content/60 space-y-1 pt-2 border-t border-base-300">
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#22C55E] flex-shrink-0"></div><span className="text-xs">Low (0-20%)</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#F59E0B] flex-shrink-0"></div><span className="text-xs">Medium (20-50%)</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#DC2626] flex-shrink-0"></div><span className="text-xs">High (50-100%)</span></div>
-            </div>
-          )}
+    <section className="min-w-0 max-w-full bg-base-100 border border-base-300 p-5 shadow-sm relative">
+      <div className="mb-4 flex items-center justify-between gap-6">
+        <div>
+          <h3 className="text-base font-semibold text-base-content">Operational Rack Plan</h3>
+          <p className="mt-1 text-sm text-base-content/60">Metric rack coordinates with complete L1-L5 occupancy and suitability evidence.</p>
+        </div>
+        <div className="flex shrink-0 gap-5 text-sm text-base-content/70">
+          <span><strong className="text-base-content">{layout.racks.length}</strong> racks</span>
+          <span><strong className="text-base-content">{layout.racks.reduce((sum, rack) => sum + rack.bins.length, 0)}</strong> bins</span>
         </div>
       </div>
 
-      <div className="h-[800px] w-full rounded-lg overflow-x-auto overflow-y-auto border border-base-300">
+      <div className="h-[760px] min-w-0 max-w-full w-full overflow-auto border border-base-300 bg-base-100">
         <WarehouseLayoutVisualization
           layout={layout}
           onRackClick={onRackClick}
@@ -66,48 +56,60 @@ export function WarehouseLayoutCard({
         />
       </div>
 
-      <div className="mt-4 rounded-lg border border-base-300 p-3 bg-base-100">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-semibold text-base-content">ZONE-BULK</h4>
-            <span className="text-xs text-base-content/60">
-              {bulkRacks.length} rack{bulkRacks.length > 1 ? "s" : ""}
+      <div className="mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h4 className="text-lg font-semibold text-base-content">Bulk-Capable Racks</h4>
+              <p className="text-sm text-base-content/60 mt-1">
+                Dedicated capacity for non-standard handling units
+              </p>
+            </div>
+            <span className="badge bg-base-100 border-base-200 shadow-sm text-base-content/70">
+              {bulkRacks.length} rack{bulkRacks.length !== 1 ? "s" : ""}
             </span>
           </div>
-          <p className="text-xs text-base-content/70 mb-3">
-            Bulk-storage racks (drums/tanks/non-pallet). Click any row to open detailed rack/bin data.
-          </p>
+          
           {bulkRacks.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="table table-xs">
-                <thead>
+            <div className="overflow-x-auto border border-base-200 rounded-xl bg-base-100 shadow-sm">
+              <table className="table">
+                <thead className="bg-base-200/50 text-base-content/70">
                   <tr>
-                    <th>Rack</th>
-                    <th>Class</th>
-                    <th>Status</th>
-                    <th>Fill</th>
-                    <th></th>
+                    <th className="font-medium">Rack ID</th>
+                    <th className="font-medium">Physical Zone</th>
+                    <th className="font-medium">Class</th>
+                    <th className="font-medium">Status</th>
+                    <th className="font-medium">Fill</th>
+                    <th className="text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {bulkRacks.map((rack) => (
                     <tr
                       key={rack.id}
-                      className="cursor-pointer hover:bg-base-200/60"
+                      className="cursor-pointer hover:bg-base-200/40 transition-colors border-b border-base-200 last:border-0"
                       onClick={() => onRackClick(rack)}
                     >
-                      <td className="font-mono">{rack.id}</td>
-                      <td>{(rack.amalgamatedClass || "CM").toUpperCase()}</td>
-                      <td className="capitalize">{rack.status.replaceAll("_", " ")}</td>
-                      <td>{getRackFill(rack)}%</td>
-                      <td>
+                      <td className="font-mono text-sm font-medium">{rack.id}</td>
+                      <td className="text-sm">{(rack.zone || "-").toUpperCase()}</td>
+                      <td className="text-sm">{(rack.amalgamatedClass || "CM").toUpperCase()}</td>
+                      <td className="text-sm capitalize">{rack.status.replaceAll("_", " ")}</td>
+                      <td className="text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 h-2 bg-base-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-primary" style={{ width: `${getRackFill(rack)}%` }} />
+                          </div>
+                          <span>{getRackFill(rack)}%</span>
+                        </div>
+                      </td>
+                      <td className="text-right">
                         <button
-                          className="btn btn-ghost btn-xs"
+                          className="btn btn-ghost btn-sm text-primary hover:bg-primary/10"
                           onClick={(event) => {
                             event.stopPropagation();
                             onRackClick(rack);
                           }}
                         >
-                          View
+                          View Details
                         </button>
                       </td>
                     </tr>
@@ -116,20 +118,21 @@ export function WarehouseLayoutCard({
               </table>
             </div>
           ) : (
-            <div className="text-xs text-base-content/60 rounded-md border border-dashed border-base-300 p-3">
-              No bulk racks found in current warehouse layout.
+            <div className="text-center py-8 bg-base-100 border border-dashed border-base-300 rounded-xl">
+              <span className="material-symbols-outlined text-4xl text-base-content/20 mb-2">inventory_2</span>
+              <p className="text-sm text-base-content/60">No bulk racks found in current layout.</p>
             </div>
           )}
       </div>
 
-      <div className="flex items-start gap-2 mt-4">
-        <span className="material-symbols-outlined text-base-content/60 text-sm mt-0.5">info</span>
-        <p className="text-sm text-base-content/70 leading-relaxed">
+      <div className="flex items-start gap-2 mt-6 p-4 bg-info/5 rounded-xl border border-info/10">
+        <span className="material-symbols-outlined text-info text-xl">info</span>
+        <p className="text-sm text-base-content/70 leading-relaxed pt-0.5">
           {canEditRacks
             ? "Click an active rack to view levels. Click a reserved/maintenance/out-of-service rack to edit its status."
             : "Click on any rack to view its side elevation and all vertical levels"}
         </p>
       </div>
-    </div>
+    </section>
   );
 }

@@ -6,8 +6,10 @@ import com.optiwms.coreapp.inventory.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -20,10 +22,38 @@ public class InventoryController {
 
     private final InventoryService inventoryService;
     private final NotificationService notificationService;
+    private final com.optiwms.infra.master.MaterialRepository materialRepository;
 
-    public InventoryController(InventoryService inventoryService, NotificationService notificationService) {
+    public InventoryController(
+            InventoryService inventoryService,
+            NotificationService notificationService,
+            com.optiwms.infra.master.MaterialRepository materialRepository) {
         this.inventoryService = inventoryService;
         this.notificationService = notificationService;
+        this.materialRepository = materialRepository;
+    }
+
+    /**
+     * Material code and description for the given stock rows, read in one query.
+     *
+     * <p>The client used to label rows by joining them against the materials reference list, which
+     * is deliberately filtered to operational tiers. Anything outside those tiers -- currently about
+     * a third of the catalogue, on a null tier -- fell out of the join and rendered as a raw uuid
+     * and "Unknown Material". A row's own label must not depend on an unrelated data-quality filter,
+     * so it is resolved here against the material by id.
+     */
+    private java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> materialsFor(
+            List<com.optiwms.domain.inventory.InventoryItem> items) {
+        java.util.Set<UUID> ids = items.stream()
+                .map(com.optiwms.domain.inventory.InventoryItem::getMaterialId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> byId = new java.util.HashMap<>();
+        materialRepository.findAllById(ids).forEach(material -> byId.put(material.getId(), material));
+        return byId;
     }
 
     @GetMapping
@@ -49,8 +79,9 @@ public class InventoryController {
             items = inventoryService.listAll();
         }
 
+        var materials = materialsFor(items);
         var data = items.stream()
-                .map(item -> toDto(item))
+                .map(item -> toDto(item, materials))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -59,12 +90,14 @@ public class InventoryController {
     public ResponseEntity<PagedInventoryResponse> listPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(defaultValue = "sku") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir,
             @RequestParam(required = false) UUID materialId,
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String stockState,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q
     ) {
         int safePage = Math.max(page, 0);
@@ -80,12 +113,15 @@ public class InventoryController {
                 warehouseId,
                 materialType,
                 status,
+                stockState,
                 q,
+                includeLegacy,
                 PageRequest.of(safePage, safeSize, sort)
         );
 
+        var pageMaterials = materialsFor(itemPage.getContent());
         List<InventoryItemDto> data = itemPage.getContent().stream()
-                .map(this::toDto)
+                .map(item -> toDto(item, pageMaterials))
                 .toList();
 
         return ResponseEntity.ok(new PagedInventoryResponse(
@@ -95,6 +131,19 @@ public class InventoryController {
                 itemPage.getTotalElements(),
                 itemPage.getTotalPages()
         ));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<InventorySummaryResponse> summary(
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String materialType
+    ) {
+        var summary = inventoryService.summarize(warehouseId, materialType);
+        return ResponseEntity.ok(new InventorySummaryResponse(
+                summary.totalItems(),
+                summary.inStockItems(),
+                summary.lowStockItems(),
+                summary.outOfStockItems()));
     }
 
     @GetMapping("/{id}")
@@ -110,19 +159,22 @@ public class InventoryController {
     @GetMapping("/material/{materialId}")
     public ResponseEntity<List<InventoryItemDto>> getByMaterial(@PathVariable UUID materialId) {
         var items = inventoryService.findByMaterial(materialId);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @GetMapping("/warehouse/{warehouseId}")
     public ResponseEntity<List<InventoryItemDto>> getByWarehouse(@PathVariable UUID warehouseId) {
         var items = inventoryService.findByWarehouse(warehouseId);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @GetMapping("/location/{locationCode}")
     public ResponseEntity<List<InventoryItemDto>> getByLocation(@PathVariable String locationCode) {
         var items = inventoryService.findByLocationCode(locationCode);
-        return ResponseEntity.ok(items.stream().map(this::toDto).toList());
+        var batch = materialsFor(items);
+        return ResponseEntity.ok(items.stream().map(item -> toDto(item, batch)).toList());
     }
 
     @PatchMapping("/{id}/quantity")
@@ -146,7 +198,7 @@ public class InventoryController {
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
@@ -252,7 +304,7 @@ public class InventoryController {
             );
             return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
@@ -292,13 +344,25 @@ public class InventoryController {
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
     // Helper method to convert domain to DTO with String quantities
+    /** Single-row mapping; resolves the material label on its own. */
     private InventoryItemDto toDto(com.optiwms.domain.inventory.InventoryItem item) {
+        return toDto(item, materialsFor(List.of(item)));
+    }
+
+    private InventoryItemDto toDto(
+            com.optiwms.domain.inventory.InventoryItem item,
+            java.util.Map<UUID, com.optiwms.infra.master.MaterialEntity> materials) {
+        com.optiwms.infra.master.MaterialEntity material = item.getMaterialId() != null
+                ? materials.get(item.getMaterialId())
+                : null;
         return new InventoryItemDto(
+                material != null ? material.getMaterialCode() : null,
+                material != null ? material.getDescription() : null,
                 item.getId(),
                 item.getMaterialId(),
                 item.getWarehouseId(),
@@ -370,6 +434,9 @@ public class InventoryController {
     }
 
     public record InventoryItemDto(
+            /** Label carried on the row so the client never has to join to get it. */
+            String materialCode,
+            String materialDescription,
             UUID id,
             UUID materialId,
             UUID warehouseId,
@@ -425,6 +492,13 @@ public class InventoryController {
             int totalPages
     ) {}
 
+    public record InventorySummaryResponse(
+            long totalItems,
+            long inStockItems,
+            long lowStockItems,
+            long outOfStockItems
+    ) {}
+
     public record CreateInventoryRequest(
             UUID materialId,
             UUID warehouseId,
@@ -466,11 +540,15 @@ public class InventoryController {
 
     private String sanitizeSortBy(String sortBy) {
         if (sortBy == null || sortBy.isBlank()) {
-            return "createdAt";
+            return "material.materialCode";
         }
         return switch (sortBy) {
+            case "sku" -> "material.materialCode";
+            case "name" -> "material.description";
+            case "qty" -> "quantity";
+            case "location" -> "locationCode";
             case "id", "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
-            default -> "createdAt";
+            default -> "material.materialCode";
         };
     }
 }

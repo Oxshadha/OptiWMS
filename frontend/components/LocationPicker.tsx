@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QRScanner } from "./QRScanner";
+import { locationsApi } from "@/lib/api/locations";
+import { logger } from "@/lib/utils/logger";
 
 interface LocationPickerProps {
   onLocationSelect: (locationCode: string) => void;
@@ -26,15 +28,75 @@ export function LocationPicker({
   const areas = ["A", "B", "C", "D", "R"];
   const rows = Array.from({ length: 50 }, (_, i) => String(i + 1).padStart(2, "0"));
   const bays = Array.from({ length: 20 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const levels = ["4", "3", "2", "1"]; // Level 4 (top) to Level 1 (bottom)
-  const bins = ["A", "B", "C"];
 
-  const levelColors: Record<string, string> = {
-    "4": "bg-green-500",
-    "3": "bg-blue-500",
-    "2": "bg-purple-500",
-    "1": "bg-yellow-500",
-  };
+  // Racks are not uniform: a bay may hold 4 levels or 8, so a fixed list made real
+  // bins unreachable (a level-5 suggestion could not be entered at all). Once the bay
+  // is known its actual bins are loaded and drive both selectors; the fixed lists
+  // remain as the offline fallback.
+  const FALLBACK_LEVELS = ["5", "4", "3", "2", "1"]; // Level 5 (top) to Level 1 (bottom)
+  const FALLBACK_BINS = ["A", "B", "C"];
+  const [rackLevels, setRackLevels] = useState<string[] | null>(null);
+  const [rackBins, setRackBins] = useState<string[] | null>(null);
+  const [loadingRack, setLoadingRack] = useState(false);
+
+  const levels = rackLevels ?? FALLBACK_LEVELS;
+  const bins = rackBins ?? FALLBACK_BINS;
+
+  const LEVEL_COLORS = [
+    "bg-yellow-500",
+    "bg-purple-500",
+    "bg-blue-500",
+    "bg-green-500",
+    "bg-rose-500",
+    "bg-teal-500",
+  ];
+  // Colour by height from the floor so level 1 keeps its colour whatever the rack height.
+  const levelColor = (value: string) =>
+    LEVEL_COLORS[(Number(value) - 1) % LEVEL_COLORS.length] ?? "bg-base-300";
+
+  useEffect(() => {
+    if (!warehouseId || !area || !row || !bay) {
+      setRackLevels(null);
+      setRackBins(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingRack(true);
+    locationsApi
+      .getRackDetail(warehouseId, `${area}-${row}-${bay}`)
+      .then((bins) => {
+        if (cancelled) return;
+        const levelValues = Array.from(
+          new Set(bins.map((item) => item.levelNumber).filter((value): value is number => !!value))
+        ).sort((a, b) => b - a);
+        const binValues = Array.from(
+          new Set(bins.map((item) => item.binPosition).filter((value): value is string => !!value))
+        ).sort();
+        setRackLevels(levelValues.length > 0 ? levelValues.map(String) : null);
+        setRackBins(binValues.length > 0 ? binValues : null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        // Offline or an unknown bay: keep the fallback lists rather than blocking entry.
+        logger.warn("[LocationPicker] Could not load bins for rack:", error);
+        setRackLevels(null);
+        setRackBins(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRack(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId, area, row, bay]);
+
+  // Drop a selection the loaded rack does not actually have.
+  useEffect(() => {
+    if (level && !levels.includes(level)) setLevel("");
+    if (bin && !bins.includes(bin)) setBin("");
+  }, [levels, bins]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQRScan = (code: string) => {
     // Parse location code: A-01-01-4-A
@@ -155,18 +217,21 @@ export function LocationPicker({
             <div>
               <label className="label">
                 <span className="label-text font-medium">Level *</span>
+                {loadingRack && (
+                  <span className="label-text-alt text-base-content/50">Loading rack…</span>
+                )}
               </label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-5 gap-2">
                 {levels.map((l) => (
                   <button
                     key={l}
                     onClick={() => setLevel(l)}
                     className={`btn ${
                       level === l ? "btn-primary" : "btn-outline"
-                    } relative`}
+                    } relative px-1 sm:px-4`}
                   >
-                    <span className={`absolute top-1 left-1 w-3 h-3 rounded-full ${levelColors[l]}`}></span>
-                    <span className="ml-4">Level {l}</span>
+                    <span className={`absolute top-1.5 left-1.5 sm:top-2 sm:left-2 w-2.5 h-2.5 rounded-full ${levelColor(l)}`}></span>
+                    <span className="ml-2 sm:ml-4">{l}</span>
                   </button>
                 ))}
               </div>
