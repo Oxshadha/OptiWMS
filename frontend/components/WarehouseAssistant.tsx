@@ -223,6 +223,11 @@ export function WarehouseAssistant({
     if (lastMsg.role !== "assistant" || lastMsg.action !== "START_TOUR" || !lastMsg.tourId) return;
     if (firedTourFor.current === lastMsg.id) return;
     firedTourFor.current = lastMsg.id;
+    // Close the panel before the walkthrough begins. A tour highlights elements on
+    // the page behind it, and the assistant sits over the bottom-right corner --
+    // leaving it open covers the very controls the tour is pointing at.
+    setIsOpen(false);
+    if (onManagerOpenChange) onManagerOpenChange(false);
     // Task tours navigate between pages, so they need the app router.
     startProductTour(lastMsg.tourId, (path) => router.push(path));
   }, [chatHistory, router]);
@@ -519,7 +524,7 @@ export function WarehouseAssistant({
               isPopUp={false}
             />
 
-            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0, background: T.bg }}>
               <ContextBanner />
               <div
                 style={{
@@ -541,11 +546,7 @@ export function WarehouseAssistant({
                   inputRef={inputRef}
                   query={query}
                   loading={loading}
-                  placeholder={
-                    userRole === "manager"
-                      ? "Ask about SOPs, inventory counts, pending orders, or request reports..."
-                      : "Ask about SKU locations, safety protocols, or task steps..."
-                  }
+                  placeholder={placeholderFor(pathname, userRole)}
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
                   fullPage={fullPage}
@@ -651,7 +652,7 @@ export function WarehouseAssistant({
               isHistoryOpen={showHistory}
             />
 
-            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
+            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, minWidth: 0, position: "relative" }}>
               <HistorySidebar
                 isOpen={showHistory}
                 onClose={() => setShowHistory(false)}
@@ -664,7 +665,7 @@ export function WarehouseAssistant({
                 isPopUp={true}
               />
 
-              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0, background: T.bg }}>
                 <div
                   style={{
                     flexShrink: 0,
@@ -740,7 +741,7 @@ export function WarehouseAssistant({
                     inputRef={inputRef}
                     query={query}
                     loading={loading}
-                    placeholder="Ask about SOPs, database metrics, or reports..."
+                    placeholder={placeholderFor(pathname, userRole)}
                     onQueryChange={setQuery}
                     onSubmit={handleSubmit}
                   />
@@ -841,7 +842,10 @@ export function WarehouseAssistant({
               isPopUp={true}
             />
 
-            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0 }}>
+            {/* minWidth 0 matters: a flex child defaults to min-width:auto, so a wide table or
+                chart refuses to shrink and pushes the whole panel past the viewport, which is
+                what put a horizontal scrollbar across the assistant. */}
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0 }}>
               <div
                 style={{
                   flexShrink: 0,
@@ -1363,6 +1367,26 @@ function HistorySidebar({
   );
 }
 
+// The prompt should describe what this screen can answer. A forecast page inviting
+// questions about SOPs and pending orders tells the user the assistant is generic
+// when it is not -- it is the one place they will actually read before typing.
+const ROUTE_PLACEHOLDERS: Record<string, string> = {
+  "/admin/forecasts": "Ask why this forecast moved, or what is driving demand…",
+  "/admin/inventory-intelligence": "Ask what this recommendation depends on, or why min/max changed…",
+  "/admin/replenishment/forecast-space": "Ask what this recommendation depends on, or why min/max changed…",
+  "/admin/slotting-plans": "Ask why a location was chosen, or what this plan moves…",
+  "/admin/ai-slotting": "Ask why a location was chosen, or what this plan moves…",
+  "/admin/inventory": "Ask about stock levels, reorder points or top movers…",
+};
+
+function placeholderFor(route: string | null | undefined, role: WarehouseAssistantProps["userRole"]): string {
+  if (role === "worker") return "Ask about SKU locations, safety protocols, or task steps…";
+  return (
+    (route && ROUTE_PLACEHOLDERS[route]) ??
+    "Ask about SOPs, inventory counts, pending orders, or request reports…"
+  );
+}
+
 function ChatChart({ spec }: { spec: ChartSpec }) {
   const tooltipStyle = {
     background: "#ffffff",
@@ -1767,6 +1791,9 @@ function AssistantBody({
                     lineHeight: 1.6,
                     padding: "10px 14px",
                     wordBreak: "break-word",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflowX: "hidden",
                   }
               }
             >
@@ -1899,7 +1926,7 @@ function AssistantBody({
                       className="group-open:rotate-90"
                     />
                   </summary>
-                  <div style={{ padding: 12, overflowX: "auto" }}>
+                  <div style={{ padding: 12, overflowX: "auto", maxWidth: "100%", minWidth: 0 }}>
                     <pre
                       style={{
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
