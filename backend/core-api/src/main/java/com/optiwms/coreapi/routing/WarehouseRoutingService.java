@@ -71,12 +71,13 @@ public class WarehouseRoutingService {
      * What travelling an aisle another worker's route already claims costs, as a multiple of
      * travelling a free one.
      *
-     * 1.7 buys any alternative up to 70% longer. High enough that two workers in a warehouse
-     * with parallel aisles get their own, low enough that nobody crosses the building to avoid
-     * a corridor -- and the shared staging-to-parking spine, which has no alternative at any
-     * price, is still taken.
+     * Deliberately small. At 1.7 it stopped being a preference and became an instruction: a
+     * route took three sides of a rack block rather than 18 m of contested aisle. This only
+     * decides between routes of comparable length.
      */
-    private static final double SHARED_EDGE_COST_MULTIPLIER = 1.7;
+    private static final double SHARED_EDGE_COST_MULTIPLIER = 1.15;
+    /** How close in time another worker has to be for their claim on an edge to matter. */
+    private static final double SPREAD_MARGIN_SECONDS = 90.0;
     private static final String ACTIVE = "ACTIVE";
 
     private final JdbcTemplate jdbc;
@@ -1241,17 +1242,13 @@ public class WarehouseRoutingService {
         Map<String, List<ReservationWindow>> byResource = windows.stream()
                 .collect(Collectors.groupingBy(ReservationWindow::resourceKey));
 
-        // Aisles another live worker's plan already runs through, irrespective of when.
+        // Aisles another live worker is due to be in around the same time.
         //
-        // Reservation windows only stop two workers occupying an edge at the same moment. Two
-        // routes minutes apart conflict with nothing, so both took the identical shortest line
-        // and the second worker was sent down an aisle already spoken for -- correct on timing,
-        // and the reason the map showed routes stacked on top of each other. Charging travel on
-        // a claimed edge makes the search buy a parallel aisle whenever one is within reach.
-        Set<String> claimedEdges = windows.stream()
-                .map(ReservationWindow::resourceKey)
-                .filter(key -> key.startsWith("EDGE:"))
-                .collect(Collectors.toSet());
+        // Spreading workers apart is only worth anything when they would otherwise be in the
+        // same place at roughly the same moment. Charging for a claimed edge regardless of when
+        // sent a forklift 81 m round three sides of a rack block to dodge 18 m of aisle whose
+        // claim expired seconds later -- and straight through a different claimed edge on the
+        // way. The claim has to be near in time to mean anything.
 
         // A search state is (node, arrival time), not node alone. Keeping one best cost per node
         // discarded a costlier state that arrived earlier -- and arriving earlier is exactly what
@@ -1274,7 +1271,11 @@ public class WarehouseRoutingService {
                 heuristicSeconds(graph, start, goal, speed)
         ));
         int expanded = 0;
-        final double WAIT_PENALTY_FACTOR = 20.0;
+        // Waiting is worse than moving, not twenty times worse. At 20 the search would drive
+        // ~90 m rather than idle three seconds, which is how a forklift ended up circling a rack
+        // block to dodge a corridor booked for a moment. Queueing briefly is normal warehouse
+        // behaviour and usually cheaper than the detour that avoids it.
+        final double WAIT_PENALTY_FACTOR = 3.0;
 
         while (!open.isEmpty() && expanded < 100_000) {
             SearchState current = open.poll();
@@ -1299,15 +1300,17 @@ public class WarehouseRoutingService {
                 );
 
                 double waitSeconds = Math.max(0, Duration.between(current.arrival(), depart).toMillis() / 1000.0);
-                // Proportional rather than a flat surcharge, so the detour a shared edge is worth
-                // scales with the edge, and a long shared trunk cannot accumulate into a penalty
-                // that justifies crossing the warehouse.
-                double sharedEdgeCost = claimedEdges.contains("EDGE:" + edge.resourceKey())
+                OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
+                // A nudge between comparable routes, not a licence to detour. At 1.15 the search
+                // will take a slightly longer parallel aisle to stay clear of somebody, and will
+                // not take a materially longer one -- driving further costs real time, and two
+                // forklifts sharing a corridor a minute apart costs nothing.
+                double sharedEdgeCost = contestedNear(
+                        byResource.getOrDefault("EDGE:" + edge.resourceKey(), List.of()), depart, arrival)
                         ? travelSeconds * (SHARED_EDGE_COST_MULTIPLIER - 1.0)
                         : 0.0;
                 double edgeCost = travelSeconds + sharedEdgeCost + (waitSeconds * WAIT_PENALTY_FACTOR);
                 double totalCost = current.cost() + edgeCost;
-                OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
 
                 if (!admit(frontier, edge.to(), totalCost, arrival)) {
                     continue;
@@ -1329,6 +1332,21 @@ public class WarehouseRoutingService {
             }
         }
         return new PathResult(List.of(), startAt, 0, 0);
+    }
+
+    /** True when another worker is booked on this edge close enough in time to be worth avoiding. */
+    static boolean contestedNear(
+            List<ReservationWindow> edgeWindows,
+            OffsetDateTime depart,
+            OffsetDateTime arrival
+    ) {
+        if (edgeWindows.isEmpty()) {
+            return false;
+        }
+        OffsetDateTime from = depart.minusSeconds((long) SPREAD_MARGIN_SECONDS);
+        OffsetDateTime until = arrival.plusSeconds((long) SPREAD_MARGIN_SECONDS);
+        return edgeWindows.stream().anyMatch(window ->
+                window.until().isAfter(from) && window.from().isBefore(until));
     }
 
     /** True when this exact state is no longer on the node's frontier, having been evicted. */
@@ -1545,6 +1563,18 @@ public class WarehouseRoutingService {
                 rs.getString("location_code"),
                 rs.getString("access_node_id")
         ), session.id());
+        if (remaining.isEmpty()) {
+            // Last stop done: the route is finished.
+            //
+            // It used to re-plan a leg back to parking and set the session ACTIVE again, and
+            // since nothing ever sends an explicit COMPLETE, the session stayed live until its
+            // lease ran out. A finished job went on drawing a route across the manager's map and
+            // holding aisle reservations against other workers -- and raising the lease from 5 to
+            // 45 minutes to keep real routes alive made that linger far longer.
+            completeSession(session, now);
+            return;
+        }
+
         List<String> waypointNodes = remaining.stream()
                 .map(OrderedStop::accessNodeId)
                 .collect(Collectors.toCollection(ArrayList::new));

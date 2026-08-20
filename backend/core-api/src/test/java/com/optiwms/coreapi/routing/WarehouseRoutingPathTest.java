@@ -31,7 +31,7 @@ class WarehouseRoutingPathTest {
 
     @Test
     void takesTheDirectAisleWhenNobodyElseClaimsIt() {
-        List<String> nodes = walk(path(50));
+        List<String> nodes = walk(path(32));
         assertEquals(List.of("START", "A1", "A2", "END"), nodes);
     }
 
@@ -41,7 +41,8 @@ class WarehouseRoutingPathTest {
      */
     @Test
     void divertsToTheParallelAisleWhenTheDirectOneIsClaimed() {
-        List<String> nodes = walk(path(50, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end"));
+        // 32 m against 30 m: barely longer, so worth taking to stay out of each other's way.
+        List<String> nodes = walk(path(32, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end"));
         assertEquals(List.of("START", "B0", "B1", "B2", "B3", "END"), nodes);
     }
 
@@ -51,27 +52,55 @@ class WarehouseRoutingPathTest {
      */
     @Test
     void stillTakesAClaimedAisleWhenTheAlternativeCostsTooMuch() {
-        // A 90 m detour against a 30 m aisle: past the 1.7x a claimed edge is worth.
-        List<String> nodes = walk(path(90, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end"));
+        // A 40 m detour against a 30 m aisle: past the 15% a contested edge is worth.
+        List<String> nodes = walk(path(40, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end"));
+        assertEquals(List.of("START", "A1", "A2", "END"), nodes);
+    }
+
+    /**
+     * Avoiding somebody who will not be there is pure waste.
+     *
+     * <p>A claim an hour away used to cost the same as one happening now, which sent a forklift
+     * the long way round a rack block to dodge an aisle that had been free for fifty-nine
+     * minutes.
+     */
+    @Test
+    void ignoresAClaimThatIsNowhereNearInTime() {
+        List<String> nodes = walk(
+                path(32, -3600, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end"));
         assertEquals(List.of("START", "A1", "A2", "END"), nodes);
     }
 
     @Test
     void reportsTheDistanceItActuallyTravelled() {
-        var result = path(50, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end");
-        assertEquals(50.0, result.distanceM(), 0.001);
+        var result = path(32, "EDGE:e-start-a1", "EDGE:e-a1-a2", "EDGE:e-a2-end");
+        assertEquals(32.0, result.distanceM(), 0.001);
         assertFalse(result.steps().isEmpty());
         // Nothing was blocked in time, so the diversion is a choice about space, not a queue.
         assertEquals(0.0, result.waitSeconds(), 0.001);
     }
 
+    /**
+     * A claim that has just finished: near enough in time to be worth staying clear of, but over,
+     * so it cannot delay departure. That isolates the spatial preference from the wait penalty,
+     * which is a much larger force and would otherwise decide every one of these cases.
+     */
     private WarehouseRoutingService.PathResult path(double detourLength, String... claimedEdges) {
+        return path(detourLength, -30, claimedEdges);
+    }
+
+    /**
+     * @param claimOffsetSeconds when the other worker's booking sits relative to departure.
+     *                           A large negative value puts it far enough in the past that the
+     *                           aisle is only notionally theirs and avoiding it buys nothing.
+     */
+    private WarehouseRoutingService.PathResult path(
+            double detourLength, int claimOffsetSeconds, String... claimedEdges) {
         List<WarehouseRoutingService.ReservationWindow> windows = new ArrayList<>();
         for (String edge : claimedEdges) {
-            // A window far in the past: it can never block departure, so only the spatial cost
-            // of the claim can change the outcome.
+            OffsetDateTime from = T0.plusSeconds(claimOffsetSeconds);
             windows.add(new WarehouseRoutingService.ReservationWindow(
-                    UUID.randomUUID(), edge, T0.minusHours(2), T0.minusHours(1)));
+                    UUID.randomUUID(), edge, from, from.plusSeconds(4)));
         }
         return service().timeAwarePath(graph(detourLength), "START", "END", T0, windows, "FORKLIFT");
     }
