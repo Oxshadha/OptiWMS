@@ -2182,7 +2182,8 @@ counts. Setup/import cells may correctly have no visible output.
 - [`ai-agent/agent.py`](ai_services/ai-agent/agent.py)
 - [`AssistantToolController.java`](backend/core-api/src/main/java/com/optiwms/coreapi/assistant/AssistantToolController.java)
 - [`assistant OpenAPI contract`](docs/openapi/optiwms-assistant-tools.yaml)
-- [`ai-agent/docs`](ai_services/ai-agent/docs)
+- [`ai-agent/tools.py`](ai_services/ai-agent/tools.py)
+- [`ai-agent/AGENTS.md`](ai_services/ai-agent/AGENTS.md)
 
 ## B.9 Core WMS and PWA Implementation
 
