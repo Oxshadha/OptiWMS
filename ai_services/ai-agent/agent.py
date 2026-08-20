@@ -1355,12 +1355,33 @@ def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
         return None
 
 
+def drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove columns that are null in every row before the result is used.
+
+    A column that is null throughout carries no information, but it is not merely
+    cosmetic: the model sees the same frame it is asked to summarise, and reads an
+    all-null column as a finding -- one answer volunteered that a null sku_id
+    "may indicate a configuration issue in your master data", which is a
+    hallucinated concern manufactured from an unpopulated column.
+
+    Never returns an empty frame: if every column is empty the original is kept, so
+    "no data" still looks like no data rather than a missing table.
+    """
+    if df is None or df.empty:
+        return df
+    populated = [c for c in df.columns if df[c].notna().any()]
+    if not populated or len(populated) == len(df.columns):
+        return df
+    return df[populated]
+
+
 def _finish_data_response(question: str, sql: str, df: pd.DataFrame, report_mode: bool,
                           fallback_used: bool, history: list[tuple[str, str]] | None = None):
     """Shared tail for both the guarded-tool path and the adhoc-SQL fallback:
     turn an executed (sql, df) pair into either a PDF report or a
     conversational answer + chart. Returns (df, sql, chart, error, answer,
     download_url)."""
+    df = drop_empty_columns(df)
     if report_mode:
         try:
             report_json, rep_fb = generate_report_json(question, sql, df)
