@@ -36,6 +36,10 @@ public class OrderItemEntity {
     @Column(name = "packed_quantity")
     private Integer packedQuantity = 0;
 
+    /** Inbound receipts. Distinct from pickedQuantity, which outbound picking owns. */
+    @Column(name = "received_quantity", nullable = false)
+    private Integer receivedQuantity = 0;
+
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
@@ -121,6 +125,14 @@ public class OrderItemEntity {
 
     public void setPickedQuantity(Integer pickedQuantity) {
         this.pickedQuantity = pickedQuantity;
+    }
+
+    public Integer getReceivedQuantity() {
+        return receivedQuantity;
+    }
+
+    public void setReceivedQuantity(Integer receivedQuantity) {
+        this.receivedQuantity = receivedQuantity;
     }
 
     public Integer getPackedQuantity() {

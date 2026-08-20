@@ -248,8 +248,21 @@ export default function PackingPage() {
             .map((record) => record.orderId)
             .filter((id): id is string => !!id)
         );
+        // Packing now waits on a manager. An order that has finished picking is not yet work:
+        // its record sits at pending_approval until someone releases it, and an order with no
+        // record at all has not been raised as a packing job either. Showing those put the
+        // packer ahead of the approval they are meant to be waiting for.
+        const approvedOrderIds = new Set(
+          packingRecords
+            .filter((record) => (record.status || "").toLowerCase() !== "pending_approval")
+            .map((record) => record.orderId)
+            .filter((id): id is string => !!id)
+        );
         const warehouseOrders = uniqueOrders.filter(
-          (order) => order.warehouseId === effectiveWarehouseId && !packedOrderIds.has(order.id)
+          (order) =>
+            order.warehouseId === effectiveWarehouseId &&
+            !packedOrderIds.has(order.id) &&
+            approvedOrderIds.has(order.id)
         );
         const recordByOrderId = new Map(
           packingRecords

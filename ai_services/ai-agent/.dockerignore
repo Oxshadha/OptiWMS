@@ -1,8 +1,21 @@
+# Secrets. The pattern must be `.env*`, not `.env`: the Dockerfile does
+# `COPY . ./` with this directory as the build context, so a literal `.env`
+# leaves siblings like `.env.bak-groqmodel` to be baked into a public image.
+.env*
+!.env.example
+
+# Local state and caches
 db/
+reports/
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 .git/
-.env
+
+# Not needed at runtime
+tests/
+demo_queries.py
+*.md

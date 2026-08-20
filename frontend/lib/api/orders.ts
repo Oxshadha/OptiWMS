@@ -1,5 +1,18 @@
 import { apiClient } from './client';
 
+/**
+ * Line and quantity rollup for one order, computed server-side.
+ *
+ * Present on list responses only. Single-order reads omit it, since those callers already
+ * hold the items.
+ */
+export interface OrderLineProgress {
+  totalLines: number;
+  receivedLines: number;
+  totalQuantity: number;
+  receivedQuantity: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -13,6 +26,7 @@ export interface Order {
   expectedDate?: string;
   totalAmount?: string;
   notes?: string;
+  progress?: OrderLineProgress | null;
 }
 
 export interface PagedOrdersResponse {

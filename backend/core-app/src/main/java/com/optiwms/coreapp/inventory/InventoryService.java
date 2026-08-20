@@ -473,10 +473,16 @@ public class InventoryService {
                             + ". Use putaway split planning or inventory bin reconciliation.");
         }
 
-        if (!capacityService.palletFitsBin(material, location)) {
+        // Weigh what is actually going in, not a notional full pallet.
+        //
+        // Planning already sizes to the real quantity, so testing a full pallet here rejected
+        // putaways the planner had just approved: a worker was sent to a bin with the pallet in
+        // their hands and then told it would not fit, for a bin that had four times the headroom
+        // the move needed.
+        if (!capacityService.quantityFitsBin(material, location, entity.getQuantity())) {
             throw new IllegalArgumentException(
                     "Material " + material.getMaterialCode() + " does not fit bin " + locationCode
-                            + " by pallet weight or volume constraints.");
+                            + ": " + entity.getQuantity() + " units exceed the bin's weight or volume limit.");
         }
     }
 }

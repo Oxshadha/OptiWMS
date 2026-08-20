@@ -19,6 +19,12 @@ import java.util.stream.Collectors;
 @Service
 public class StockPlacementPlanner {
 
+    /**
+     * Zones a pallet may be placed into. Restricting this to STORAGE alone matched no active
+     * bin in the V8 layout, so every call fell through to the generic unit-capacity search.
+     */
+    private static final Set<String> PLACEMENT_ZONE_TYPES = Set.of("STORAGE", "RESERVE", "PICK_FACE");
+
     private final LocationRepository locationRepository;
     private final InventoryItemRepository inventoryRepository;
     private final MaterialRepository materialRepository;
@@ -90,7 +96,10 @@ public class StockPlacementPlanner {
 
         BigDecimal unitsPerPallet = capacityService.resolveUnitsPerPallet(material);
         int requiredPallets = capacityService.computePalletCount(totalQuantity, material);
-        int qtyPerPallet = unitsPerPallet.setScale(0, RoundingMode.CEILING).intValue();
+        // FLOOR, matching PutawayTaskService.toHandlingUnits. Rounding up here let the planner
+        // put one more unit in a bin than the task splitter would slice into that pallet,
+        // which spilled a 1-unit task off the end of every allocation.
+        int qtyPerPallet = Math.max(unitsPerPallet.setScale(0, RoundingMode.FLOOR).intValue(), 1);
 
         LocationEntity preferredLocation = preferredLocationCode == null || preferredLocationCode.isBlank()
                 ? null
@@ -99,7 +108,7 @@ public class StockPlacementPlanner {
                         .orElse(null);
 
         List<LocationEntity> candidates = warehouseLocations(warehouseId, context).stream()
-                .filter(loc -> "STORAGE".equals(loc.getZoneType()))
+                .filter(loc -> PLACEMENT_ZONE_TYPES.contains(loc.getZoneType()))
                 .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
                 .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
                 .filter(loc -> excludeLocationCodes == null || !excludeLocationCodes.contains(loc.getLocationCode()))
@@ -122,17 +131,20 @@ public class StockPlacementPlanner {
             if (remainingPallets <= 0) {
                 break;
             }
-            if (!capacityService.palletFitsBin(material, location)) {
+            // Size every fit test to what this bin would actually receive. The last pallet of a
+            // receipt is usually partial, and testing a full pallet against it rejected bins that
+            // comfortably hold the real quantity.
+            int qtyForBin = Math.min(remainingQty, qtyPerPallet);
+            if (!capacityService.quantityFitsBin(material, location, qtyForBin)) {
                 continue;
             }
             if (!capacityService.binHasPalletHeadroom(location, state.binPalletCount(location.getLocationCode()))) {
                 continue;
             }
-            if (!state.canAddPallet(location, material, capacityService)) {
+            if (!state.canAddQuantity(location, material, qtyForBin, capacityService)) {
                 continue;
             }
 
-            int qtyForBin = Math.min(remainingQty, qtyPerPallet);
             int palletsHere = 1;
             state.addPallet(location, material, qtyForBin);
             lines.add(new PlacementLine(
@@ -276,7 +288,8 @@ public class StockPlacementPlanner {
      */
     private List<LocationEntity> warehouseLocations(UUID warehouseId, PlacementContext context) {
         return context.locations.computeIfAbsent(warehouseId,
-                id -> locationRepository.findByWarehouseIdAndZoneTypeAndIsActive(id, "STORAGE", true));
+                id -> locationRepository.findByWarehouseIdAndZoneTypeInAndIsActive(
+                        id, PLACEMENT_ZONE_TYPES, true));
     }
 
     /**
@@ -413,13 +426,17 @@ public class StockPlacementPlanner {
             return binPalletCount.getOrDefault(locationCode, 0);
         }
 
-        boolean canAddPallet(LocationEntity location, MaterialEntity material, HandlingUnitCapacityService capacity) {
+        boolean canAddQuantity(
+                LocationEntity location,
+                MaterialEntity material,
+                int quantity,
+                HandlingUnitCapacityService capacity) {
             String levelKey = capacity.rackLevelKey(location);
             BigDecimal used = levelWeightUsed.getOrDefault(levelKey, BigDecimal.ZERO);
             LocationLevelEntity levelEntity = levelCaps.get(levelKey);
             int levelNo = location.getLevelNumber() != null ? location.getLevelNumber() : 3;
             BigDecimal cap = capacity.resolveLevelBeamCapacityKg(levelEntity, levelNo);
-            return capacity.canAddPalletToLevelBeam(used, cap, material);
+            return capacity.canAddQuantityToLevelBeam(used, cap, material, quantity);
         }
 
         void addPallet(LocationEntity location, MaterialEntity material, int qty) {

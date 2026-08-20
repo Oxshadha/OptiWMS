@@ -2,7 +2,7 @@ name: Publish versioned OptiWMS images
 
 on:
   push:
-    branches: [main, GA-Forecast-refine-oshadha]
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 
@@ -246,7 +247,16 @@ def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str)
             max_weight_kg,max_volume_cm3,temperature_zone,hazard_allowed,amalgamated_class,
             dataset_version,source_lineage
         ) VALUES %s
-        ON CONFLICT(location_code) DO UPDATE SET
+        -- Conflict on id, not location_code.
+        --
+        -- The id is derived from the layout and is stable; the code is not. V54
+        -- rewrote some codes to a three-digit bay while leaving the id alone, so a
+        -- re-run offered a code the database had never seen against an id it already
+        -- held: ON CONFLICT(location_code) never matched and the primary key raised
+        -- instead. Keying on id makes the load idempotent in both directions and
+        -- repairs a drifted code on the way through.
+        ON CONFLICT(id) DO UPDATE SET
+            location_code=EXCLUDED.location_code,
             warehouse_id=EXCLUDED.warehouse_id,area=EXCLUDED.area,
             row_number=EXCLUDED.row_number,bay_number=EXCLUDED.bay_number,
             level_number=EXCLUDED.level_number,bin_position=EXCLUDED.bin_position,
@@ -855,6 +865,62 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         conn.close()
 
 
+def run_forecast_only(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
+    """Refresh the forecast and its evidence, leaving the warehouse layout alone.
+
+    A recalculation refits the model; it is not a reseed. Rebuilding locations,
+    materials and inventory from the layout artifact is a first-install concern, and
+    doing it on every recalculation fails as soon as the database and the artifact
+    disagree about a location id -- which they do here, because the warehouse was
+    seeded from an earlier layout than the one now on disk.
+
+    Separating the two means a recalculation can run repeatedly and safely, and
+    reseeding stays an explicit, deliberate act.
+    """
+    files = [
+        source_dir() / "operational_forecasts.csv",
+        source_dir() / "champion_prediction_intervals.csv",
+        source_dir() / "operational_backtest_metrics.csv",
+    ]
+    missing = [str(path) for path in files if not path.exists()]
+    if missing:
+        raise RuntimeError(f"missing v8 forecast artifacts: {missing}")
+    digest = dataset_hash(files)
+    forecasts = pd.read_csv(files[0])
+    backtests = pd.read_csv(files[1])
+
+    conn = psycopg2.connect(db_url)
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            warehouse_id = resolve_warehouse(cur, warehouse_code)
+            codes = sorted(set(forecasts["material_code"]).union(
+                backtests.loc[backtests["model"].eq("extra_trees_causal"), "material_code"]))
+            cur.execute(
+                "SELECT material_code, id::text FROM materials WHERE material_code=ANY(%s)",
+                (codes,),
+            )
+            material_ids = dict(cur.fetchall())
+            missing_codes = sorted(set(codes) - set(material_ids))
+            if missing_codes:
+                raise RuntimeError(
+                    "these materials are not in the warehouse yet, so run a full load "
+                    f"first: {missing_codes[:10]}"
+                )
+            counts = {
+                "forecast_rows": load_forecasts(cur, forecasts, material_ids, warehouse_id, digest),
+                "backtest_rows": load_backtests(cur, backtests, material_ids, warehouse_id, digest),
+                "model_evidence_rows": load_model_evidence(cur, digest, warehouse_id),
+            }
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+        return {"mode": "forecast_only", "dry_run": dry_run, "counts": counts}
+    finally:
+        conn.close()
+
+
 def run_evidence_only(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
     """Refresh only promoted forecast evidence without rebuilding WMS operations."""
     evidence_files = [
@@ -909,12 +975,22 @@ def main() -> int:
     parser.add_argument("--warehouse-code", default="WH-001")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--forecast-only",
+        action="store_true",
+        help="Refresh the forecast and its evidence without reseeding the warehouse",
+    )
+    parser.add_argument(
         "--evidence-only",
         action="store_true",
         help="Refresh promoted model metrics/backtests without rebuilding operational data",
     )
     args = parser.parse_args()
-    action = run_evidence_only if args.evidence_only else run
+    if args.forecast_only:
+        action = run_forecast_only
+    elif args.evidence_only:
+        action = run_evidence_only
+    else:
+        action = run
     print(json.dumps(action(args.db_url, args.warehouse_code, args.dry_run), indent=2, default=str))
     return 0
 
