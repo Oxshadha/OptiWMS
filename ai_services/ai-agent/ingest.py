@@ -1,5 +1,6 @@
 from agent import DB_HOST
 import os
+import time
 from pathlib import Path
 import shutil
 from dotenv import load_dotenv
@@ -17,6 +18,52 @@ load_dotenv()
 # the process happened to be started from -- so a seed run from the repo root and
 # the service started from this directory disagreed about where the index lived.
 DB_PATH = str((Path(__file__).resolve().parent / "db"))
+
+class ThrottledEmbeddings:
+    """Embed in small batches, pausing and retrying when the API pushes back.
+
+    The free embedding tier is rate limited, and sending all thirty chunks at once
+    trips it -- a single request succeeds while the batch fails, which is why an
+    ingest could look impossible even with quota left. Small batches with a short
+    pause, and a backoff on 429, get the whole corpus through.
+    """
+
+    def __init__(self, inner, batch_size: int = 5, pause: float = 1.5, attempts: int = 4):
+        self._inner = inner
+        self._batch_size = batch_size
+        self._pause = pause
+        self._attempts = attempts
+
+    def _with_retry(self, fn, *args):
+        delay = self._pause
+        for attempt in range(1, self._attempts + 1):
+            try:
+                return fn(*args)
+            except Exception as exc:
+                if "429" not in str(exc) and "quota" not in str(exc).lower():
+                    raise
+                if attempt == self._attempts:
+                    raise
+                wait = delay * (2 ** (attempt - 1))
+                print(f"  rate limited; waiting {wait:.0f}s before retrying "
+                      f"(attempt {attempt}/{self._attempts})")
+                time.sleep(wait)
+        raise RuntimeError("unreachable")
+
+    def embed_documents(self, texts):
+        vectors = []
+        total = len(texts)
+        for start in range(0, total, self._batch_size):
+            batch = texts[start:start + self._batch_size]
+            vectors.extend(self._with_retry(self._inner.embed_documents, batch))
+            print(f"  embedded {min(start + len(batch), total)}/{total}")
+            if start + self._batch_size < total:
+                time.sleep(self._pause)
+        return vectors
+
+    def embed_query(self, text):
+        return self._with_retry(self._inner.embed_query, text)
+
 
 def ingest():
     print("Loading documents from PostgreSQL database...")
@@ -66,9 +113,11 @@ def ingest():
     print(f"Created {len(chunks)} chunks")
 
     print("Loading embedding model (Google GenAI)...")
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=os.getenv("GOOGLE_API_KEY")
+    embeddings = ThrottledEmbeddings(
+        GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+        )
     )
 
     # Build into a temporary directory and swap it in only once it succeeds.
