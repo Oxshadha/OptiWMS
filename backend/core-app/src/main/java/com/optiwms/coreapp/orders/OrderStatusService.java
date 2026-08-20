@@ -22,6 +22,10 @@ public class OrderStatusService {
     private final OrderItemRepository orderItemRepository;
     private final TaskService taskService;
 
+    /** Putaway task states that need no further work. */
+    private static final java.util.Set<String> CLOSED_TASK_STATUSES =
+            java.util.Set.of("completed", "cancelled", "skipped");
+
     public OrderStatusService(OrderService orderService, OrderItemRepository orderItemRepository,
             TaskService taskService) {
         this.orderService = orderService;
@@ -163,7 +167,10 @@ public class OrderStatusService {
                 // Received but not yet planned: still the worker's problem.
                 return true;
             }
-            return tasks.stream().anyMatch(task -> !"completed".equalsIgnoreCase(task.getStatus()));
+            // Cancelled work is finished work as far as the queue is concerned; leaving it
+            // outstanding kept abandoned tasks in the worker's list with no way to clear them.
+            return tasks.stream().anyMatch(task -> !CLOSED_TASK_STATUSES.contains(
+                    task.getStatus() == null ? "" : task.getStatus().toLowerCase(java.util.Locale.ROOT)));
         });
     }
 }
