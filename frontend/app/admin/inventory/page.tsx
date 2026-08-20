@@ -33,7 +33,14 @@ export default function InventoryPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>("sku");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  // Descending by default.
+  //
+  // Ascending puts the legacy numeric SKUs first, and those rows were created by
+  // hand without a reorder point, MOQ, buffer or lead time -- so the opening screen
+  // was ten rows of em-dashes while 2,921 fully populated rows sat 310 pages away.
+  // Descending surfaces the seeded RM-/PM- materials immediately, and unlike jumping
+  // to the last page it does not drift as rows are added.
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
