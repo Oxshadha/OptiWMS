@@ -1,4 +1,14 @@
-# OptiWMS
+<div align="center">
+
+<img src="frontend/public/assets/logos/OptiWMS%20Logo.png" alt="OptiWMS" width="260">
+
+**Intelligent warehouse management with demand forecasting, storage optimization, route handling and anomaly detection**
+
+Java 21 · Spring Boot 3.3 · Next.js 14 · PostgreSQL 16 · Python 3.12 · OR-Tools · Docker
+
+</div>
+
+---
 
 OptiWMS is an integrated warehouse management and planning system that connects
 inbound, inventory and outbound execution with leakage-safe demand forecasting,
@@ -12,13 +22,26 @@ external customer history is unavailable. The project does not claim that
 synthetic forecast performance, generated coordinates or modeled forklift
 routes prove external production validity.
 
+![OptiWMS admin dashboard](docs/screenshots/readme/admin-dashboard.png)
+
+## Project Deliverables
+
+| Document | Description |
+| --- | --- |
+| [Final report](docs/deliverables/OptiWMS-Final-Report.pdf) | Submitted project report |
+| [User manual](docs/deliverables/OptiWMS-User-Manual.pdf) | Operator and administrator guide for the running system |
+| [Presentation](docs/deliverables/OptiWMS-Presentation.pdf) | Project defence slide deck |
+| [Report in Markdown](report.md) | Same report as the PDF, browsable on GitHub with live links into the evidence |
+
 ## Start Here
 
+- [Clone to running in one pass](SETUP.md)
 - [Complete final project report](report.md)
 - [Current implementation and runtime status](Ai%20miroservices/modeling/CURRENT_STATUS.md)
 - [Worker-routing implementation log](docs/WORKER_ROUTING_IMPLEMENTATION_LOG.md)
 - [v8 modeling and physical-population guide](Ai%20miroservices/modeling/v8_controlled_synthetic_validation/README.md)
 - [Complete notebook and test index](report.md#appendix-a--test-catalogue-and-execution)
+- [Full interface gallery](docs/screenshots/) — every admin and worker screen
 
 ## Six Core Solution Pillars
 
@@ -122,14 +145,77 @@ controlled population only; external population validity remains
 - manager drawer and full-screen assistant;
 - retrieval-augmented answers grounded in the included warehouse SOP files;
 - source labels returned with SOP answers;
-- typed, authenticated tools for SKU outlooks, inventory risks,
+- 10 reviewed parameterised queries the model selects between but never writes;
+- typed, authenticated Spring tools for SKU outlooks, inventory risks,
   recommendation explanations and planning-cycle status;
-- no model-generated SQL, schema inspection or direct database credentials.
+- page-aware follow-ups, so "why is this one low?" resolves without a material
+  code being typed;
+- model-generated SQL only as a last-resort fallback, restricted to SELECT,
+  row-capped, allowlist-checked and limited to ADMIN/MANAGER callers;
+- guided UI tours driven from a fixed catalogue rather than generated steps.
 
 The assistant is an advisory presentation layer, not the forecast, min/max,
-MILP or routing decision engine. Its standalone FastAPI service currently
-requires a Google Gemini API key and is not included in the core Docker Compose
-acceptance path.
+MILP or routing decision engine. See [Agentic
+Architecture](#agentic-architecture) for how a question is routed and what each
+guard rail is there to prevent.
+
+## The System in Use
+
+Every screenshot below is the running system against the
+`PROJECT_OPERATIONAL_SIMULATION_V8` population. The complete gallery — 50 admin
+screens and 13 worker PWA screens — is in [`docs/screenshots/`](docs/screenshots/).
+
+### Forecasting and demand planning
+
+Direct H1–H12 RM/PM forecasts with held-out backtest, calibrated 90% intervals
+and per-horizon error, all served from the promoted model bundle.
+
+| Historical demand against the published forecast | Error by horizon and the 12-month detail table |
+| --- | --- |
+| ![Demand versus forecast](docs/screenshots/readme/forecast-demand-vs-forecast.png) | ![Forecast error by horizon](docs/screenshots/readme/forecast-error-by-horizon.png) |
+
+| Model performance against operational thresholds | Projected stock under the current policy |
+| --- | --- |
+| ![Model performance scorecard](docs/screenshots/readme/forecast-model-performance.png) | ![Projected stock and planned receipts](docs/screenshots/readme/forecast-projected-stock.png) |
+
+### Inventory min/max and replenishment policy
+
+Reorder point, safety stock and proposed min/max derived from forecast
+uncertainty, with the storage consequence of every change shown before approval.
+
+| Policy changes awaiting review | Order constraints and storage impact |
+| --- | --- |
+| ![Inventory policy review](docs/screenshots/readme/inventory-policy-review.png) | ![Inventory policy detail](docs/screenshots/readme/inventory-policy-detail.png) |
+
+### Physical slotting and warehouse layout
+
+OR-Tools MILP allocates pick faces and min-cost flow places reserve stock across
+bins. Approving a plan creates stock-transfer jobs; inventory moves only after a
+worker confirms execution.
+
+| MILP location plan and proposed transfers | Operational rack plan with L1–L5 occupancy |
+| --- | --- |
+| ![Slotting location plan](docs/screenshots/readme/slotting-location-plan.png) | ![Warehouse rack plan](docs/screenshots/readme/warehouse-rack-plan.png) |
+
+### Conflict-aware worker routing
+
+Server-authoritative multi-stop A\* over the versioned aisle graph, with
+edge-time reservations shared between concurrent workers and a live admin view.
+
+![Live route control](docs/screenshots/readme/live-route-control.png)
+
+### Worker PWA
+
+Installable, offline-capable, scan-driven. Receiving, putaway and stock transfer
+queue locally and replay on reconnect.
+
+| Login | Task home | Route guidance | Productivity |
+| --- | --- | --- | --- |
+| ![Worker login](docs/screenshots/readme/worker-login.png) | ![Worker home](docs/screenshots/readme/worker-home.png) | ![Route guidance](docs/screenshots/readme/worker-route-guidance.png) | ![Leaderboard](docs/screenshots/readme/worker-leaderboard.png) |
+
+### Administration
+
+![Admin login](docs/screenshots/readme/admin-login.png)
 
 ## Complete WMS Feature and Maturity Map
 
@@ -347,25 +433,46 @@ Evidence:
 
 ## Warehouse Assistant
 
-The assistant has two strictly separated sources:
+The assistant answers four kinds of question, and decides which kind it is
+before touching any data source. The routing, guard rails and extension rules
+are described in [Agentic Architecture](#agentic-architecture); this section
+covers what the four sources are.
 
-1. **SOP Assistant:** retrieves relevant chunks from the local Chroma vector
-   store using MiniLM embeddings and asks Gemini to answer only from the
-   retrieved warehouse SOP context.
-2. **Inventory Intelligence:** selects among Spring-owned read-only tools for a
-   SKU outlook, ranked inventory risk, recommendation explanation or planning
-   cycle. Spring validates the signed-in JWT and derives warehouse scope from
-   the user's assignments.
+| Mode | Source | Answers |
+| --- | --- | --- |
+| `SOP` | Local Chroma vector store, MiniLM embeddings, answered only from retrieved SOP context | Physical warehouse procedure — forklifts, safety, damaged goods, cycle counts |
+| `DATA` | One of 10 reviewed parameterised queries in `TOOL_REGISTRY`, run read-only against PostgreSQL, plus the forecast service for SHAP attributions | Stock, orders, analytics, forecasts, and "why is this material's forecast/policy/slotting like this" |
+| `TOUR` | `TOUR_CATALOG` in `agent.py`, paired with `frontend/lib/tours/tourConfig.ts` | Where a feature is on screen and how to use it |
+| `CHAT` | No source; handled on keywords without a model call | Greetings and small talk |
+
+There are two distinct read-only tool surfaces, and they are not the same thing:
+
+- the **agent's own 10 tools** run fixed, hand-written SQL from the Python
+  service. The model picks which tool runs and what parameters it passes; it
+  never sees the schema and never writes the SQL;
+- **Spring's typed assistant tools** (`/api/v1/assistant/tools`, published as
+  [OpenAPI](docs/openapi/optiwms-assistant-tools.yaml)) back the Inventory
+  Intelligence panel in the UI. They are audited, rate-limited and warehouse-
+  scoped from the caller's JWT assignments.
+
+Both surfaces are read-only. No mutating action exists in either contract, so
+the assistant can explain a forecast, policy or slotting plan but cannot
+approve one.
 
 Worker access is integrated in the mobile layout; managers can use the top-bar
-drawer or `/admin/assistant`.
-
-The standalone Python service handles SOP retrieval only. Live operational
-facts never pass through generated SQL: the assistant tool contract is
-[checked in as OpenAPI](docs/openapi/optiwms-assistant-tools.yaml), tool calls
-are rate-limited/audited, and mutating actions are absent from the contract.
+drawer or `/admin/assistant`. The agent validates every bearer token against
+Spring before answering, so an unauthenticated caller reaches no data at all.
+The standalone FastAPI service requires a Google Gemini API key (with an
+optional Groq fallback key) and is not part of the core Docker Compose
+acceptance path.
 
 ## Architecture
+
+![OptiWMS system architecture](docs/screenshots/readme/architecture.png)
+
+Five layers, with one rule that decides where anything new belongs: the layer
+that owns a fact is the layer that writes it. Clients render, Spring decides,
+PostgreSQL remembers, Python computes, and the assistant only ever reads.
 
 ```mermaid
 flowchart LR
@@ -403,6 +510,92 @@ flowchart LR
   it does not approve forecasts, policies, slotting plans or route reservations.
 - **Recommendations are not execution.** Forecast, policy and slotting output
   remains governed until approved work is performed.
+
+## Agentic Architecture
+
+The warehouse assistant is a **routed, tool-calling agent**, not a text-to-SQL
+box. Every question takes one of four paths, and the path is chosen before any
+database or model is touched.
+
+```mermaid
+flowchart TB
+    subgraph client["Client"]
+        UI["Admin UI / Worker PWA<br/><i>publishes page context</i>"]
+    end
+
+    subgraph gate["api.py — trust boundary"]
+        AUTH["Validate JWT against Spring<br/>role gate · rate limit · audit"]
+    end
+
+    subgraph router["agent.py — routing"]
+        KW{"Keyword<br/>fast path?"}
+        LLM["route_and_select<br/><i>one model call:<br/>classify + pick tool</i>"]
+    end
+
+    subgraph modes["Four answer modes"]
+        CHAT["CHAT<br/>greeting"]
+        SOP["SOP<br/>procedure"]
+        TOUR["TOUR<br/>UI walkthrough"]
+        DATA["DATA<br/>live facts"]
+    end
+
+    subgraph exec["Execution"]
+        REG["TOOL_REGISTRY<br/><b>10 reviewed queries</b><br/><i>model picks one + params,<br/>never writes SQL</i>"]
+        FALL["Guarded fallback SQL<br/><i>is_safe_query + row cap<br/>+ ADMIN/MANAGER only</i>"]
+        VEC[("Chroma SOP store<br/>MiniLM embeddings")]
+        CAT["TOUR_CATALOG"]
+    end
+
+    PG[("PostgreSQL")]
+    FC["Forecast service<br/><i>SHAP attributions</i>"]
+    OUT["enforce_chart_rules<br/>→ answer + table + chart"]
+
+    UI --> AUTH --> KW
+    KW -->|"yes — no model call"| modes
+    KW -->|no| LLM --> modes
+
+    CHAT --> OUT
+    SOP --> VEC --> OUT
+    TOUR --> CAT --> OUT
+    DATA --> REG
+    DATA -.->|"no tool fits"| FALL
+    REG --> PG
+    FALL --> PG
+    REG --> FC
+    PG --> OUT
+    FC --> OUT
+
+    LLM -.->|"Gemini primary"| G["Gemini 3.1 Flash Lite"]
+    G -.->|"on quota / 429"| GR["Groq fallback"]
+```
+
+### Why it is built this way
+
+| Decision | Reason |
+| --- | --- |
+| **Route and select in one model call** | Classifying and tool-picking were two sequential calls over the same context, ~4.4 s combined. Merged, they answer in ~1.2 s, and nothing is wasted when the class turns out to be CHAT, SOP or TOUR. |
+| **Keyword fast path first** | Greetings and explicit tour phrases are decided with no model call at all. Before it existed, "hi" had only SOP/DATA/TOUR to choose from and launched a dashboard tour. |
+| **10 reviewed queries, not generated SQL** | The model chooses *which* pre-written query runs and with what parameters. It never sees the schema. Free-form SQL exists only as a last-resort fallback behind `is_safe_query()`, a row cap, and an ADMIN/MANAGER role gate. |
+| **Spring owns identity** | The agent validates every bearer token against the core API and derives warehouse scope from the caller's assignments. The Python service cannot widen what a user may see. |
+| **Page context is advisory** | Each message carries the current route, selected entity and filters, so "why is this one low?" resolves without typing a material code. It can supply a subject; it can never widen authorization, and anything named explicitly wins. |
+| **Charts are corrected, not just labelled** | `enforce_chart_rules()` bins a pie of a continuous variable into a histogram, turns a >6-slice or ranking pie into a bar, and converts a line over unordered categories to a bar — transforming the data, not renaming the spec. |
+| **Two providers** | Gemini is primary; a quota or rate-limit error falls back to Groq rather than surfacing "AI quota exceeded" to a warehouse operator mid-shift. |
+
+The assistant is **advisory by construction**: no mutating action exists in the
+tool contract, so it can explain a forecast, a policy or a slotting plan, but it
+cannot approve one.
+
+### Extending the agent
+
+Adding a data capability means **adding a tool** to `TOOL_REGISTRY` with a clear
+description — the router picks tools by description alone. Widening the SQL
+fallback instead would move the system from "the model picks a reviewed query"
+to "the model writes queries", which is a different security posture. See
+[AGENTS.md](AGENTS.md) for the full contributor guide.
+
+| Assistant in the popup | Explaining what drives a forecast |
+| --- | --- |
+| ![Assistant popup](docs/screenshots/readme/assistant-popup.png) | ![Forecast driver explanation](docs/screenshots/readme/assistant-forecast-drivers.png) |
 
 ## Technology
 
@@ -444,7 +637,14 @@ OptiWMS/
 |   `-- warehouse_routing_evaluation/        Routing benchmark/notebook
 |-- infra/                    Core Docker Compose definitions
 |-- scripts/                  Load, build and acceptance scripts
-|-- docs/                     Status, implementation and governance documents
+|-- docs/
+|   |-- deliverables/         Final report, user manual and presentation (PDF)
+|   |-- screenshots/          README figures and the full interface gallery
+|   |-- ai/                   Forecast runbooks, gates and experiment records
+|   `-- openapi/              Published API contracts
+|-- Help/                     Class, schema and operational reference documents
+|-- AGENTS.md                 Contributor guide for the agentic assistant
+|-- SETUP.md                  Clone-to-running instructions
 `-- report.md                 Final evaluator-oriented project report
 ```
 
@@ -903,12 +1103,33 @@ shadow-mode testing, manager approval and site safety certification. Next.js
 
 ## Further Documentation
 
-- [Final project report](report.md)
-- [Current status](Ai%20miroservices/modeling/CURRENT_STATUS.md)
+**Deliverables**
+
+- [Final report (PDF)](docs/deliverables/OptiWMS-Final-Report.pdf) · [User manual (PDF)](docs/deliverables/OptiWMS-User-Manual.pdf) · [Presentation (PDF)](docs/deliverables/OptiWMS-Presentation.pdf)
+- [Final project report in Markdown](report.md)
+
+**Running and building**
+
+- [Clone to running](SETUP.md)
+- [Database seed and restore](scripts/README_SEED.md)
+- [AI services overview](ai_services/README.md)
+
+**Current status and design**
+
+- [Current implementation status](Ai%20miroservices/modeling/CURRENT_STATUS.md)
+- [Agentic assistant contributor guide](AGENTS.md)
 - [Worker-routing workflow log](docs/WORKER_ROUTING_IMPLEMENTATION_LOG.md)
-- [Forecast-space checklist](docs/FORECAST_SPACE_IMPLEMENTATION_CHECKLIST.md)
+- [v8 modeling and physical population](Ai%20miroservices/modeling/v8_controlled_synthetic_validation/README.md)
+- [Shared operational-baseline evaluator](Ai%20miroservices/modeling/project_operational_baseline/README.md)
+
+**Reference**
+
+- [Database schema](database_schema.md) · [Schema relations](Help/DATABASE_SCHEMA_RELATION_REPORT.md)
+- [Backend class documentation](Help/BACKEND_CLASS_DOCUMENTATION.md)
+- [Forecast documentation index](docs/ai/README.md)
 - [Model release and rollback runbook](docs/ai/MODEL_RELEASE_AND_ROLLBACK_RUNBOOK.md)
 - [Forecast go-live punch list](docs/ai/FORECAST_GO_LIVE_PUNCHLIST.md)
+- [Interface gallery](docs/screenshots/)
 
 ## License
 
