@@ -54,7 +54,30 @@ public class WarehouseRoutingService {
     private static final double RACK_HALF_WIDTH_M = 2.0;
     private static final double RACK_DEPTH_M = 4.0;
     private static final double SAFETY_HEADWAY_SECONDS = 3.0;
-    private static final Duration ROUTE_LEASE = Duration.ofMinutes(5);
+    /**
+     * How long a plan's aisle reservations are honoured without any sign of life from the worker.
+     *
+     * This was five minutes, shorter than a single forklift leg. Every session in the field
+     * expired mid-route, {@link #expireLeases()} released its reservations, and the next worker
+     * planned against a warehouse that looked empty -- so the conflict avoidance below never once
+     * had a window to route around. It has to outlast a realistic leg, and the heartbeat below
+     * renews it for anyone still moving.
+     */
+    private static final Duration ROUTE_LEASE = Duration.ofMinutes(45);
+    /** Metres of notional detour charged for sending a worker where another is already bound. */
+    private static final double CONGESTED_FACE_PENALTY_M = 40.0;
+    private static final double CONGESTED_RACK_PENALTY_M = 15.0;
+    /**
+     * What travelling an aisle another worker's route already claims costs, as a multiple of
+     * travelling a free one.
+     *
+     * Deliberately small. At 1.7 it stopped being a preference and became an instruction: a
+     * route took three sides of a rack block rather than 18 m of contested aisle. This only
+     * decides between routes of comparable length.
+     */
+    private static final double SHARED_EDGE_COST_MULTIPLIER = 1.15;
+    /** How close in time another worker has to be for their claim on an edge to matter. */
+    private static final double SPREAD_MARGIN_SECONDS = 90.0;
     private static final String ACTIVE = "ACTIVE";
 
     private final JdbcTemplate jdbc;
@@ -246,7 +269,8 @@ public class WarehouseRoutingService {
         List<OrderedStop> orderedStops = orderStops(
                 graph,
                 startNode,
-                request.locationCodes()
+                request.locationCodes(),
+                null
         );
         UUID sessionId = UUID.randomUUID();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -1049,7 +1073,8 @@ public class WarehouseRoutingService {
     private List<OrderedStop> orderStops(
             GraphData graph,
             String startNode,
-            Collection<String> requestedCodes
+            Collection<String> requestedCodes,
+            UUID excludedSession
     ) {
         LinkedHashSet<String> uniqueCodes = requestedCodes.stream()
                 .filter(Objects::nonNull)
@@ -1066,6 +1091,15 @@ public class WarehouseRoutingService {
             );
         }
 
+        // Faces other live workers are already heading for. Travel is deconflicted in time by the
+        // reservation search, but that only makes the second worker wait behind the first. Spreading
+        // the assignment is what stops two people being sent into one aisle in the first place.
+        Set<String> claimedNodes = claimedAccessNodes(graph.graph().warehouseId(), excludedSession);
+        Set<String> claimedRacks = claimedNodes.stream()
+                .map(WarehouseRoutingService::rackOfAccessNode)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         List<OrderedStop> ordered = new ArrayList<>();
         Set<String> remaining = new LinkedHashSet<>(uniqueCodes);
         String cursor = startNode;
@@ -1074,10 +1108,11 @@ public class WarehouseRoutingService {
             for (String code : remaining) {
                 for (String accessNode : graph.accessByLocation().get(code)) {
                     double distance = staticDistance(graph, cursor, accessNode);
-                    StopChoice candidate = new StopChoice(code, accessNode, distance);
+                    double ranked = distance + congestionPenaltyM(accessNode, claimedNodes, claimedRacks);
+                    StopChoice candidate = new StopChoice(code, accessNode, distance, ranked);
                     if (best == null
-                            || candidate.distanceM() < best.distanceM()
-                            || (candidate.distanceM() == best.distanceM()
+                            || candidate.rankedDistanceM() < best.rankedDistanceM()
+                            || (candidate.rankedDistanceM() == best.rankedDistanceM()
                             && candidate.locationCode().compareTo(best.locationCode()) < 0)) {
                         best = candidate;
                     }
@@ -1094,6 +1129,50 @@ public class WarehouseRoutingService {
             cursor = best.accessNodeId();
         }
         return ordered;
+    }
+
+    /**
+     * How much to inflate a candidate stop's distance because another worker is already bound
+     * for it.
+     *
+     * A penalty rather than a veto: when the whole receipt lives in one aisle there is nowhere
+     * else to send anyone, and refusing the stop would fail the route outright. The face itself
+     * costs more than merely sharing a rack, so a worker will take the far side of a rack before
+     * it gives up and crosses to another aisle.
+     */
+    static double congestionPenaltyM(
+            String accessNode,
+            Set<String> claimedNodes,
+            Set<String> claimedRacks
+    ) {
+        if (claimedNodes.contains(accessNode)) {
+            return CONGESTED_FACE_PENALTY_M;
+        }
+        String rack = rackOfAccessNode(accessNode);
+        return rack != null && claimedRacks.contains(rack) ? CONGESTED_RACK_PENALTY_M : 0;
+    }
+
+    /** {@code FACE:<rackId>:WEST} to {@code FACE:<rackId>}, so both faces count as one aisle. */
+    static String rackOfAccessNode(String accessNode) {
+        if (accessNode == null) {
+            return null;
+        }
+        int lastColon = accessNode.lastIndexOf(':');
+        return lastColon > 0 ? accessNode.substring(0, lastColon) : null;
+    }
+
+    /** Access nodes that other live sessions still have to visit. */
+    private Set<String> claimedAccessNodes(UUID warehouseId, UUID excludedSession) {
+        return new HashSet<>(jdbc.query("""
+                SELECT DISTINCT st.access_node_id
+                  FROM worker_route_stops st
+                  JOIN worker_route_sessions s ON s.id = st.session_id
+                 WHERE s.warehouse_id = ?
+                   AND s.status IN ('PLANNED', 'ACTIVE', 'WAITING')
+                   AND s.lease_expires_at > NOW()
+                   AND st.status IN ('CURRENT', 'PENDING')
+                   AND (?::uuid IS NULL OR s.id <> ?::uuid)
+                """, (rs, rowNum) -> rs.getString(1), warehouseId, excludedSession, excludedSession));
     }
 
     private PlannedRoute planWaypoints(
@@ -1145,7 +1224,7 @@ public class WarehouseRoutingService {
         );
     }
 
-    private PathResult timeAwarePath(
+    PathResult timeAwarePath(
             GraphData graph,
             String start,
             String goal,
@@ -1162,29 +1241,53 @@ public class WarehouseRoutingService {
         double speed = speedFor(vehicleType);
         Map<String, List<ReservationWindow>> byResource = windows.stream()
                 .collect(Collectors.groupingBy(ReservationWindow::resourceKey));
-        Map<String, Double> bestCost = new HashMap<>();
-        Map<String, SearchParent> parent = new HashMap<>();
+
+        // Aisles another live worker is due to be in around the same time.
+        //
+        // Spreading workers apart is only worth anything when they would otherwise be in the
+        // same place at roughly the same moment. Charging for a claimed edge regardless of when
+        // sent a forklift 81 m round three sides of a rack block to dodge 18 m of aisle whose
+        // claim expired seconds later -- and straight through a different claimed edge on the
+        // way. The claim has to be near in time to mean anything.
+
+        // A search state is (node, arrival time), not node alone. Keeping one best cost per node
+        // discarded a costlier state that arrived earlier -- and arriving earlier is exactly what
+        // clears a reservation window, so the detour around another worker was pruned before it
+        // could be found and the search reported no conflict-free route. Keep a Pareto frontier
+        // per node instead: a state survives unless some kept state is both cheaper and earlier.
+        Map<String, List<Frontier>> frontier = new HashMap<>();
+        Map<Long, SearchParent> parent = new HashMap<>();
         PriorityQueue<SearchState> open = new PriorityQueue<>(
                 Comparator.comparingDouble(SearchState::estimatedTotalCost)
         );
-        bestCost.put(start, 0.0);
+        long nextStateId = 0;
+        long startStateId = nextStateId++;
+        admit(frontier, start, 0.0, startAt);
         open.add(new SearchState(
+                startStateId,
                 start,
                 startAt,
                 0.0,
                 heuristicSeconds(graph, start, goal, speed)
         ));
         int expanded = 0;
-        final double WAIT_PENALTY_FACTOR = 20.0;
+        // Waiting is worse than moving, not twenty times worse. At 20 the search would drive
+        // ~90 m rather than idle three seconds, which is how a forklift ended up circling a rack
+        // block to dodge a corridor booked for a moment. Queueing briefly is normal warehouse
+        // behaviour and usually cheaper than the detour that avoids it.
+        final double WAIT_PENALTY_FACTOR = 3.0;
 
         while (!open.isEmpty() && expanded < 100_000) {
             SearchState current = open.poll();
-            Double known = bestCost.get(current.nodeId());
-            if (known != null && current.cost() > known) {
+            // Skip states a later, strictly better one has since evicted. This asks whether the
+            // state is still on the frontier, not whether it is dominated -- every state is
+            // trivially dominated by its own frontier entry, so testing dominance here would
+            // discard the state the moment it was polled and abandon every route.
+            if (isSuperseded(frontier, current.nodeId(), current.cost(), current.arrival())) {
                 continue;
             }
             if (current.nodeId().equals(goal)) {
-                return reconstructPath(parent, start, goal, startAt);
+                return reconstructPath(parent, current.stateId(), startStateId, startAt);
             }
             expanded++;
             for (GraphEdge edge : graph.adjacency().getOrDefault(current.nodeId(), List.of())) {
@@ -1195,30 +1298,103 @@ public class WarehouseRoutingService {
                         byResource.getOrDefault("EDGE:" + edge.resourceKey(), List.of()),
                         byResource.getOrDefault("NODE:" + edge.to(), List.of())
                 );
-                
+
                 double waitSeconds = Math.max(0, Duration.between(current.arrival(), depart).toMillis() / 1000.0);
-                double edgeCost = travelSeconds + (waitSeconds * WAIT_PENALTY_FACTOR);
+                OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
+                // A nudge between comparable routes, not a licence to detour. At 1.15 the search
+                // will take a slightly longer parallel aisle to stay clear of somebody, and will
+                // not take a materially longer one -- driving further costs real time, and two
+                // forklifts sharing a corridor a minute apart costs nothing.
+                double sharedEdgeCost = contestedNear(
+                        byResource.getOrDefault("EDGE:" + edge.resourceKey(), List.of()), depart, arrival)
+                        ? travelSeconds * (SHARED_EDGE_COST_MULTIPLIER - 1.0)
+                        : 0.0;
+                double edgeCost = travelSeconds + sharedEdgeCost + (waitSeconds * WAIT_PENALTY_FACTOR);
                 double totalCost = current.cost() + edgeCost;
-                
-                if (totalCost < bestCost.getOrDefault(edge.to(), Double.POSITIVE_INFINITY)) {
-                    bestCost.put(edge.to(), totalCost);
-                    OffsetDateTime arrival = depart.plusNanos((long) (travelSeconds * 1_000_000_000L));
-                    parent.put(edge.to(), new SearchParent(
-                            current.nodeId(),
-                            edge,
-                            depart,
-                            arrival
-                    ));
-                    open.add(new SearchState(
-                            edge.to(),
-                            arrival,
-                            totalCost,
-                            totalCost + heuristicSeconds(graph, edge.to(), goal, speed)
-                    ));
+
+                if (!admit(frontier, edge.to(), totalCost, arrival)) {
+                    continue;
                 }
+                long stateId = nextStateId++;
+                parent.put(stateId, new SearchParent(
+                        current.stateId(),
+                        edge,
+                        depart,
+                        arrival
+                ));
+                open.add(new SearchState(
+                        stateId,
+                        edge.to(),
+                        arrival,
+                        totalCost,
+                        totalCost + heuristicSeconds(graph, edge.to(), goal, speed)
+                ));
             }
         }
         return new PathResult(List.of(), startAt, 0, 0);
+    }
+
+    /** True when another worker is booked on this edge close enough in time to be worth avoiding. */
+    static boolean contestedNear(
+            List<ReservationWindow> edgeWindows,
+            OffsetDateTime depart,
+            OffsetDateTime arrival
+    ) {
+        if (edgeWindows.isEmpty()) {
+            return false;
+        }
+        OffsetDateTime from = depart.minusSeconds((long) SPREAD_MARGIN_SECONDS);
+        OffsetDateTime until = arrival.plusSeconds((long) SPREAD_MARGIN_SECONDS);
+        return edgeWindows.stream().anyMatch(window ->
+                window.until().isAfter(from) && window.from().isBefore(until));
+    }
+
+    /** True when this exact state is no longer on the node's frontier, having been evicted. */
+    static boolean isSuperseded(
+            Map<String, List<Frontier>> frontier,
+            String nodeId,
+            double cost,
+            OffsetDateTime arrival
+    ) {
+        return frontier.getOrDefault(nodeId, List.of()).stream()
+                .noneMatch(kept -> kept.cost() == cost && kept.arrival().equals(arrival));
+    }
+
+    /** True when a state already kept at this node is no worse on both cost and arrival. */
+    static boolean isDominated(
+            Map<String, List<Frontier>> frontier,
+            String nodeId,
+            double cost,
+            OffsetDateTime arrival
+    ) {
+        for (Frontier kept : frontier.getOrDefault(nodeId, List.of())) {
+            if (kept.cost() <= cost && !kept.arrival().isAfter(arrival)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Record a state at a node unless it is dominated, dropping any kept state it dominates.
+     *
+     * @return false when the state is not worth expanding
+     */
+    static boolean admit(
+            Map<String, List<Frontier>> frontier,
+            String nodeId,
+            double cost,
+            OffsetDateTime arrival
+    ) {
+        List<Frontier> kept = frontier.computeIfAbsent(nodeId, key -> new ArrayList<>());
+        for (Frontier existing : kept) {
+            if (existing.cost() <= cost && !existing.arrival().isAfter(arrival)) {
+                return false;
+            }
+        }
+        kept.removeIf(existing -> cost <= existing.cost() && !arrival.isAfter(existing.arrival()));
+        kept.add(new Frontier(cost, arrival));
+        return true;
     }
 
     private OffsetDateTime earliestDeparture(
@@ -1265,15 +1441,15 @@ public class WarehouseRoutingService {
     }
 
     private PathResult reconstructPath(
-            Map<String, SearchParent> parents,
-            String start,
-            String goal,
+            Map<Long, SearchParent> parents,
+            long goalStateId,
+            long startStateId,
             OffsetDateTime startAt
     ) {
         List<PathStep> reverse = new ArrayList<>();
-        String cursor = goal;
+        long cursor = goalStateId;
         double distance = 0;
-        while (!cursor.equals(start)) {
+        while (cursor != startStateId) {
             SearchParent parent = parents.get(cursor);
             if (parent == null) {
                 return new PathResult(List.of(), startAt, 0, 0);
@@ -1284,7 +1460,7 @@ public class WarehouseRoutingService {
                     parent.arrived()
             ));
             distance += parent.edge().distanceM();
-            cursor = parent.previousNode();
+            cursor = parent.previousStateId();
         }
         java.util.Collections.reverse(reverse);
         double wait = 0;
@@ -1387,6 +1563,18 @@ public class WarehouseRoutingService {
                 rs.getString("location_code"),
                 rs.getString("access_node_id")
         ), session.id());
+        if (remaining.isEmpty()) {
+            // Last stop done: the route is finished.
+            //
+            // It used to re-plan a leg back to parking and set the session ACTIVE again, and
+            // since nothing ever sends an explicit COMPLETE, the session stayed live until its
+            // lease ran out. A finished job went on drawing a route across the manager's map and
+            // holding aisle reservations against other workers -- and raising the lease from 5 to
+            // 45 minutes to keep real routes alive made that linger far longer.
+            completeSession(session, now);
+            return;
+        }
+
         List<String> waypointNodes = remaining.stream()
                 .map(OrderedStop::accessNodeId)
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -2195,30 +2383,40 @@ public class WarehouseRoutingService {
             int rackFootprintCount
     ) {}
 
-    private record GraphData(
+    record GraphData(
             WarehouseGraph graph,
             Map<String, GraphNode> nodes,
             Map<String, List<GraphEdge>> adjacency,
             Map<String, List<String>> accessByLocation
     ) {}
 
+    /**
+     * A candidate next stop. {@code distanceM} is the real walk; {@code rankedDistanceM} adds the
+     * congestion penalty and is what the greedy choice compares, so the recorded route still
+     * reports true distances.
+     */
     private record StopChoice(
             String locationCode,
             String accessNodeId,
-            double distanceM
+            double distanceM,
+            double rankedDistanceM
     ) {}
 
     private record OrderedStop(String locationCode, String accessNodeId) {}
 
     private record SearchState(
+            long stateId,
             String nodeId,
             OffsetDateTime arrival,
             double cost,
             double estimatedTotalCost
     ) {}
 
+    /** A non-dominated (cost, arrival) pair kept for one node during the search. */
+    record Frontier(double cost, OffsetDateTime arrival) {}
+
     private record SearchParent(
-            String previousNode,
+            long previousStateId,
             GraphEdge edge,
             OffsetDateTime departed,
             OffsetDateTime arrived
@@ -2226,20 +2424,20 @@ public class WarehouseRoutingService {
 
     private record DistanceState(String nodeId, double distance) {}
 
-    private record ReservationWindow(
+    record ReservationWindow(
             UUID sessionId,
             String resourceKey,
             OffsetDateTime from,
             OffsetDateTime until
     ) {}
 
-    private record PathStep(
+    record PathStep(
             GraphEdge edge,
             OffsetDateTime departed,
             OffsetDateTime arrived
     ) {}
 
-    private record PathResult(
+    record PathResult(
             List<PathStep> steps,
             OffsetDateTime arrival,
             double distanceM,

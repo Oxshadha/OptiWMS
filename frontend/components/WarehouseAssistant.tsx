@@ -36,6 +36,10 @@ import {
 } from "lucide-react";
 import {
   askWarehouseAI,
+  fetchSuggestions,
+  type AISuggestion,
+  type AIToolCall,
+  type AITimings,
   askInventoryIntelligence,
   getChatHistory,
   getSessionMessages,
@@ -63,6 +67,10 @@ type ChatMessage = {
   timestamp?: string | Date;
   action?: string;
   tourId?: string;
+  toolCalls?: AIToolCall[];
+  timings?: AITimings;
+  evidenceSource?: string;
+  fastPath?: boolean;
 };
 
 const getBaseUrl = () => {
@@ -215,6 +223,11 @@ export function WarehouseAssistant({
     if (lastMsg.role !== "assistant" || lastMsg.action !== "START_TOUR" || !lastMsg.tourId) return;
     if (firedTourFor.current === lastMsg.id) return;
     firedTourFor.current = lastMsg.id;
+    // Close the panel before the walkthrough begins. A tour highlights elements on
+    // the page behind it, and the assistant sits over the bottom-right corner --
+    // leaving it open covers the very controls the tour is pointing at.
+    setIsOpen(false);
+    if (onManagerOpenChange) onManagerOpenChange(false);
     // Task tours navigate between pages, so they need the app router.
     startProductTour(lastMsg.tourId, (path) => router.push(path));
   }, [chatHistory, router]);
@@ -386,6 +399,10 @@ export function WarehouseAssistant({
           timestamp: new Date().toISOString(),
           action: response.action,
           tourId: response.tourId,
+          toolCalls: response.toolCalls,
+          timings: response.timings,
+          evidenceSource: response.evidenceSource,
+          fastPath: response.fastPath,
         },
       ]);
 
@@ -507,7 +524,7 @@ export function WarehouseAssistant({
               isPopUp={false}
             />
 
-            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0, background: T.bg }}>
               <ContextBanner />
               <div
                 style={{
@@ -529,11 +546,7 @@ export function WarehouseAssistant({
                   inputRef={inputRef}
                   query={query}
                   loading={loading}
-                  placeholder={
-                    userRole === "manager"
-                      ? "Ask about SOPs, inventory counts, pending orders, or request reports..."
-                      : "Ask about SKU locations, safety protocols, or task steps..."
-                  }
+                  placeholder={placeholderFor(pathname, userRole)}
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
                   fullPage={fullPage}
@@ -639,7 +652,7 @@ export function WarehouseAssistant({
               isHistoryOpen={showHistory}
             />
 
-            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
+            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, minWidth: 0, position: "relative" }}>
               <HistorySidebar
                 isOpen={showHistory}
                 onClose={() => setShowHistory(false)}
@@ -652,7 +665,7 @@ export function WarehouseAssistant({
                 isPopUp={true}
               />
 
-              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0, background: T.bg }}>
                 <div
                   style={{
                     flexShrink: 0,
@@ -728,7 +741,7 @@ export function WarehouseAssistant({
                     inputRef={inputRef}
                     query={query}
                     loading={loading}
-                    placeholder="Ask about SOPs, database metrics, or reports..."
+                    placeholder={placeholderFor(pathname, userRole)}
                     onQueryChange={setQuery}
                     onSubmit={handleSubmit}
                   />
@@ -829,7 +842,10 @@ export function WarehouseAssistant({
               isPopUp={true}
             />
 
-            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0 }}>
+            {/* minWidth 0 matters: a flex child defaults to min-width:auto, so a wide table or
+                chart refuses to shrink and pushes the whole panel past the viewport, which is
+                what put a horizontal scrollbar across the assistant. */}
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, minWidth: 0 }}>
               <div
                 style={{
                   flexShrink: 0,
@@ -1351,6 +1367,26 @@ function HistorySidebar({
   );
 }
 
+// The prompt should describe what this screen can answer. A forecast page inviting
+// questions about SOPs and pending orders tells the user the assistant is generic
+// when it is not -- it is the one place they will actually read before typing.
+const ROUTE_PLACEHOLDERS: Record<string, string> = {
+  "/admin/forecasts": "Ask why this forecast moved, or what is driving demand…",
+  "/admin/inventory-intelligence": "Ask what this recommendation depends on, or why min/max changed…",
+  "/admin/replenishment/forecast-space": "Ask what this recommendation depends on, or why min/max changed…",
+  "/admin/slotting-plans": "Ask why a location was chosen, or what this plan moves…",
+  "/admin/ai-slotting": "Ask why a location was chosen, or what this plan moves…",
+  "/admin/inventory": "Ask about stock levels, reorder points or top movers…",
+};
+
+function placeholderFor(route: string | null | undefined, role: WarehouseAssistantProps["userRole"]): string {
+  if (role === "worker") return "Ask about SKU locations, safety protocols, or task steps…";
+  return (
+    (route && ROUTE_PLACEHOLDERS[route]) ??
+    "Ask about SOPs, inventory counts, pending orders, or request reports…"
+  );
+}
+
 function ChatChart({ spec }: { spec: ChartSpec }) {
   const tooltipStyle = {
     background: "#ffffff",
@@ -1360,7 +1396,16 @@ function ChatChart({ spec }: { spec: ChartSpec }) {
     boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
   };
   const axisTick = { fontSize: 10, fill: T.textFaint };
-  const longLabels = spec.data.some((row) => String(row[spec.xKey] ?? "").length > 10);
+  const labels = spec.data.map((row) => String(row[spec.xKey] ?? ""));
+  const longest = labels.reduce((n, l) => Math.max(n, l.length), 0);
+  const longLabels = longest > 10;
+  // Past roughly twenty characters a rotated label is unreadable however much
+  // bottom margin it is given, so the chart turns on its side instead.
+  const horizontalBars = spec.type === "bar" && longest > 20;
+  const categoryWidth = Math.min(190, Math.max(90, longest * 6));
+  const chartHeight = horizontalBars
+    ? Math.max(200, Math.min(420, spec.data.length * 26 + 40))
+    : 220;
 
   return (
     <div
@@ -1384,7 +1429,7 @@ function ChatChart({ spec }: { spec: ChartSpec }) {
       >
         {spec.title}
       </p>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
         {spec.type === "line" ? (
           <LineChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
@@ -1409,23 +1454,152 @@ function ChatChart({ spec }: { spec: ChartSpec }) {
             />
           </LineChart>
         ) : (
-          <BarChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
-            <XAxis
-              dataKey={spec.xKey}
-              tick={axisTick}
-              tickLine={false}
-              axisLine={{ stroke: T.borderSub }}
-              angle={longLabels ? -35 : 0}
-              textAnchor={longLabels ? "end" : "middle"}
-              height={longLabels ? 40 : 24}
-            />
-            <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
-            <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} cursor={{ fill: T.accentBg }} />
-            <Bar dataKey={spec.yKey} fill={T.accent} radius={[4, 4, 0, 0]} maxBarSize={40} />
-          </BarChart>
+          horizontalBars ? (
+            // Long category names cannot be read on a rotated x-axis -- at -35 degrees
+            // "all remaining features (incl. material identity)" runs off the left
+            // edge and is simply cut. Turning the chart on its side lets each name sit
+            // on its own row, read normally. It is also the conventional form for a
+            // contribution plot, which is what most of these are.
+            <BarChart data={spec.data} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} horizontal={false} />
+              <XAxis type="number" tick={axisTick} tickLine={false} axisLine={{ stroke: T.borderSub }} />
+              <YAxis
+                type="category"
+                dataKey={spec.xKey}
+                tick={axisTick}
+                tickLine={false}
+                axisLine={false}
+                width={categoryWidth}
+                interval={0}
+              />
+              <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} cursor={{ fill: T.accentBg }} />
+              <Bar dataKey={spec.yKey} fill={T.accent} radius={[0, 4, 4, 0]} maxBarSize={18} />
+            </BarChart>
+          ) : (
+            <BarChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
+              <XAxis
+                dataKey={spec.xKey}
+                tick={axisTick}
+                tickLine={false}
+                axisLine={{ stroke: T.borderSub }}
+                angle={longLabels ? -35 : 0}
+                textAnchor={longLabels ? "end" : "middle"}
+                height={longLabels ? 40 : 24}
+              />
+              <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
+              <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} cursor={{ fill: T.accentBg }} />
+              <Bar dataKey={spec.yKey} fill={T.accent} radius={[4, 4, 0, 0]} maxBarSize={40} />
+            </BarChart>
+          )
         )}
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * What the assistant is doing, while it does it.
+ *
+ * Shows a live elapsed timer rather than a sequence of invented stage labels.
+ * The backend does not stream progress, so any "Reading data... Analysing..."
+ * sequence would be theatre unconnected to real state -- and on the fast path it
+ * would be a lie, because the answer arrives in about 200ms. A counting timer is
+ * honest and still tells the user the thing they want to know: it is working, and
+ * how long it has been.
+ */
+function ThinkingStatus() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const id = setInterval(() => setElapsed(Date.now() - started), 100);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <TypingDots />
+      <span style={{ fontSize: 11.5, color: T.textDim, fontVariantNumeric: "tabular-nums" }}>
+        Working{elapsed > 600 ? ` · ${(elapsed / 1000).toFixed(1)}s` : ""}
+      </span>
+    </div>
+  );
+}
+
+const TRACE_KIND_LABEL: Record<string, string> = {
+  tool: "database query",
+  llm: "model call",
+  rule: "keyword rule",
+  cache: "cached",
+};
+
+/**
+ * The assistant's working: which steps ran, and what each cost.
+ *
+ * An answer with no visible working reads as something the model invented. Naming
+ * the query that ran, and showing that an explanation cost no model call at all, is
+ * what separates a computed attribution from a generated one.
+ *
+ * Deliberately monochrome. Colour here would compete with the chart and the data
+ * table for attention, and these are provenance -- worth reading once, not worth
+ * shouting. The description sits underneath rather than inside each chip so the row
+ * stays scannable when several steps ran.
+ */
+function TraceChips({
+  toolCalls,
+  timings,
+  evidenceSource,
+  fastPath,
+}: {
+  toolCalls?: AIToolCall[];
+  timings?: AITimings;
+  evidenceSource?: string;
+  fastPath?: boolean;
+}) {
+  const steps = (toolCalls ?? []).filter((c) => c.kind && c.kind !== "mode");
+  if (!steps.length && !timings?.total_ms) return null;
+
+  const total = timings?.total_ms;
+  const noModel = timings?.llm_calls === 0;
+
+  const description = steps
+    .map((s) => `${s.name} — ${TRACE_KIND_LABEL[s.kind ?? "tool"] ?? s.kind}${s.detail ? `, ${s.detail}` : ""}`)
+    .join(" · ");
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${T.borderSub}` }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        {steps.map((step, i) => (
+          <span
+            key={`${step.name}-${i}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              border: `1px solid ${T.borderSub}`, borderRadius: 4,
+              padding: "1px 7px", fontSize: 10.5, color: T.textDim,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {step.name}
+            {typeof step.ms === "number" && (
+              <span style={{ opacity: 0.65, fontVariantNumeric: "tabular-nums" }}>
+                {step.ms}ms
+              </span>
+            )}
+          </span>
+        ))}
+        {typeof total === "number" && (
+          <span style={{ fontSize: 10.5, color: T.textDim, fontVariantNumeric: "tabular-nums" }}>
+            {total}ms total{noModel && fastPath ? " · no model call" : ""}
+          </span>
+        )}
+      </div>
+      {(description || evidenceSource) && (
+        <div style={{ marginTop: 4, fontSize: 10.5, color: T.textDim, lineHeight: 1.5 }}>
+          {description}
+          {evidenceSource && (description ? " — " : "")}
+          {evidenceSource}
+        </div>
+      )}
     </div>
   );
 }
@@ -1462,7 +1636,35 @@ function AssistantBody({
     { icon: "autorenew", title: "Shift Handover", text: "What are the steps for shift handover?" },
   ];
 
-  const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+  const fallbackSuggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+
+  // Page-aware prompts, fetched once the panel is open. The hardcoded set stays as
+  // the fallback: a blank panel is worse than a generic prompt.
+  const [livePrompts, setLivePrompts] = useState<AISuggestion[]>([]);
+  const [pageCtx, setPageCtx] = useState<PageContext>(getPageContext);
+  useEffect(() => subscribePageContext(setPageCtx), []);
+  const pathnameForPrompts = usePathname();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSuggestions(userRole, { ...pageCtx, route: pathnameForPrompts ?? undefined })
+      .then((prompts) => {
+        if (!cancelled) setLivePrompts(prompts);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole, pathnameForPrompts, pageCtx.entityId, pageCtx.entityType]);
+
+  // Titles come from the server alongside the prompt, so the caption always
+  // describes the question underneath it.
+  const suggestions = livePrompts.length
+    ? livePrompts.map((s, i) => ({
+        icon: fallbackSuggestions[i]?.icon ?? "help",
+        title: s.title,
+        text: s.text,
+      }))
+    : fallbackSuggestions;
 
   return (
     <div style={{ padding: chatHistory.length === 0 ? 0 : 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff", height: chatHistory.length === 0 ? "100%" : "auto" }}>
@@ -1589,6 +1791,9 @@ function AssistantBody({
                     lineHeight: 1.6,
                     padding: "10px 14px",
                     wordBreak: "break-word",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflowX: "hidden",
                   }
               }
             >
@@ -1721,7 +1926,7 @@ function AssistantBody({
                       className="group-open:rotate-90"
                     />
                   </summary>
-                  <div style={{ padding: 12, overflowX: "auto" }}>
+                  <div style={{ padding: 12, overflowX: "auto", maxWidth: "100%", minWidth: 0 }}>
                     <pre
                       style={{
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -1771,40 +1976,63 @@ function AssistantBody({
                       WMS Database Records ({message.data.length} rows)
                     </span>
                   </div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ minWidth: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                      <thead style={{ background: T.bgSub }}>
+                  {/* Scrolls in both directions with the header pinned. Without
+                      nowrap a name like MATERIAL_CODE wraps one letter per line when
+                      the column is squeezed, which is what made these unreadable. */}
+                  <div style={{ overflow: "auto", maxHeight: 320 }}>
+                    <table
+                      style={{
+                        minWidth: "100%",
+                        borderCollapse: "separate",
+                        borderSpacing: 0,
+                        fontSize: 12,
+                      }}
+                    >
+                      <thead>
                         <tr>
                           {Object.keys(message.data?.[0] || {}).map((key) => (
                             <th
                               key={key}
+                              title={key}
                               style={{
-                                padding: "6px 12px",
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 1,
+                                background: T.bgSub,
+                                padding: "7px 12px",
                                 textAlign: "left",
                                 fontWeight: 650,
-                                textTransform: "uppercase",
                                 fontSize: 10,
+                                letterSpacing: "0.04em",
                                 color: T.textFaint,
+                                whiteSpace: "nowrap",
                                 borderBottom: `1px solid ${T.border}`,
                               }}
                             >
-                              {key}
+                              {key.replace(/_/g, " ")}
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {(message.data || []).slice(0, 8).map((row, index) => (
-                          <tr
-                            key={index}
-                            className="wa-table-row"
-                            style={{
-                              borderBottom: index === Math.min(message.data?.length || 0, 8) - 1 ? "none" : `1px solid ${T.border}`,
-                              transition: "background-color 0.15s",
-                            }}
-                          >
+                        {(message.data || []).slice(0, 25).map((row, index) => (
+                          <tr key={index} className="wa-table-row" style={{ transition: "background-color 0.15s" }}>
                             {Object.values(row).map((value, i) => (
-                              <td key={i} style={{ padding: "6px 12px", color: T.textDim }}>
+                              <td
+                                key={i}
+                                title={value === null ? "" : String(value)}
+                                style={{
+                                  padding: "6px 12px",
+                                  color: T.textDim,
+                                  borderBottom: `1px solid ${T.border}`,
+                                  // Long free-text columns (a rationale, a reason)
+                                  // would otherwise stretch the table off-screen.
+                                  maxWidth: 320,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
                                 {value === null ? (
                                   <span style={{ color: T.textFaint }}>null</span>
                                 ) : (
@@ -1817,7 +2045,7 @@ function AssistantBody({
                       </tbody>
                     </table>
                   </div>
-                  {(message.data?.length || 0) > 8 && (
+                  {(message.data?.length || 0) > 25 && (
                     <div
                       style={{
                         borderTop: `1px solid ${T.border}`,
@@ -1828,7 +2056,7 @@ function AssistantBody({
                         color: T.textFaint,
                       }}
                     >
-                      Showing top 8 of {message.data.length} records.
+                      Showing the first 25 of {message.data.length} records.
                     </div>
                   )}
                 </div>
@@ -1836,6 +2064,16 @@ function AssistantBody({
 
               {/* Auto Generated Charts */}
               {message.chart && <ChatChart spec={message.chart} />}
+
+              {/* The assistant's working: what ran, and what it cost. */}
+              {message.role === "assistant" && (
+                <TraceChips
+                  toolCalls={message.toolCalls}
+                  timings={message.timings}
+                  evidenceSource={message.evidenceSource}
+                  fastPath={message.fastPath}
+                />
+              )}
 
               {/* Report Build error block */}
               {message.error && (
@@ -1927,7 +2165,7 @@ function AssistantBody({
               height: 38,
             }}
           >
-            <TypingDots />
+            <ThinkingStatus />
           </div>
         </div>
       )}

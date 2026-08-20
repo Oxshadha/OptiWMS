@@ -85,6 +85,7 @@ export default function PackingPage() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -173,6 +174,9 @@ export default function PackingPage() {
   const totalItems = packingQuery.data?.recordsPage.totalElements ?? 0;
   const totalPages = Math.max(packingQuery.data?.recordsPage.totalPages ?? 1, 1);
 
+  const awaitingApprovalOrders = packingRecords.filter(
+    (record) => record.status === "pending_approval"
+  );
   const pendingOrders = packingRecords.filter((record) => record.status === "pending");
   const inProgressOrders = packingRecords.filter((record) => record.status === "in_progress");
   const packedOrders = packingRecords.filter((record) => record.status === "packed");
@@ -194,6 +198,26 @@ export default function PackingPage() {
       </div>
     );
   }
+
+  /**
+   * Release a packing job to the floor.
+   *
+   * Approval is what raises the packer's task, so the order only becomes visible to the packing
+   * app at this point -- not when picking finished.
+   */
+  const handleApprove = async (record: PackingRecord) => {
+    setApprovingId(record.id);
+    try {
+      await packingApi.approve(record.id);
+      showToast.success(`${record.orderNumber} released for packing`);
+      await packingQuery.refetch();
+    } catch (err) {
+      logger.error("Failed to approve packing job:", err);
+      showToast.error("Could not approve this packing job");
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   const handleViewDetails = (record: PackingRecord) => {
     setSelectedRecord(record);
@@ -287,6 +311,7 @@ export default function PackingPage() {
       </div>
 
       <PackingStats
+        awaitingApprovalCount={awaitingApprovalOrders.length}
         pendingCount={pendingOrders.length}
         inProgressCount={inProgressOrders.length}
         packedCount={packedOrders.length}
@@ -295,11 +320,14 @@ export default function PackingPage() {
 
       <PackingViews
         viewMode={viewMode}
+        awaitingApprovalOrders={awaitingApprovalOrders}
         pendingOrders={pendingOrders}
         inProgressOrders={inProgressOrders}
         historyOrders={historyOrders}
         onViewDetails={handleViewDetails}
         onAssignPacker={handleAssignPacker}
+        onApprove={handleApprove}
+        approvingId={approvingId}
         onPrintLabel={handlePrintLabel}
         onPrintSlip={handlePrintSlip}
       />

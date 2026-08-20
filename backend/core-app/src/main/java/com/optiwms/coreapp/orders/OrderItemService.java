@@ -39,6 +39,7 @@ public class OrderItemService {
         entity.setQuantity(orderItem.getQuantity());
         entity.setUnitPrice(orderItem.getUnitPrice());
         entity.setPickedQuantity(orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0);
+        entity.setReceivedQuantity(orderItem.getReceivedQuantity() != null ? orderItem.getReceivedQuantity() : 0);
         entity.setPackedQuantity(orderItem.getPackedQuantity() != null ? orderItem.getPackedQuantity() : 0);
         entity.setLocationCode(orderItem.getLocationCode());
         entity.setWeightKg(orderItem.getWeightKg());
@@ -119,6 +120,7 @@ public class OrderItemService {
         domain.setQuantity(entity.getQuantity());
         domain.setUnitPrice(entity.getUnitPrice());
         domain.setPickedQuantity(entity.getPickedQuantity());
+        domain.setReceivedQuantity(entity.getReceivedQuantity());
         domain.setPackedQuantity(entity.getPackedQuantity());
         domain.setLocationCode(entity.getLocationCode());
         domain.setWeightKg(entity.getWeightKg());

@@ -260,6 +260,157 @@ class PutawayCapacityPlanningServiceTest {
                 List.of());
     }
 
+    /**
+     * Numbers taken from VITAMINE E (100128) against the live rack layout: a pallet is rated
+     * 1500 kg and the heaviest bin holds 1200 kg, but the order is only 30 units (750 kg).
+     *
+     * The empty-bin rule used to test the pallet rating, so every free bin was refused and the
+     * material could not be received at any quantity.
+     */
+    @Test
+    void acceptsAPartialPalletIntoABinRatedBelowAFullPallet() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID materialId = UUID.randomUUID();
+
+        Material material = palletisedMaterial(materialId, 267);
+        material.setWeightKg(new BigDecimal("25.00"));
+        material.setMaxPalletWeightKg(new BigDecimal("1500.00"));
+        material.setVolumeCm3(new BigDecimal("1000.00"));
+
+        Location bin = palletBin(warehouseId, "A-01-01-3-A");
+        bin.setMaxWeightKg(new BigDecimal("1200.00"));
+        bin.setMaxVolumeCm3(new BigDecimal("1800000.00"));
+
+        var result = fixture(warehouseId, materialId, material, bin, List.of())
+                .service()
+                .suggestSplitPlan(warehouseId, materialId, 30, null);
+
+        assertTrue(result.feasible(), () -> "expected feasible, notes: " + result.notes());
+        assertEquals(30, result.plannedQuantity());
+        assertEquals(1, result.allocations().size());
+        assertEquals(30, result.allocations().get(0).allocatedQuantity());
+    }
+
+    /**
+     * Relaxing the empty-bin rule must not make the bin's weight limit toothless. A 1200 kg bin
+     * bears 48 units of a 25 kg SKU, which is one whole 267-unit pallet's worth of slot and no
+     * more, so a full pallet still cannot be placed.
+     */
+    @Test
+    void stillCapsAllocationAtTheBinWeightLimit() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID materialId = UUID.randomUUID();
+
+        Material material = palletisedMaterial(materialId, 267);
+        material.setWeightKg(new BigDecimal("25.00"));
+        material.setMaxPalletWeightKg(new BigDecimal("1500.00"));
+
+        Location bin = palletBin(warehouseId, "A-01-01-3-A");
+        bin.setMaxWeightKg(new BigDecimal("1200.00"));
+
+        var result = fixture(warehouseId, materialId, material, bin, List.of())
+                .service()
+                .suggestSplitPlan(warehouseId, materialId, 267, null);
+
+        assertFalse(result.feasible());
+        // 1200 kg / 25 kg = 48 units. Under a pallet, so it is placed whole rather than trimmed
+        // to a pallet boundary that would leave the bin part-used and the receipt short.
+        assertEquals(48, result.plannedQuantity());
+        assertEquals(219, result.unplannedQuantity());
+        assertTrue(
+                result.notes().stream().anyMatch(note -> note.contains("Could not place 219 of 267")),
+                () -> "expected the shortfall to be quantified, got: " + result.notes());
+    }
+
+    /** An infeasible plan names the constraint that refused the bins, not just "insufficient". */
+    @Test
+    void namesTheConstraintThatRefusedEveryBin() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID materialId = UUID.randomUUID();
+
+        Material material = palletisedMaterial(materialId, 10);
+        material.setWeightKg(new BigDecimal("500.00"));
+
+        // No whole unit fits: one unit alone is heavier than the bin can bear.
+        Location bin = palletBin(warehouseId, "A-01-01-3-A");
+        bin.setMaxWeightKg(new BigDecimal("300.00"));
+
+        var result = fixture(warehouseId, materialId, material, bin, List.of())
+                .service()
+                .suggestSplitPlan(warehouseId, materialId, 10, null);
+
+        assertFalse(result.feasible());
+        assertEquals(0, result.plannedQuantity());
+        assertTrue(
+                result.notes().stream().anyMatch(note -> note.contains("bin weight limit")),
+                () -> "expected the weight limit to be named, got: " + result.notes());
+    }
+
+    /**
+     * A receipt of two pallets must not produce three putaway tasks.
+     *
+     * Bin headroom that cut an allocation mid-pallet left a stub that started a fresh partial
+     * pallet in the next bin, so the receipt ended up with more pallets than it needed.
+     */
+    @Test
+    void alignsAllocationsToWholePalletsSoTaskCountMatchesPalletCount() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID materialId = UUID.randomUUID();
+
+        Material material = palletisedMaterial(materialId, 25);
+        material.setWeightKg(new BigDecimal("1.00"));
+
+        // 30 units of headroom: enough for one whole pallet plus a 5-unit stub.
+        Location roomy = palletBin(warehouseId, "A-01-01-1-A");
+        roomy.setMaxPalletCapacity(2);
+        roomy.setMaxWeightKg(new BigDecimal("30.00"));
+        Location second = palletBin(warehouseId, "A-01-02-1-A");
+        second.setMaxPalletCapacity(2);
+        second.setMaxWeightKg(new BigDecimal("100.00"));
+
+        InventoryService inventoryService = mock(InventoryService.class);
+        LocationService locationService = mock(LocationService.class);
+        MaterialService materialService = mock(MaterialService.class);
+        when(materialService.findById(materialId)).thenReturn(material);
+        when(inventoryService.findByWarehouse(warehouseId)).thenReturn(List.of());
+        when(locationService.findAvailableByWarehouse(warehouseId)).thenReturn(List.of(roomy, second));
+
+        var service = new PutawayCapacityPlanningService(
+                inventoryService,
+                locationService,
+                materialService,
+                exhaustedPlanner(),
+                new HandlingUnitCapacityService(),
+                noReservations());
+
+        var result = service.suggestSplitPlan(warehouseId, materialId, 50, null);
+
+        assertTrue(result.feasible(), () -> "expected feasible, notes: " + result.notes());
+        // Every allocation is a whole pallet, so slicing them yields exactly ceil(50/25) = 2.
+        int pallets = result.allocations().stream()
+                .mapToInt(line -> (line.allocatedQuantity() + 24) / 25)
+                .sum();
+        assertEquals(2, pallets);
+    }
+
+    /**
+     * A planner that offers nothing, so planning falls through to the generic capacity search.
+     *
+     * This is the live behaviour, not a convenience: the pallet planner only considers bins it
+     * can seat a whole handling unit in, and returns nothing when none qualify.
+     */
+    private static StockPlacementPlanner exhaustedPlanner() {
+        StockPlacementPlanner planner = mock(StockPlacementPlanner.class);
+        when(planner.planPlacement(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new StockPlacementPlanner.PlacementPlan(0, 0, 0, List.of(), List.of()));
+        return planner;
+    }
+
     /** An empty warehouse: nothing is claimed, so capacity is decided by physical contents alone. */
     private static PutawayReservationService noReservations() {
         PutawayReservationService reservations = mock(PutawayReservationService.class);
@@ -290,7 +441,7 @@ class PutawayCapacityPlanningServiceTest {
                 inventoryService,
                 locationService,
                 materialService,
-                mock(StockPlacementPlanner.class),
+                exhaustedPlanner(),
                 new HandlingUnitCapacityService(),
                 noReservations()));
     }

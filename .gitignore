@@ -122,6 +122,9 @@ tmp/
 Thumbs.db
 .DS_Store
 
+# README and gallery screenshots are tracked documentation, not build output.
+!docs/screenshots/**/*.png
+
 # Database
 *.db
 *.sqlite
@@ -164,6 +167,7 @@ application-local.yml
 *.key
 *.p12
 *.jks
+ai_services/ai-agent/.env.bak-groqmodel
 secrets/
 .secrets/
 
@@ -198,7 +202,11 @@ backend/.gradle-local/
 
 *.xlsx
 
+# Reference PDFs are local working documents, except the three graded
+# deliverables, which ship with the repository.
 *.pdf
+!docs/deliverables/*.pdf
+
 # Local viva notes
 VIVA_FOLDER_MAP_AND_GRADLE.md
 

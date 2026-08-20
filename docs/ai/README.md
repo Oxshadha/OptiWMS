@@ -1,12 +1,20 @@
 # OptiWMS Forecast Docs Index
 
-Last updated: 2026-04-20
+This folder is the forecast **working record**: the runbooks used to operate the
+model, the gate that defines acceptance, and the experiment history behind the
+result.
 
-Use this folder as the single forecast documentation set.
+It is not the current status. For what the system does today, read:
 
-## Primary tracker
+- [Current implementation and runtime status](../../Ai%20miroservices/modeling/CURRENT_STATUS.md)
+- [Final project report](../../report.md)
+- [v8 modeling and physical-population guide](../../Ai%20miroservices/modeling/v8_controlled_synthetic_validation/README.md)
+
+The documents below record how that state was reached, and how to operate it.
+
+## Status trackers (historical)
 - `FORECAST_EXECUTION_CHECKLIST.md`
-  - Single source of truth for implementation status and remaining production blockers.
+  - Implementation status and production blockers as tracked during development. Superseded as a status source by `CURRENT_STATUS.md`.
 - `FORECAST_GO_LIVE_PUNCHLIST.md`
   - Final blocker-only go-live list with owner, pass criteria, and evidence commands.
 
@@ -45,7 +53,7 @@ Use this folder as the single forecast documentation set.
   - Supervisor-facing experiment trace for external-signals A/B cycle (what changed, data used, commands, outputs, decisions).
 
 ## Recommended usage order
-1. Read `FORECAST_EXECUTION_CHECKLIST.md` (what is done vs pending).
+1. Read `CURRENT_STATUS.md` and `report.md` first for what is actually built.
 2. Read `FORECAST_GO_LIVE_PUNCHLIST.md` (final go-live blockers and evidence).
 3. Use `WMS_FORECAST_DATA_ONBOARDING_RUNBOOK.md` to onboard data and run validations.
 4. Use `FORECAST_SYNTHETIC_TO_PRODUCTION_EXECUTION_PLAN.md` for execution from anchor real data to deployed demo-ready system.

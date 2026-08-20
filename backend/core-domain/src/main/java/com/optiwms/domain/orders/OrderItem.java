@@ -10,6 +10,7 @@ public class OrderItem {
     private Integer quantity;
     private BigDecimal unitPrice;
     private Integer pickedQuantity;
+    private Integer receivedQuantity;
     private Integer packedQuantity;
     private String locationCode;
     private java.math.BigDecimal weightKg;
@@ -68,6 +69,14 @@ public class OrderItem {
 
     public void setPickedQuantity(Integer pickedQuantity) {
         this.pickedQuantity = pickedQuantity;
+    }
+
+    public Integer getReceivedQuantity() {
+        return receivedQuantity;
+    }
+
+    public void setReceivedQuantity(Integer receivedQuantity) {
+        this.receivedQuantity = receivedQuantity;
     }
 
     public Integer getPackedQuantity() {

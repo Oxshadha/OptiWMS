@@ -178,10 +178,12 @@ export default function OutboundOrdersPage() {
       (customer) => customer.id,
       (customer) => customer.name
     );
+    // Same-named warehouses (a live site and its archived predecessor) are only told apart
+    // by their code.
     const warehousesMap = buildLookupMap(
       warehousesQuery.data || [],
       (warehouse) => warehouse.id,
-      (warehouse) => warehouse.name
+      (warehouse) => (warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name)
     );
 
     return (ordersQuery.data?.ordersWithItems || []).map(

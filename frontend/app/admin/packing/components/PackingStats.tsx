@@ -1,13 +1,30 @@
 interface PackingStatsProps {
+  awaitingApprovalCount: number;
   pendingCount: number;
   inProgressCount: number;
   packedCount: number;
   totalCount: number;
 }
 
-export function PackingStats({ pendingCount, inProgressCount, packedCount, totalCount }: PackingStatsProps) {
+export function PackingStats({
+  awaitingApprovalCount,
+  pendingCount,
+  inProgressCount,
+  packedCount,
+  totalCount,
+}: PackingStatsProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      {/* The gate is first: it is the only tile that needs somebody to act. */}
+      <div className="card bg-base-100 border border-warning/40 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-base-content/60">Awaiting Approval</div>
+            <div className="text-2xl font-bold text-warning">{awaitingApprovalCount}</div>
+          </div>
+          <span className="material-symbols-outlined text-3xl text-warning">approval</span>
+        </div>
+      </div>
       <div className="card bg-base-100 border border-base-300 p-4">
         <div className="flex items-center justify-between">
           <div>

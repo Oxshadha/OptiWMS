@@ -1,5 +1,6 @@
 from agent import DB_HOST
 import os
+import time
 from pathlib import Path
 import shutil
 from dotenv import load_dotenv
@@ -17,6 +18,52 @@ load_dotenv()
 # the process happened to be started from -- so a seed run from the repo root and
 # the service started from this directory disagreed about where the index lived.
 DB_PATH = str((Path(__file__).resolve().parent / "db"))
+
+class ThrottledEmbeddings:
+    """Embed in small batches, pausing and retrying when the API pushes back.
+
+    The free embedding tier is rate limited, and sending all thirty chunks at once
+    trips it -- a single request succeeds while the batch fails, which is why an
+    ingest could look impossible even with quota left. Small batches with a short
+    pause, and a backoff on 429, get the whole corpus through.
+    """
+
+    def __init__(self, inner, batch_size: int = 5, pause: float = 1.5, attempts: int = 4):
+        self._inner = inner
+        self._batch_size = batch_size
+        self._pause = pause
+        self._attempts = attempts
+
+    def _with_retry(self, fn, *args):
+        delay = self._pause
+        for attempt in range(1, self._attempts + 1):
+            try:
+                return fn(*args)
+            except Exception as exc:
+                if "429" not in str(exc) and "quota" not in str(exc).lower():
+                    raise
+                if attempt == self._attempts:
+                    raise
+                wait = delay * (2 ** (attempt - 1))
+                print(f"  rate limited; waiting {wait:.0f}s before retrying "
+                      f"(attempt {attempt}/{self._attempts})")
+                time.sleep(wait)
+        raise RuntimeError("unreachable")
+
+    def embed_documents(self, texts):
+        vectors = []
+        total = len(texts)
+        for start in range(0, total, self._batch_size):
+            batch = texts[start:start + self._batch_size]
+            vectors.extend(self._with_retry(self._inner.embed_documents, batch))
+            print(f"  embedded {min(start + len(batch), total)}/{total}")
+            if start + self._batch_size < total:
+                time.sleep(self._pause)
+        return vectors
+
+    def embed_query(self, text):
+        return self._with_retry(self._inner.embed_query, text)
+
 
 def ingest():
     print("Loading documents from PostgreSQL database...")
@@ -66,25 +113,49 @@ def ingest():
     print(f"Created {len(chunks)} chunks")
 
     print("Loading embedding model (Google GenAI)...")
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=os.getenv("GOOGLE_API_KEY")
+    embeddings = ThrottledEmbeddings(
+        GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+        )
     )
 
-    print("Cleaning up old database files if possible...")
+    # Build into a temporary directory and swap it in only once it succeeds.
+    #
+    # This used to delete the live index first and rebuild afterwards, which is fine
+    # until the rebuild fails -- and it does fail, because embedding runs against a
+    # free-tier daily quota. Once that quota is spent, a restart destroyed a working
+    # index and could not replace it, so SOP retrieval stayed broken until the quota
+    # reset. Deleting only after a successful build makes a failed ingest a no-op.
+    staging = f"{DB_PATH}.building"
+    if os.path.exists(staging):
+        shutil.rmtree(staging, ignore_errors=True)
+
+    print("Building the vector store...")
     try:
+        Chroma.from_documents(
+            documents=chunks,
+            embedding=embeddings,
+            persist_directory=staging,
+        )
+    except Exception as exc:
+        shutil.rmtree(staging, ignore_errors=True)
         if os.path.exists(DB_PATH):
-            shutil.rmtree(DB_PATH)
-            print("DB path directory deleted from disk.")
-    except Exception as e:
-        print(f"Warning: could not delete DB path directory: {e}")
+            print(f"Ingest failed ({exc.__class__.__name__}); keeping the existing "
+                  f"index at '{DB_PATH}/'.")
+        else:
+            print(f"Ingest failed ({exc.__class__.__name__}) and there is no existing "
+                  f"index to fall back on. SOP answers are unavailable until this "
+                  f"succeeds.")
+        raise
 
-    print("Saving to ChromaDB...")
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=DB_PATH
-    )
+    previous = f"{DB_PATH}.previous"
+    shutil.rmtree(previous, ignore_errors=True)
+    if os.path.exists(DB_PATH):
+        os.rename(DB_PATH, previous)
+    os.rename(staging, DB_PATH)
+    shutil.rmtree(previous, ignore_errors=True)
+
     print(f"Done! Vector store saved to '{DB_PATH}/'")
     print(f"Your {len(documents)} database SOPs are ready to be queried.")
 

@@ -151,6 +151,21 @@ public class PackingController {
         return ResponseEntity.ok(toDto(updated));
     }
 
+    /**
+     * Manager sign-off releasing a packing job to the floor.
+     *
+     * <p>Separate from the generic status endpoint on purpose: approval raises the packer's task
+     * and is the one transition that must not be reachable by posting an arbitrary status.
+     */
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<PackingRecordDto> approve(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ApproveRequest request) {
+        UUID approvedBy = request != null ? parseOptionalUuid(request.approvedBy()) : null;
+        PackingRecord approved = service.approve(id, approvedBy);
+        return ResponseEntity.ok(toDto(approved));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         service.deleteById(id);
@@ -214,6 +229,8 @@ public class PackingController {
             String packerId,
             String status) {
     }
+
+    public record ApproveRequest(String approvedBy) {}
 
     public record UpdateStatusRequest(String status, String workerId) {
     }

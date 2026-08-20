@@ -3,6 +3,8 @@ package com.optiwms.coreapp.operations;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.operations.PackingRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.PackingRecordEntity;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class PackingService {
+
+    private static final Logger logger = LoggerFactory.getLogger(PackingService.class);
 
     private final PackingRecordRepository repository;
     private final OrderService orderService;
@@ -249,6 +253,12 @@ public class PackingService {
         return p;
     }
 
+    /**
+     * Packing statuses in order: pending_approval, pending, in_progress, packed.
+     *
+     * <p>{@code pending_approval} is the manager gate. A record sits there until someone with
+     * authority has looked at it, and only {@code pending} onwards is work a packer may pick up.
+     */
     private String normalizePackingStatus(String status) {
         if (status == null || status.isBlank()) {
             return "pending";
@@ -257,7 +267,74 @@ public class PackingService {
         if ("completed".equals(normalized)) {
             return "packed";
         }
+        if ("approved".equals(normalized)) {
+            return "pending";
+        }
         return normalized;
+    }
+
+    /**
+     * Manager sign-off that releases a picked order for packing.
+     *
+     * <p>Packing was the one stage with no gate: whatever picking produced went straight to a
+     * packer. Holding the record at {@code pending_approval} gives a manager the chance to
+     * correct box type, weights or notes while the order is still theirs to change, and nothing
+     * reaches the packing floor until they say so.
+     */
+    @Transactional
+    public PackingRecord approve(UUID id, UUID approvedBy) {
+        PackingRecordEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
+
+        String current = normalizePackingStatus(entity.getStatus());
+        if (!"pending_approval".equals(current)) {
+            // Approving twice is harmless and racing managers should not see an error.
+            return toDomain(entity);
+        }
+
+        entity.setStatus("pending");
+        PackingRecordEntity saved = repository.save(entity);
+
+        if (saved.getOrderId() != null) {
+            raisePackingTask(saved, approvedBy);
+        }
+        return toDomain(saved);
+    }
+
+    /**
+     * The packer's copy of the job.
+     *
+     * <p>Packing had no task of its own, only a retroactive completed one written after the fact,
+     * so it never appeared in a task list and never notified anybody. Creating it here puts
+     * packing on the same footing as picking and putaway.
+     */
+    private void raisePackingTask(PackingRecordEntity record, UUID approvedBy) {
+        try {
+            List<Task> existing = taskService.findByTaskTypeAndReference(
+                    "packing", "order", record.getOrderId());
+            if (!existing.isEmpty()) {
+                return;
+            }
+            Order order = orderService.findById(record.getOrderId());
+            Task task = new Task();
+            task.setTaskNumber("PACK-" + order.getOrderNumber());
+            task.setTaskType("packing");
+            task.setWarehouseId(order.getWarehouseId());
+            task.setPriority(order.getPriority() != null ? order.getPriority() : "normal");
+            task.setStatus("pending");
+            task.setReferenceType("order");
+            task.setReferenceId(record.getOrderId());
+            task.setNotes("Pack order " + order.getOrderNumber()
+                    + (record.getBoxType() != null && !record.getBoxType().isBlank()
+                            ? " using " + record.getBoxType()
+                            : "")
+                    + ". Approved for packing.");
+            taskService.create(task);
+        } catch (RuntimeException failure) {
+            // The approval itself is what matters; a missing task can be regenerated.
+            logger.error("Packing record {} approved but no packing task could be raised",
+                    record.getId(), failure);
+        }
     }
 
     private String normalizeTrackingNumber(String trackingNumber, String orderNumber) {

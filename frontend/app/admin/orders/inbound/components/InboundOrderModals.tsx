@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
-import { StatusChip, type StatusTone } from "@/components/StatusChip";
+import { StatusChip } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { orderItemsApi } from "@/lib/api/orderItems";
 import { suppliersApi, type Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi, type Material, type MaterialOrderingProfile } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
@@ -15,7 +16,7 @@ import { slottingPlansApi } from "@/lib/api/slotting-plans";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
-import { statusConfig, type InboundOrderDisplay } from "../types";
+import { getInboundStatusTone, statusConfig, type InboundOrderDisplay } from "../types";
 
 /**
  * A slotting recommendation as stored in the database by an approved slotting plan.
@@ -59,13 +60,6 @@ type InboundItemForm = {
   manufactureDate: string;
   expiryDate: string;
 };
-
-function getInboundStatusTone(status: string): StatusTone {
-  if (status === "completed") return "success";
-  if (status === "cancelled") return "danger";
-  if (status === "arrived" || status === "receiving" || status === "putaway") return "info";
-  return "warning";
-}
 
 function emptyInboundItem(): InboundItemForm {
   return {
@@ -111,8 +105,11 @@ export function InboundOrderDetailModal({
           <Field label="Warehouse" value={order.warehouseName} />
           <Field label="Order Date" value={order.orderDate} />
           <Field label="Expected Delivery" value={order.expectedDelivery} />
-          <Field label="Total Items" value={String(order.totalItems)} />
-          <Field label="Received Items" value={`${order.receivedItems}/${order.totalItems}`} />
+          <Field label="Total Items" value={`${order.totalItems} lines · ${order.totalQuantity.toLocaleString()} units`} />
+          <Field
+            label="Received"
+            value={`${order.receivedQuantity.toLocaleString()}/${order.totalQuantity.toLocaleString()} units · ${order.receivedItems}/${order.totalItems} lines`}
+          />
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>Close</button>
@@ -273,7 +270,10 @@ export function CreateInboundOrderModal({
   useEffect(() => {
     async function loadData() {
       try {
-        const [supplierData, warehouseData] = await Promise.all([suppliersApi.getAll(), warehousesApi.getAll()]);
+        const [supplierData, warehouseData] = await Promise.all([
+          suppliersApi.getAll(),
+          warehousesApi.getReceivable(),
+        ]);
         setSuppliers(supplierData);
         setWarehouses(warehouseData);
       } catch (err) {
@@ -619,8 +619,9 @@ export function CreateInboundOrderModal({
             </SelectControl>
             <SelectControl label="Warehouse *" value={formData.warehouseId} onChange={(value) => setFormData((current) => ({ ...current, warehouseId: value, items: current.items.map((item) => ({ ...item, locationCode: "" })) }))}>
               <option value="">Select warehouse</option>
-              {/* Names are not unique across warehouses, so the code is shown too — picking the
-                  wrong same-named site sends the order to a warehouse with no active racks. */}
+              {/* Names are not unique across warehouses, so the code is shown too. The list is
+                  already narrowed to warehouses with active racks, so a same-named legacy site
+                  cannot be picked here — but the code still tells the two apart. */}
               {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}</option>)}
             </SelectControl>
             <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData((current) => ({ ...current, orderDate: value }))} />
@@ -664,10 +665,24 @@ export function CreateInboundOrderModal({
                       </button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <SelectControl label="Material *" value={item.productId} onChange={(value) => updateItem(idx, { productId: value })}>
-                        <option value="">Select material</option>
-                        {materials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
-                      </SelectControl>
+                      <label className="form-control">
+                        <span className="label-text font-medium mb-1">Material *</span>
+                        {/* A plain dropdown over a thousand-material catalogue is unusable; this
+                            filters by code or description as you type. */}
+                        <SearchableSelect
+                          required
+                          value={item.productId}
+                          onChange={(value) => updateItem(idx, { productId: value })}
+                          placeholder="Search by code or description..."
+                          emptyLabel="No materials match"
+                          options={materials.map((material) => ({
+                            value: material.id,
+                            label: material.materialCode || material.id,
+                            description: material.description,
+                            keywords: material.materialType || undefined,
+                          }))}
+                        />
+                      </label>
                       <SelectControl label="Quantity Mode" value={item.quantityMode} onChange={(value) => updateItem(idx, { quantityMode: value as "units" | "handling" })}>
                         <option value="units">Required units</option>
                         <option value="handling">{handlingLabel} count</option>

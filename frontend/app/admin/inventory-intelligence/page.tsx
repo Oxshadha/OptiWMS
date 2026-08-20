@@ -8,6 +8,7 @@ import { intelligenceApi, type ActionCenterSummary, type ActionItem, type Decisi
 import { slottingPlansApi, type SlottingPlanLine, type SlottingPlanSummary, type SlottingProgress } from "@/lib/api/slotting-plans";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { explainPolicyLine } from "@/services/aiService";
+import { usePublishPageContext } from "@/lib/pageContext";
 
 type Tab = "review" | "locations" | "decisions";
 type DecisionOperation = "approve" | "defer" | "reject" | "schedule" | "create";
@@ -34,6 +35,15 @@ export default function InventoryIntelligencePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Tell the assistant which policy line is open, so "what is this most sensitive
+  // to?" resolves to a material without the user retyping its code. Same mechanism
+  // the forecast screen uses -- one assistant, told where it is standing.
+  usePublishPageContext({
+    entityType: "material",
+    entityId: selectedLine?.materialCode || undefined,
+    entityLabel: selectedLine?.materialCode || undefined,
+  });
   const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [changeFilter, setChangeFilter] = useState<ChangeFilter>("all");
