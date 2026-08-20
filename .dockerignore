@@ -25,9 +25,11 @@ build
 *.class
 
 # Environment
-.env
-.env.local
-.env.*.local
+# Secrets. Patterns are anchored to the context root, so `**/` is required to
+# catch nested files such as ai_services/.env and ai_services/ai-agent/.env.
+.env*
+**/.env*
+!**/.env.example
 
 # Logs
 *.log
