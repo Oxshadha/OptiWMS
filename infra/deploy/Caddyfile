@@ -5,8 +5,10 @@
   handle /api/* {
     reverse_proxy backend:8080
   }
+  # 8094, not 8000: the assistant image runs `uvicorn --port ${SERVICE_PORT:-8094}`
+  # and the compose file leaves SERVICE_PORT unset, so it listens on the default.
   handle_path /agent/* {
-    reverse_proxy assistant:8000
+    reverse_proxy assistant:8094
   }
   handle {
     reverse_proxy frontend:3000
