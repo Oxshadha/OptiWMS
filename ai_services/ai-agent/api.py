@@ -82,10 +82,22 @@ def startup_event():
     init_chat_db()
     # Keep the Chroma index current. Ingestion at startup rather than at import
     # so a database blip cannot break module loading.
+    #
+    # The chain is built at import (line 40), which opens a handle to whatever
+    # collection existed then. Ingest replaces the collection, so that handle now
+    # points at the old one -- retrieval returned nothing while the index on disk
+    # was fully populated, and the assistant answered "I don't have that
+    # information in the current SOPs" with 30 embeddings sitting beside it.
+    # Rebuilding the chain after ingest is what binds it to the new collection.
+    global chain
     try:
         ingest()
     except Exception as exc:  # pragma: no cover - startup best effort
         logger.warning("SOP ingestion at startup failed: %s", exc)
+    try:
+        chain = load_agent()
+    except Exception as exc:  # pragma: no cover - startup best effort
+        logger.warning("could not rebind the SOP retriever after ingest: %s", exc)
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
