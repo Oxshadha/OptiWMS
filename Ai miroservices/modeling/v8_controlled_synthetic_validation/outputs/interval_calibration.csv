@@ -1,0 +1,2 @@
+model,nominal_coverage,empirical_coverage,normalized_error_quantile,average_interval_width,calibration_rows,test_rows
+extra_trees_causal,0.9,0.9208333333333333,0.19162892427248662,3382.3475283500206,720,1440

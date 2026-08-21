@@ -1,0 +1,5 @@
+test,statistic,p_value,null_hypothesis
+Jarque-Bera normality,16208.04842387931,0.0,residuals are normally distributed
+Ljung-Box monthly mean residual lag 4,4.571595262776421,0.33414234346271643,no residual autocorrelation
+Breusch-Pagan,472.25088758614964,1.0374366474517761e-104,constant residual variance
+Spearman abs residual vs fitted,0.7321577203049705,4.442027209371869e-242,no monotonic scale-error relationship

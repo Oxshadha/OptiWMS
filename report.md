@@ -1788,8 +1788,7 @@ proof.
 
 1. Petropoulos, F. et al. (2022). “Forecasting: theory and practice.”
    *International Journal of Forecasting*, 38, 705–871.
-   doi:10.1016/j.ijforecast.2021.11.001. Local copy:
-   [`1-s2.0-S0169207021001758-main.pdf`](Resources/Reserch%20papers/1-s2.0-S0169207021001758-main.pdf).
+   doi:10.1016/j.ijforecast.2021.11.001.
 2. Hyndman, R. J., and Athanasopoulos, G. *Forecasting: Principles and
    Practice*, 3rd edition, OTexts.
 3. Diebold, F. X., and Mariano, R. S. (1995). “Comparing Predictive Accuracy.”
@@ -1851,10 +1850,9 @@ proof.
 24. Enterprise product pages in references 19–23 were accessed on 2026-07-28
     and are treated as first-party capability descriptions, not independent
     performance evaluations.
-25. Project architecture inputs:
-    [`Core WMS guide.pdf`](Resources/Core%20WMS%20guide.pdf),
-    [`Software Requirements Specification WMS (1).pdf`](Resources/Software%20Requirements%20Specification%20WMS%20%281%29.pdf)
-    and [`Techtalk.pptx.pdf`](/Users/k.e.oshada/Downloads/Techtalk.pptx.pdf).
+25. Project architecture inputs, held with the project records rather than in
+    this repository: `Core WMS guide.pdf`, `Software Requirements
+    Specification WMS (1).pdf` and `Techtalk.pptx.pdf`.
 
 ---
 

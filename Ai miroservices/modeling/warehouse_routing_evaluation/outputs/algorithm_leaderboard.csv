@@ -1,0 +1,3 @@
+algorithm,cases,median_runtime_ms,p95_runtime_ms,median_expanded_nodes,distance_match_rate
+astar,160,0.20497949999999998,0.6793812499999999,181.0,1.0
+dijkstra,160,0.3513535,0.6596148999999999,485.5,1.0

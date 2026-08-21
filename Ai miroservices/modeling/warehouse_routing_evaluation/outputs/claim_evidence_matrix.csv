@@ -1,0 +1,6 @@
+claim,artifact,result,status
+A* returns shortest paths on the active nonnegative aisle graph,static_route_cases.csv,All A* distances matched Dijkstra,SUPPORTED
+A* is the appropriate single-route search,algorithm_leaderboard.csv; statistical_tests.csv,Lower median runtime and expansions with paired evidence,SUPPORTED
+Independent A* is sufficient for multiple forklifts,concurrency_results.csv,Temporal conflicts appear from 5 workers,REJECTED
+Reservation A* prevents tested edge/node time conflicts,concurrency_results.csv,Zero detected conflicts for every tested batch through 50 workers,SUPPORTED
+The system is certified safe for a real forklift site,assumption_registry.csv,"Physical measurements, telemetry and shadow acceptance are absent",REJECTED

@@ -236,6 +236,20 @@ recovery_backups/
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/selection_backtest_rows.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data/*.csv
 
+# Evidence tables cited directly by report.md. The blanket *.csv rule above
+# would drop them, leaving dead links in the submitted report. ~60 KB total.
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data_dictionary.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data_quality_report.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/paired_model_tests.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_model_comparison.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/interval_calibration.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/residual_tests.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/model_leaderboard.csv
+!Ai miroservices/modeling/warehouse_routing_evaluation/outputs/*.csv
+
+# Local evidence notebook, re-run per machine; kept out of the repository.
+/evaluation_evidence.ipynb
+
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
 Ai miroservices/modeling/catboost_info/
