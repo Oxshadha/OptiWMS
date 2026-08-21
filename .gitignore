@@ -94,11 +94,16 @@ frontend/.vercel/
 **/*Carpet*/
 **/*Store*/
 
-# Resources folder (exclude completely)
-Resources/
+# Resources folder (exclude completely).
+#
+# Anchored with a leading slash. Unanchored, git matches the name at any depth,
+# and core.ignorecase=true on macOS makes it match `resources/` too -- so it
+# silently covered backend/**/src/main/resources/ and a new Flyway migration
+# would never be added. Existing files stayed only because they predate the rule.
+/Resources/
 
 # Help folder (exclude completely)
-Help/
+/Help/
 
 # Docs folder contents (keep folder, ignore files)
 docs/plan.md
