@@ -1,0 +1,9 @@
+assumption,status,evidence,operational_response
+The v8 coordinate population maps every synthetic storage position to a rack-face node,SUPPORTED,4200 mapped positions across 280 rack bays,Use only active dataset-version mappings
+The generated graph is connected from operating stations to rack faces,SUPPORTED,160 deterministic origin-destination cases were routable,Reject graph activation when a required route is absent
+A* requires Gaussian runtimes or residuals,NOT_REQUIRED,Paired bootstrap and Wilcoxon inference are distribution-robust,Retain non-parametric inference
+Constant 1.5 m/s travel speed represents actual forklift motion,UNVERIFIED,Configured simulation value; no site telemetry supplied,Calibrate by vehicle/load/zone before production enforcement
+Synthetic aisle widths and rack dimensions match the installed site,UNVERIFIED,v8 controlled layout contract only,"Survey clear widths, rack envelopes and one-way rules"
+Prioritized reservations cannot starve lower-priority workers,UNVERIFIED,No starvation in bounded scenarios; no long-running workload trace,Add aging/priority policy and alert on excessive planned wait
+Reservation-aware routes are conflict-free in tested scenarios,SUPPORTED,Zero node/edge-time conflicts through 50 simultaneous workers,"Keep server authority, leases, version checks and stop-on-offline rule"
+Synthetic benchmark performance generalizes to the real workforce population,UNVERIFIED,No representative indoor-positioning or travel telemetry supplied,Run shadow mode and site acceptance; do not claim safety certification

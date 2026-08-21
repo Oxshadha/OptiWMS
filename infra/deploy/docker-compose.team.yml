@@ -70,12 +70,29 @@ services:
     image: ghcr.io/${GHCR_OWNER}/optiwms-assistant:${OPTIWMS_TAG}
     restart: unless-stopped
     depends_on:
+      db: { condition: service_healthy }
       backend: { condition: service_healthy }
     environment:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY}
       SPRING_API_BASE_URL: http://backend:8080
       AI_AGENT_ALLOWED_ORIGINS: https://${TEAM_HOST}
       AI_AGENT_RATE_LIMIT_PER_MINUTE: ${AI_AGENT_RATE_LIMIT_PER_MINUTE:-30}
+      # The 10 DATA tools query PostgreSQL directly. agent.py gives these no
+      # defaults, so leaving them unset builds a literal "None:None@None:None"
+      # DSN -- the container starts and /health passes, then every data
+      # question fails.
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-optiwms}
+      DB_USER: ${POSTGRES_USER:-optiwms}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      AI_AGENT_SQL_ROLES: ${AI_AGENT_SQL_ROLES:-ADMIN,MANAGER}
+      # Needed for "why is demand high/low" -- without it the assistant still
+      # answers, but silently drops the model explanation.
+      FORECAST_SERVICE_BASE: http://forecast:8091
+      # Optional fallback when Gemini returns a quota or rate-limit error.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
 
   frontend:
     image: ghcr.io/${GHCR_OWNER}/optiwms-frontend:${OPTIWMS_TAG}

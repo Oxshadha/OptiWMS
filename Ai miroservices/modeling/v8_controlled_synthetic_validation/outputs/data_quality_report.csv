@@ -1,0 +1,7 @@
+table,rows,columns,missing_cells,duplicate_rows,data_quality_tier
+materials,120,10,0,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH
+finished_goods,24,5,0,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH
+bom_components,211,9,211,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH
+production_plan_actuals,1728,8,0,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH
+material_demand,8640,19,0,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH
+initial_inventory,120,6,0,0,CONTROLLED_SYNTHETIC_GROUND_TRUTH

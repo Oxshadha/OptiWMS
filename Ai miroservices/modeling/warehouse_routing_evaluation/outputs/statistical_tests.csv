@@ -1,0 +1,3 @@
+claim,effect_mean,ci95_low,ci95_high,p_value,test,supported
+A* reduces wall-clock runtime versus Dijkstra,0.09592606875,0.07370289953125002,0.11892921015624999,1.7610674146021858e-15,paired Wilcoxon + paired bootstrap,True
+A* reduces node expansions versus Dijkstra,265.23125,237.31203125,293.92328124999995,0.0,paired bootstrap,True

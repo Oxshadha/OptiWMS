@@ -1,0 +1,2 @@
+champion,challenger,paired_rows,months,champion_WAPE,challenger_WAPE,relative_WAPE_improvement,mean_monthly_absolute_error_difference,circular_block_bootstrap_ci_low,circular_block_bootstrap_ci_high,HAC_t_statistic,HAC_p_value,Holm_adjusted_p_value,decision
+PROJECT_OPS_EXTRA_TREES_CAUSAL,CONV1D_ATTENTION_GLOBAL,1440,12,0.08745157624882618,0.09899621151073594,0.11661694003974851,-102.0383403904911,-178.72084714960954,-16.073915757600343,-2.3317653445563282,0.01971303909004555,0.01971303909004555,RETAIN_EXTRA_TREES

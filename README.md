@@ -1111,6 +1111,7 @@ shadow-mode testing, manager approval and site safety certification. Next.js
 **Running and building**
 
 - [Clone to running](SETUP.md)
+- [Deploying on AWS](docs/DEPLOYMENT.md)
 - [Database seed and restore](scripts/README_SEED.md)
 - [AI services overview](ai_services/README.md)
 
@@ -1124,8 +1125,7 @@ shadow-mode testing, manager approval and site safety certification. Next.js
 
 **Reference**
 
-- [Database schema](database_schema.md) · [Schema relations](Help/DATABASE_SCHEMA_RELATION_REPORT.md)
-- [Backend class documentation](Help/BACKEND_CLASS_DOCUMENTATION.md)
+- [Database schema](database_schema.md)
 - [Forecast documentation index](docs/ai/README.md)
 - [Model release and rollback runbook](docs/ai/MODEL_RELEASE_AND_ROLLBACK_RUNBOOK.md)
 - [Forecast go-live punch list](docs/ai/FORECAST_GO_LIVE_PUNCHLIST.md)

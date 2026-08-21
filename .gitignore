@@ -236,6 +236,20 @@ recovery_backups/
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/selection_backtest_rows.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data/*.csv
 
+# Evidence tables cited directly by report.md. The blanket *.csv rule above
+# would drop them, leaving dead links in the submitted report. ~60 KB total.
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data_dictionary.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data_quality_report.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/paired_model_tests.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_model_comparison.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/interval_calibration.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/residual_tests.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/model_leaderboard.csv
+!Ai miroservices/modeling/warehouse_routing_evaluation/outputs/*.csv
+
+# Local evidence notebook, re-run per machine; kept out of the repository.
+/evaluation_evidence.ipynb
+
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
 Ai miroservices/modeling/catboost_info/
@@ -293,3 +307,25 @@ Ai miroservices/modeling/v8_controlled_synthetic_validation/ch8_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/ch9_10_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/main_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/report_chapter7/
+
+# Untracked local-only files. Kept on disk, deliberately out of the repository.
+#
+# Empty stubs created by opening a URL-encoded path as a literal one.
+Ai%20miroservices/
+# Byte-identical duplicate of infra/reference-data.sql.
+infra/reference-data.pg_dump.sql
+# Unused logo variants. "logo with tagline.png" stays: agent.py and
+# ReportsService.java both load it for generated PDF reports.
+frontend/public/assets/logos/OptiWMS Logo.JPG
+frontend/public/assets/logos/OptiWMS Logo4.png
+# Local research material and imports, not project code. The backend import
+# scripts read CSVs from this folder at runtime; nothing here belongs in git.
+frontend/Database Documents/
+# API collections for a path-optimization service that no longer ships.
+postman/
+.postman/
+# Root stub with no dependencies; the real lockfile is frontend/package-lock.json.
+/package-lock.json
+# Local database scratch scripts.
+/check_db.py
+/check_runs.py
