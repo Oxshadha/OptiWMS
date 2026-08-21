@@ -334,3 +334,7 @@ postman/
 # Local database scratch scripts.
 /check_db.py
 /check_runs.py
+# Runtime state for the standalone GA demo in slotting-service/app/api/main.py,
+# which rewrites it on every run. The served slotting API is app/main.py and does
+# not read it.
+/bin_states.json

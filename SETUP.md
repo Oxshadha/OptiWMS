@@ -19,6 +19,16 @@ A Google Gemini API key is needed for the assistant only. Copy
 `ai_services/ai-agent/.env.example` to `.env` and set `GOOGLE_API_KEY`. Without
 it everything else still runs; pass `--skip-rag` when seeding.
 
+Point git at the repository's hooks once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`core.hooksPath` is local config rather than repository content, so a fresh
+clone does not pick it up. Without this the pre-commit hook that strips notebook
+outputs never runs, and executed notebooks get committed with their output cells.
+
 ## Seed everything
 
 ```bash
