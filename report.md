@@ -1121,24 +1121,43 @@ operation-specific:
 
 ### Worker/admin warehouse assistant
 
-- [`agent.py`](ai_services/ai-agent/agent.py) implements SOP-grounded retrieval
-  with MiniLM embeddings, Chroma and Gemini;
-- eight warehouse SOP text files cover forklift, stacker, powered pallet truck,
-  unloading, safekeeping, cycle count, vehicle inspection and pallet purchasing;
-- [`api.py`](ai_services/ai-agent/api.py) exposes the authenticated,
-  SOP-grounded `/ask` endpoint only; operational answers are supplied by
-  Spring-owned typed business tools rather than generated SQL;
+- [`agent.py`](ai_services/ai-agent/agent.py) classifies each question and
+  selects its tool in a single model call, routing to one of four modes:
+  `CHAT`, `SOP`, `TOUR` or `DATA`. Greetings and explicit tour phrasings are
+  resolved on keywords before any model call is made;
+- `SOP` answers are grounded by MiniLM embeddings, Chroma and Gemini over eight
+  warehouse SOPs — forklift, stacker, powered pallet truck, unloading,
+  safekeeping, cycle count, vehicle inspection and pallet purchasing — held as
+  rows in the `sops` table and seeded by `V97__seed_default_sops.sql`;
+- `DATA` answers come from ten reviewed, parameterised queries in
+  [`tools.py`](ai_services/ai-agent/tools.py). The model chooses which query
+  runs and what parameters it passes; it neither writes the SQL nor sees the
+  schema;
+- [`api.py`](ai_services/ai-agent/api.py) exposes the authenticated `/ask`
+  endpoint, validating every bearer token against Spring and applying the role
+  gate, rate limit and audit trail before any mode executes;
 - [`AssistantToolController.java`](backend/core-api/src/main/java/com/optiwms/coreapi/assistant/AssistantToolController.java)
   exposes read-only SKU outlook, inventory-risk, recommendation-explanation
-  and planning-cycle-status contracts with JWT warehouse scoping;
+  and planning-cycle-status contracts with JWT warehouse scoping, backing the
+  Inventory Intelligence panel in the user interface;
 - [`WarehouseAssistant.tsx`](frontend/components/WarehouseAssistant.tsx)
   provides the worker mobile overlay, manager drawer and full-screen interface
   with SOP and Data & Analytics tabs.
 
-The SOP assistant remains an optional standalone service. Live operational
-facts are returned only through authenticated Spring tools, which bind the
-request to the user's assigned warehouse and emit audit and correlation data.
-The LLM has no SQL or schema-inspection capability and no mutating tool.
+The SOP assistant remains an optional standalone service. Warehouse scope is
+never taken from the request: it is derived from the caller's Spring-validated
+assignments, so page context can supply a subject but can never widen what a
+user may see.
+
+A free-form SQL path is retained as a last resort for questions no reviewed
+tool matches. It is not unguarded: generation is restricted to `SELECT`,
+checked by `is_safe_query()`, row-capped by `enforce_row_limit()`, and
+available only to callers holding `ADMIN` or `MANAGER`. It is reported here
+rather than omitted because it is a real capability of the deployed system;
+the design intent is that new requirements are met by adding a reviewed tool,
+not by widening this path. No mutating operation exists in either the agent's
+tool registry or the Spring contract, so the assistant can explain a forecast,
+policy or slotting plan but cannot approve one.
 
 ## 6.5 Algorithms and Pseudocode
 
