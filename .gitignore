@@ -94,9 +94,11 @@ frontend/.vercel/
 **/*Carpet*/
 **/*Store*/
 
-# Resources folder contents (keep folder, ignore files)
-Resources/*
-!Resources/.gitkeep
+# Resources folder (exclude completely)
+Resources/
+
+# Help folder (exclude completely)
+Help/
 
 # Docs folder contents (keep folder, ignore files)
 docs/plan.md
