@@ -293,3 +293,25 @@ Ai miroservices/modeling/v8_controlled_synthetic_validation/ch8_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/ch9_10_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/main_fixed/
 Ai miroservices/modeling/v8_controlled_synthetic_validation/report_chapter7/
+
+# Untracked local-only files. Kept on disk, deliberately out of the repository.
+#
+# Empty stubs created by opening a URL-encoded path as a literal one.
+Ai%20miroservices/
+# Byte-identical duplicate of infra/reference-data.sql.
+infra/reference-data.pg_dump.sql
+# Unused logo variants. "logo with tagline.png" stays: agent.py and
+# ReportsService.java both load it for generated PDF reports.
+frontend/public/assets/logos/OptiWMS Logo.JPG
+frontend/public/assets/logos/OptiWMS Logo4.png
+# Local research material and imports, not project code. The backend import
+# scripts read CSVs from this folder at runtime; nothing here belongs in git.
+frontend/Database Documents/
+# API collections for a path-optimization service that no longer ships.
+postman/
+.postman/
+# Root stub with no dependencies; the real lockfile is frontend/package-lock.json.
+/package-lock.json
+# Local database scratch scripts.
+/check_db.py
+/check_runs.py
