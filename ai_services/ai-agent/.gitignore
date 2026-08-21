@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 
 *.txt
+# requirements.txt is the service's dependency manifest and is COPYed by the
+# Dockerfile -- the blanket *.txt rule above would drop a regenerated one.
+!requirements.txt
