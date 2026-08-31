@@ -18,6 +18,8 @@ interface WorkerRouteGuideProps {
   targetLocationCodes?: Array<string | null | undefined>;
   completedLocationCodes?: Array<string | null | undefined>;
   operationType: "putaway" | "picking" | "transfer";
+  onComplete?: () => void;
+  onSessionChange?: (session: WorkerRouteSession | null) => void;
 }
 
 /**
@@ -45,6 +47,8 @@ export function WorkerRouteGuide({
   targetLocationCodes,
   completedLocationCodes = [],
   operationType,
+  onComplete,
+  onSessionChange,
 }: WorkerRouteGuideProps) {
   const { worker } = useWorker();
   const { isOnline } = useOffline();
@@ -124,7 +128,8 @@ export function WorkerRouteGuide({
 
   useEffect(() => {
     sessionRef.current = session;
-  }, [session]);
+    onSessionChange?.(session);
+  }, [session, onSessionChange]);
 
   useEffect(() => {
     completedSentRef.current = new Set<string>();
@@ -327,6 +332,7 @@ export function WorkerRouteGuide({
       });
       setSession(arrived);
       sessionRef.current = arrived;
+      onComplete?.();
     } catch (finishError) {
       setError(
         finishError instanceof Error

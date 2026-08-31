@@ -252,6 +252,18 @@ public class WarehouseRoutingService {
         lockWarehouseRouting(warehouseId);
         ensureWorkerAndTaskScope(workerId, taskId, warehouseId);
         expireLeases();
+        
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        
+        // Automatically cancel any abandoned routes the worker left active.
+        List<UUID> activeSessions = jdbc.queryForList("""
+                SELECT id FROM worker_route_sessions
+                 WHERE worker_id = ? AND status IN ('ACTIVE', 'WAITING', 'PLANNED')
+                """, UUID.class, workerId);
+        for (UUID activeId : activeSessions) {
+            jdbc.update("UPDATE worker_route_sessions SET status = 'CANCELLED', updated_at = ? WHERE id = ?", now, activeId);
+            releaseAllReservations(activeId, now);
+        }
 
         WarehouseGraph graphResponse = ensureGraph(warehouseId, false);
         GraphData graph = graphData(graphResponse.graphId());
@@ -273,7 +285,6 @@ public class WarehouseRoutingService {
                 null
         );
         UUID sessionId = UUID.randomUUID();
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         jdbc.update("""
                 INSERT INTO worker_route_sessions(

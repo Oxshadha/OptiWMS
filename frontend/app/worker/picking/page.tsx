@@ -17,6 +17,7 @@ import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { Pick } from "./types";
+import { WorkerRouteSession, routingApi } from "@/lib/api/routing";
 
 type OrderOption = { id: string; orderNumber: string; status: string };
 
@@ -80,6 +81,7 @@ export default function PickingPage() {
   const [startedTaskIds, setStartedTaskIds] = useState<Set<string>>(new Set());
   const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | null>(null);
   const [resolvingWarehouse, setResolvingWarehouse] = useState(false);
+  const [currentRouteSession, setCurrentRouteSession] = useState<WorkerRouteSession | null>(null);
 
   const warehouseDisplayName = worker?.warehouse || "";
   const hasWarehouseName =
@@ -664,6 +666,9 @@ export default function PickingPage() {
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => {
+              if (currentRouteSession) {
+                routingApi.cancel(currentRouteSession.id, currentRouteSession.routeVersion).catch(() => {});
+              }
               setSelectedOrder(null);
               setPicks([]);
             }}
@@ -822,6 +827,7 @@ export default function PickingPage() {
             .filter((pick) => pick.status === "completed")
             .map((pick) => pick.location)}
           operationType="picking"
+          onSessionChange={setCurrentRouteSession}
         />
       ) : null}
 
