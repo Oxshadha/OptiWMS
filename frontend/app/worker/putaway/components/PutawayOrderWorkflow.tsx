@@ -10,6 +10,7 @@ import {
   parseQuantityInput,
   quantityInputValue,
 } from "@/lib/utils/quantity-input";
+import { WorkerRouteSession, routingApi } from "@/lib/api/routing";
 
 type SelectedOrder = { id: string; orderNumber: string };
 
@@ -41,6 +42,7 @@ export function PutawayOrderWorkflow({
   skippedReasonsByRow,
   suggestedAlternatives,
   onUseAlternative,
+  onRouteCompleted,
 }: {
   selectedOrder: SelectedOrder;
   putawayItems: PutawayItem[];
@@ -66,9 +68,11 @@ export function PutawayOrderWorkflow({
   skippedReasonsByRow: Map<string, string>;
   suggestedAlternatives: Array<{ locationCode: string; allocatableQuantity: number; reason: string }>;
   onUseAlternative: (locationCode: string) => void;
+  onRouteCompleted: () => void;
 }) {
   const [showSkipInput, setShowSkipInput] = useState(false);
   const [skipReason, setSkipReason] = useState("");
+  const [currentRouteSession, setCurrentRouteSession] = useState<WorkerRouteSession | null>(null);
   const currentItem = putawayItems[currentItemIndex];
   const completedCount = Array.from(putawayProgress.values()).filter((done) => done).length;
   const isItemDone = currentItem ? putawayProgress.get(rowKey(currentItem)) || false : false;
@@ -108,7 +112,15 @@ export function PutawayOrderWorkflow({
         {/* Wraps to its own line rather than letting the order number overflow the
             fixed-height badge, which struck the text through on narrow phones. */}
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <button className="btn btn-ghost btn-sm" onClick={onBack}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              if (currentRouteSession) {
+                routingApi.cancel(currentRouteSession.id, currentRouteSession.routeVersion).catch(() => {});
+              }
+              onBack();
+            }}
+          >
             <span className="material-symbols-outlined">arrow_back</span>
             Back to Orders
           </button>
@@ -393,6 +405,8 @@ export function PutawayOrderWorkflow({
         targetLocationCodes={remainingLocationCodes}
         completedLocationCodes={completedLocationCodes}
         operationType="putaway"
+        onComplete={onRouteCompleted}
+        onSessionChange={setCurrentRouteSession}
       />
 
       {showLocationPicker && (

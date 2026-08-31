@@ -472,11 +472,7 @@ export default function PutawayPage() {
       if (isComplete) {
         const allDone = Array.from(newProgress.values()).every((done) => done);
         if (allDone) {
-          showToast.success(`Every pallet in ${selectedOrder.orderNumber} is away. Inventory and warehouse layout will update automatically.`);
-          setTimeout(() => {
-            setSelectedOrder(null);
-            setPutawayItems([]);
-          }, 2000);
+          showToast.success(`Every pallet in ${selectedOrder.orderNumber} is away. Please return to parking to complete the route.`);
         } else {
           const nextIndex = getFirstPendingItemIndex(putawayItems, newProgress, skippedReasonsByRow);
           setCurrentItemIndex(nextIndex);
@@ -704,6 +700,10 @@ export default function PutawayPage() {
         onUseAlternative={(code) => {
           setSuggestedAlternatives([]);
           void handleLocationChange(code);
+        }}
+        onRouteCompleted={() => {
+          setSelectedOrder(null);
+          setPutawayItems([]);
         }}
       />
     );
